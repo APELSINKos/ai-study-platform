@@ -49,3 +49,4 @@ def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
+        uvicorn_logger.setLevel(logging.NOTSET)

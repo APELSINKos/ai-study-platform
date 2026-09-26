@@ -86,3 +86,16 @@ def test_console_format_is_human_readable(capsys: pytest.CaptureFixture[str]) ->
     output = capsys.readouterr().out
     assert "worker_started" in output
     assert "concurrency" in output
+
+
+def test_uvicorn_loggers_follow_the_configured_level(capsys: pytest.CaptureFixture[str]) -> None:
+    # uvicorn's own dictConfig sets this level before configure_logging runs.
+    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+
+    configure_logging("WARNING", "json")
+
+    logging.getLogger("uvicorn.error").info("startup noise")
+    logging.getLogger("uvicorn.error").warning("port busy")
+
+    [line] = _json_lines(capsys.readouterr().out)
+    assert line["event"] == "port busy"
