@@ -5,7 +5,10 @@ description = "REST API and background workers of AI Study Platform."
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.141",
+    "psycopg[binary]>=3.3",
     "pydantic-settings>=2.15",
+    "redis>=5",
+    "sqlalchemy>=2.1",
     "structlog>=26.1",
     "uvicorn[standard]>=0.54",
 ]
@@ -30,13 +33,14 @@ target-version = "py313"
 select = ["E", "W", "F", "I", "N", "UP", "B", "S", "SIM", "C4", "RET", "PT", "RUF", "ARG", "PL"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR2004", "ARG001"]
+"tests/**" = ["S101", "PLR2004", "ARG001", "ARG002"]
 
 [tool.mypy]
 python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["app", "tests"]
+explicit_package_bases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

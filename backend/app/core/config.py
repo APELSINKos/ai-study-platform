@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     log_level: LogLevel = "INFO"
     log_format: LogFormat = "json"
+    database_url: str = "postgresql+psycopg://study:study@localhost:5433/study"
+    redis_url: str = "redis://localhost:6380/0"
 
     @field_validator("cors_origins", mode="before")
     @classmethod
