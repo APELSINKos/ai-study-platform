@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 WORKDIR /app
+EXPOSE 8000
 
 FROM base AS dev
 COPY pyproject.toml uv.lock ./
@@ -23,5 +24,4 @@ COPY alembic ./alembic
 COPY app ./app
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
-EXPOSE 8000
 CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
