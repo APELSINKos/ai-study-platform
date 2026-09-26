@@ -1,1 +1,127 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Palette of a student's desk: blue ballpoint ink for actions, the red margin rule of a
+ * notebook for errors and emphasis lines, a fluorescent highlighter for marked text.
+ */
+:root {
+  --paper: #f3f5f8;
+  --sheet: #ffffff;
+  --ink: #151b30;
+  --ink-soft: #4f5870;
+  --ink-faint: #8990a6;
+  --rule: #d5deec;
+  --rule-strong: #b7c4db;
+  --pen: #2b3cc4;
+  --pen-hover: #1f2d9e;
+  --on-pen: #ffffff;
+  --highlight: #f2f65b;
+  --on-highlight: #151b30;
+  --margin: #d8433b;
+  --ok: #1d8a5a;
+  --shadow-raised: 0 1px 0 var(--rule), 0 18px 40px -24px rgb(21 27 48 / 0.35);
+  color-scheme: light;
+}
+
+.dark {
+  --paper: #0e1328;
+  --sheet: #151b35;
+  --ink: #e7e9f3;
+  --ink-soft: #a3a9c2;
+  --ink-faint: #6d7493;
+  --rule: #262e52;
+  --rule-strong: #38416b;
+  --pen: #8d9cff;
+  --pen-hover: #a9b5ff;
+  --on-pen: #0e1328;
+  --highlight: #eef25a;
+  --margin: #ff6b61;
+  --ok: #4cc38a;
+  --shadow-raised: 0 1px 0 var(--rule), 0 18px 40px -24px rgb(0 0 0 / 0.7);
+  color-scheme: dark;
+}
+
+@theme {
+  --radius-control: 0.375rem;
+  --radius-panel: 0.75rem;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --text-display: clamp(2.5rem, 1.4rem + 4.4vw, 4.5rem);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.022em;
+  --text-title: 2rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.012em;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-pen: var(--pen);
+  --color-pen-hover: var(--pen-hover);
+  --color-on-pen: var(--on-pen);
+  --color-highlight: var(--highlight);
+  --color-on-highlight: var(--on-highlight);
+  --color-margin: var(--margin);
+  --color-ok: var(--ok);
+
+  /* Names that shadcn/ui components expect, mapped onto the palette above. */
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-card: var(--sheet);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--sheet);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--pen);
+  --color-primary-foreground: var(--on-pen);
+  --color-secondary: var(--sheet);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--paper);
+  --color-muted-foreground: var(--ink-soft);
+  --color-accent: var(--paper);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--margin);
+  --color-border: var(--rule);
+  --color-input: var(--rule-strong);
+  --color-ring: var(--pen);
+
+  --font-sans: var(--font-onest), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-literata), ui-serif, Georgia, serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--highlight);
+    color: var(--on-highlight);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--pen);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
