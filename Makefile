@@ -4,7 +4,7 @@ COMPOSE ?= docker compose
 .PHONY: help up down logs ps migrate test test-backend test-frontend lint typecheck e2e api-types
 
 help: ## List available commands
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-15s %s\n", $$1, $$2}'
+	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-15s %s\n", $$1, $$2}'
 
 up: ## Build and start the whole stack
 	$(COMPOSE) up --build
