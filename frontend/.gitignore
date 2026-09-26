@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated OpenAPI schema source (schema.d.ts is committed instead)
+/openapi.json

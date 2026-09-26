@@ -1,0 +1,120 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { apiFetch } from "./client";
+import { ApiError, HTTP_ERROR_CODE, NETWORK_ERROR_CODE } from "./errors";
+
+const fetchMock = vi.fn<typeof fetch>();
+
+function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
+  return new Response(JSON.stringify(body), {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init.headers },
+  });
+}
+
+async function captureError(promise: Promise<unknown>): Promise<ApiError> {
+  const error = await promise.then(
+    () => null,
+    (reason: unknown) => reason,
+  );
+  expect(error).toBeInstanceOf(ApiError);
+  return error as ApiError;
+}
+
+describe("apiFetch", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    fetchMock.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it("calls the proxied API path and parses JSON", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: "ok" }));
+
+    await expect(apiFetch("/health/live")).resolves.toEqual({ status: "ok" });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("/api/v1/health/live");
+    expect(init?.credentials).toBe("same-origin");
+    expect(new Headers(init?.headers).get("Accept")).toBe("application/json");
+  });
+
+  it("serialises a JSON body", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "w1" }, { status: 201 }));
+
+    await apiFetch("/workspaces", { method: "POST", json: { name: "Databases" } });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(init?.body).toBe(JSON.stringify({ name: "Databases" }));
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+  });
+
+  it("returns undefined for 204 No Content", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(apiFetch("/documents/d1", { method: "DELETE" })).resolves.toBeUndefined();
+  });
+
+  it("turns the unified error body into an ApiError", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: "workspace_not_found",
+            message: "Workspace not found.",
+            details: [{ field: null, message: "gone" }],
+            request_id: "req-12345678",
+          },
+        },
+        { status: 404 },
+      ),
+    );
+
+    const error = await captureError(apiFetch("/workspaces/w1"));
+
+    expect(error.status).toBe(404);
+    expect(error.code).toBe("workspace_not_found");
+    expect(error.message).toBe("Workspace not found.");
+    expect(error.details).toEqual([{ field: null, message: "gone" }]);
+    expect(error.requestId).toBe("req-12345678");
+  });
+
+  it("handles an HTML error page from a proxy", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("<html>Bad Gateway</html>", {
+        status: 502,
+        statusText: "Bad Gateway",
+        headers: { "X-Request-ID": "edge-12345678" },
+      }),
+    );
+
+    const error = await captureError(apiFetch("/health/ready"));
+
+    expect(error.status).toBe(502);
+    expect(error.code).toBe(HTTP_ERROR_CODE);
+    expect(error.requestId).toBe("edge-12345678");
+    expect(error.body).toBe("<html>Bad Gateway</html>");
+  });
+
+  it("keeps a JSON body that is not an error envelope", async () => {
+    const readiness = { status: "unavailable", checks: { redis: { status: "error" } } };
+    fetchMock.mockResolvedValue(jsonResponse(readiness, { status: 503 }));
+
+    const error = await captureError(apiFetch("/health/ready"));
+
+    expect(error.code).toBe(HTTP_ERROR_CODE);
+    expect(error.body).toEqual(readiness);
+  });
+
+  it("reports network failures with status 0", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const error = await captureError(apiFetch("/health/live"));
+
+    expect(error.status).toBe(0);
+    expect(error.code).toBe(NETWORK_ERROR_CODE);
+  });
+});

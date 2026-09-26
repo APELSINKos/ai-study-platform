@@ -1,4 +1,5 @@
 import { render, type RenderOptions, type RenderResult } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NextIntlClientProvider } from "next-intl";
 import type { ReactElement } from "react";
 
@@ -16,11 +17,13 @@ interface IntlRenderOptions extends RenderOptions {
 export function renderWithIntl(
   ui: ReactElement,
   { locale = "en", ...options }: IntlRenderOptions = {},
-): RenderResult {
-  return render(
+): RenderResult & { queryClient: QueryClient } {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const result = render(
     <NextIntlClientProvider locale={locale} messages={catalogs[locale]}>
-      {ui}
+      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
     </NextIntlClientProvider>,
     options,
   );
+  return { ...result, queryClient };
 }
