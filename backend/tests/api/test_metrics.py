@@ -56,3 +56,11 @@ def test_metrics_are_hidden_in_production_without_a_token() -> None:
 
 def test_metrics_endpoint_is_not_part_of_the_public_api(client: TestClient) -> None:
     assert "/metrics" not in client.get("/openapi.json").json()["paths"]
+
+
+def test_unusual_methods_share_one_label(client: TestClient) -> None:
+    client.request("BREW", "/api/v1/health/live")
+
+    metrics = client.get("/metrics").text
+    assert 'method="OTHER"' in metrics
+    assert "BREW" not in metrics

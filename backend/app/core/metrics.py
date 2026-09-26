@@ -2,6 +2,11 @@ from typing import Final
 
 from prometheus_client import Counter, Histogram
 
+STANDARD_HTTP_METHODS: Final[frozenset[str]] = frozenset(
+    {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+)
+OTHER_METHOD_LABEL: Final = "OTHER"
+
 HTTP_LATENCY_BUCKETS_SECONDS: Final = (
     0.005,
     0.01,
@@ -29,5 +34,6 @@ HTTP_REQUEST_DURATION = Histogram(
 
 
 def observe_http_request(method: str, route: str, status: int, duration_seconds: float) -> None:
-    HTTP_REQUESTS.labels(method=method, route=route, status=str(status)).inc()
-    HTTP_REQUEST_DURATION.labels(method=method, route=route).observe(duration_seconds)
+    label = method if method in STANDARD_HTTP_METHODS else OTHER_METHOD_LABEL
+    HTTP_REQUESTS.labels(method=label, route=route, status=str(status)).inc()
+    HTTP_REQUEST_DURATION.labels(method=label, route=route).observe(duration_seconds)

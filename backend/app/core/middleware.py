@@ -74,14 +74,9 @@ class RequestContextMiddleware:
 
 
 def route_template(scope: Scope) -> str:
-    """Path template of the matched route, so ids in URLs never become log or metric labels.
-
-    FastAPI resolves a route included through a prefixed sub-router lazily: the
-    ``route`` scope key still points at the route as defined on its own router,
-    with the prefix stripped, while the combined template lives on the
-    "effective route context" FastAPI also stashes in the scope. Prefer that
-    when present and fall back to ``route`` for routes attached to the app directly.
-    """
+    """Path template of the matched route, prefixes included; ids in URLs never become labels."""
+    # scope["route"] alone omits prefixes from nested include_router() calls; FastAPI's
+    # own "effective route context" carries the fully prefixed template instead.
     fastapi_scope = scope.get("fastapi")
     effective_route = (
         fastapi_scope.get("effective_route_context") if isinstance(fastapi_scope, dict) else None
