@@ -9,6 +9,7 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.metrics import observe_http_request
 from app.core.request_context import request_id_ctx
 from app.core.timing import to_ms
 from app.schemas.errors import ErrorBody, ErrorResponse
@@ -22,7 +23,7 @@ logger = structlog.get_logger(__name__)
 
 
 class RequestContextMiddleware:
-    """Gives every HTTP request an id, logs its outcome and turns crashes into JSON 500s."""
+    """Gives every HTTP request an id, logs and measures it, and turns crashes into JSON 500s."""
 
     def __init__(self, app: ASGIApp, quiet_paths: frozenset[str] = frozenset()) -> None:
         self.app = app
@@ -56,22 +57,38 @@ class RequestContextMiddleware:
                 raise
             await _internal_error(request_id)(scope, receive, send_with_request_id)
         finally:
+            duration = time.perf_counter() - started
+            route = route_template(scope)
+            observe_http_request(scope["method"], route, status_code, duration)
             log = logger.debug if scope["path"] in self.quiet_paths else logger.info
             log(
                 "request_finished",
                 method=scope["method"],
                 path=scope["path"],
-                route=route_template(scope),
+                route=route,
                 status=status_code,
-                duration_ms=to_ms(time.perf_counter() - started),
+                duration_ms=to_ms(duration),
             )
             structlog.contextvars.unbind_contextvars("request_id")
             request_id_ctx.reset(token)
 
 
 def route_template(scope: Scope) -> str:
-    """Path template of the matched route, so ids in URLs never become log or metric labels."""
-    path_format = getattr(scope.get("route"), "path_format", None)
+    """Path template of the matched route, so ids in URLs never become log or metric labels.
+
+    FastAPI resolves a route included through a prefixed sub-router lazily: the
+    ``route`` scope key still points at the route as defined on its own router,
+    with the prefix stripped, while the combined template lives on the
+    "effective route context" FastAPI also stashes in the scope. Prefer that
+    when present and fall back to ``route`` for routes attached to the app directly.
+    """
+    fastapi_scope = scope.get("fastapi")
+    effective_route = (
+        fastapi_scope.get("effective_route_context") if isinstance(fastapi_scope, dict) else None
+    )
+    path_format = getattr(effective_route, "path_format", None)
+    if not isinstance(path_format, str):
+        path_format = getattr(scope.get("route"), "path_format", None)
     return path_format if isinstance(path_format, str) else UNMATCHED_ROUTE
 
 

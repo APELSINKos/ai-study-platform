@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20",
     "fastapi>=0.141",
+    "prometheus-client>=0.26",
     "psycopg[binary]>=3.3",
     "pydantic-settings>=2.15",
     "redis>=5",

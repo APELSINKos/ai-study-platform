@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     log_format: LogFormat = "json"
     database_url: str = "postgresql+psycopg://study:study@localhost:5433/study"
     redis_url: str = "redis://localhost:6380/0"
+    metrics_token: SecretStr | None = None
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -28,6 +29,15 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @field_validator("metrics_token", mode="before")
+    @classmethod
+    def blank_token_is_none(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
 
 
 @lru_cache
