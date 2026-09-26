@@ -125,3 +125,109 @@
     scroll-behavior: auto !important;
   }
 }
+
+@layer components {
+  /* A notebook page: a narrow margin column and the red margin rule next to the content. */
+  .notebook {
+    --margin-column: 0.75rem;
+    --margin-gap: 1.25rem;
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--margin-column) minmax(0, 1fr);
+    column-gap: var(--margin-gap);
+    padding: 1.5rem 1.25rem 3rem 0;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    background-color: var(--sheet);
+  }
+
+  .notebook > * {
+    grid-column: 2;
+  }
+
+  .notebook::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    left: calc(var(--margin-column) + var(--margin-gap) / 2);
+    width: 1px;
+    background-color: var(--margin);
+    transform-origin: top;
+  }
+
+  .notebook-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+    row-gap: 1rem;
+  }
+
+  .notebook-row > * {
+    grid-column: 2;
+  }
+
+  .margin-note {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 0.9375rem;
+    line-height: 1.35;
+    color: var(--pen);
+    text-wrap: balance;
+  }
+
+  @media (width >= 48rem) {
+    .notebook {
+      --margin-column: 8.5rem;
+      --margin-gap: 2.5rem;
+      padding: 2rem 3rem 4rem 0;
+    }
+
+    .notebook-row > .margin-note {
+      grid-column: 1;
+      padding-top: 0.5rem;
+      padding-left: 1.25rem;
+      text-align: right;
+    }
+  }
+
+  /* The load moment plays once; with reduced motion the page simply appears finished. */
+  @media (prefers-reduced-motion: no-preference) {
+    .notebook::before {
+      animation: margin-rule-draw 800ms var(--ease-out-soft) both;
+    }
+
+    .margin-note {
+      animation: margin-note-write 900ms 600ms var(--ease-out-soft) both;
+    }
+  }
+
+  /* An index card: a red rule under the title and pale blue rules between rows. */
+  .index-card {
+    border: 1px solid var(--rule-strong);
+    border-radius: 0.25rem;
+    background-color: var(--sheet);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .index-card > :first-child {
+    border-bottom: 1px solid var(--margin);
+  }
+}
+
+@keyframes margin-rule-draw {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes margin-note-write {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}

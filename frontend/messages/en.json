@@ -12,5 +12,30 @@
     "light": "Light",
     "dark": "Dark",
     "system": "Match system"
+  },
+  "Home": {
+    "headline": "<line>Read it once.</line> <line>Recall it on exam day.</line>",
+    "lead": "Recall turns lecture notes and textbook chapters into answers with sources, quizzes and flashcards, and reminds you what to review before you forget it.",
+    "marginNote": "Early build: the study tools are on their way."
+  },
+  "Status": {
+    "title": "System status",
+    "refresh": "Check again",
+    "summary": {
+      "loading": "Checking services…",
+      "ok": "Everything is running.",
+      "degraded": "Some services are unavailable.",
+      "unreachable": "The API is not responding."
+    },
+    "components": {
+      "database": "Database",
+      "redis": "Queue and cache"
+    },
+    "state": {
+      "ok": "Ready",
+      "error": "Unavailable"
+    },
+    "latency": "{ms} ms",
+    "requestId": "Request ID: {id}"
   }
 }
