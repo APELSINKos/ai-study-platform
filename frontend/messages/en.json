@@ -1,0 +1,16 @@
+{
+  "Metadata": {
+    "description": "Upload lecture notes and textbook chapters, get answers with sources, and practise with quizzes and flashcards."
+  },
+  "Locale": {
+    "label": "Language",
+    "en": "English",
+    "ru": "Русский"
+  },
+  "Theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "Match system"
+  }
+}
