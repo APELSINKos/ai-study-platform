@@ -61,8 +61,13 @@ def test_error_bodies_carry_the_same_request_id_as_the_header(client: TestClient
 
 
 def test_unhandled_exceptions_become_generic_json_500s(
-    client: TestClient, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str], client: TestClient
 ) -> None:
+    # Rebind the log handler to the stdout capsys is capturing during this
+    # phase: the app fixture configured logging during test setup, against a
+    # capture object capsys already tore down by the time the test body runs.
+    configure_logging("INFO", "json")
+
     response = client.get("/test/crash")
 
     assert response.status_code == 500
@@ -75,8 +80,12 @@ def test_unhandled_exceptions_become_generic_json_500s(
 
 
 def test_each_request_is_logged_once_with_its_outcome(
-    client: TestClient, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str], client: TestClient
 ) -> None:
+    # Rebind the log handler to the stdout capsys is capturing during this
+    # phase: the app fixture configured logging during test setup, against a
+    # capture object capsys already tore down by the time the test body runs.
+    configure_logging("INFO", "json")
     capsys.readouterr()
 
     response = client.get("/test/ok", headers={REQUEST_ID_HEADER: "trace-0001"})
