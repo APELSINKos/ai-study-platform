@@ -5,6 +5,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+LogFormat = Literal["json", "console"]
 
 
 class Settings(BaseSettings):
@@ -15,6 +17,8 @@ class Settings(BaseSettings):
     app_name: str = "AI Study Platform"
     environment: Environment = "development"
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
+    log_level: LogLevel = "INFO"
+    log_format: LogFormat = "json"
 
     @field_validator("cors_origins", mode="before")
     @classmethod
