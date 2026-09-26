@@ -1,6 +1,65 @@
 name: ai-study-platform
 
+x-backend: &backend
+  build:
+    context: ./backend
+    target: dev
+  environment:
+    ENVIRONMENT: ${ENVIRONMENT:-development}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    LOG_FORMAT: ${LOG_FORMAT:-console}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-study}:${POSTGRES_PASSWORD:-study}@postgres:5432/${POSTGRES_DB:-study}
+    REDIS_URL: redis://redis:6379/0
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    METRICS_TOKEN: ${METRICS_TOKEN:-}
+    TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-study}:${POSTGRES_PASSWORD:-study}@postgres:5432/study_test
+    TEST_REDIS_URL: redis://redis:6379/15
+    # Docker Desktop does not forward file events from Windows/macOS bind mounts.
+    WATCHFILES_FORCE_POLLING: "true"
+  volumes:
+    - ./backend:/app
+
 services:
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    <<: *backend
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/live', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *backend
+    command: ["watchfiles", "--filter", "python", "celery -A app.workers.celery_app worker --loglevel=INFO --concurrency=2", "app"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping --destination celery@$$HOSTNAME --timeout 5"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+
   postgres:
     image: pgvector/pgvector:pg17
     environment:
