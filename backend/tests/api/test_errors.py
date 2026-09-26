@@ -42,14 +42,11 @@ def test_app_error_uses_the_unified_shape(client: TestClient) -> None:
     response = client.get("/test/not-found")
 
     assert response.status_code == 404
-    assert response.json() == {
-        "error": {
-            "code": "workspace_not_found",
-            "message": "Workspace not found.",
-            "details": [],
-            "request_id": None,
-        }
-    }
+    body = response.json()["error"]
+    assert body["code"] == "workspace_not_found"
+    assert body["message"] == "Workspace not found."
+    assert body["details"] == []
+    assert body["request_id"] == response.headers["X-Request-ID"]
 
 
 def test_app_error_subclass_falls_back_to_its_defaults(client: TestClient) -> None:

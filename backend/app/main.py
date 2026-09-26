@@ -5,6 +5,7 @@ from app import __version__
 from app.api.errors import register_exception_handlers
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
+from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -19,6 +20,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[REQUEST_ID_HEADER],
     )
+    app.add_middleware(RequestContextMiddleware)
     register_exception_handlers(app)
     return app

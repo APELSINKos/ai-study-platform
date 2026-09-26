@@ -9,6 +9,21 @@ from app.core.config import LogFormat, LogLevel
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error")
 
 
+class _CurrentStdout:
+    """Forwards to whatever sys.stdout is at write time.
+
+    A plain StreamHandler(sys.stdout) freezes the stream object at setup time.
+    Tools that swap sys.stdout afterwards (test runners capturing output,
+    for instance) would then never see anything this handler writes.
+    """
+
+    def write(self, message: str) -> int:
+        return sys.stdout.write(message)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
+
 def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
     """Send structlog and standard-library logs through one stdout handler and format."""
     shared_processors: list[Processor] = [
@@ -35,7 +50,7 @@ def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
     else:
         render_processors.append(structlog.dev.ConsoleRenderer())
 
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(_CurrentStdout())
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             foreign_pre_chain=shared_processors, processors=render_processors
@@ -50,3 +65,6 @@ def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
         uvicorn_logger.setLevel(logging.NOTSET)
+
+    # RequestContextMiddleware writes the access log with the request id attached.
+    logging.getLogger("uvicorn.access").disabled = True
