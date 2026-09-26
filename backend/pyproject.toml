@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "REST API and background workers of AI Study Platform."
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20",
     "fastapi>=0.141",
     "psycopg[binary]>=3.3",
     "pydantic-settings>=2.15",
@@ -34,6 +35,12 @@ select = ["E", "W", "F", "I", "N", "UP", "B", "S", "SIM", "C4", "RET", "PT", "RU
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004", "ARG001", "ARG002"]
+
+[tool.ruff.lint.isort]
+# The local alembic/ migrations directory shares its name with the
+# third-party alembic package; without this, ruff misclassifies imports
+# from the package as first-party.
+known-third-party = ["alembic"]
 
 [tool.mypy]
 python_version = "3.13"
