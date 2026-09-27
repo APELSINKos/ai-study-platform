@@ -99,3 +99,26 @@ def test_uvicorn_loggers_follow_the_configured_level(capsys: pytest.CaptureFixtu
 
     [line] = _json_lines(capsys.readouterr().out)
     assert line["event"] == "port busy"
+
+
+def _raise_with_local_secret() -> None:
+    password = "hunter2-local-secret"  # noqa: S105 -- fixture value, not a real secret
+    if password:
+        raise ValueError("connection failed")
+
+
+def test_exception_locals_are_not_leaked_into_json_logs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+
+    try:
+        _raise_with_local_secret()
+    except ValueError:
+        structlog.get_logger("test").exception("db_connect_failed")
+
+    output = capsys.readouterr().out
+    assert "hunter2-local-secret" not in output
+    [line] = _json_lines(output)
+    assert line["exception"][0]["exc_type"] == "ValueError"
+    assert line["exception"][0]["exc_value"] == "connection failed"

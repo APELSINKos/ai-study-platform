@@ -29,7 +29,9 @@ def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
     ]
     if log_format == "json":
         render_processors += [
-            structlog.processors.dict_tracebacks,
+            structlog.processors.ExceptionRenderer(
+                structlog.tracebacks.ExceptionDictTransformer(show_locals=False)
+            ),
             structlog.processors.JSONRenderer(),
         ]
     else:
