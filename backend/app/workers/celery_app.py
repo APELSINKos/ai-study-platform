@@ -1,3 +1,4 @@
+# Needed because Task[Any, Any] is not subscriptable at runtime on Celery.
 from __future__ import annotations
 
 from typing import Any, Final
@@ -9,7 +10,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.request_context import request_id_ctx
 
-REQUEST_ID_HEADER: Final = "request_id"
+TASK_REQUEST_ID_KEY: Final = "request_id"
 TASK_SOFT_TIME_LIMIT_SECONDS: Final = 5 * 60
 TASK_TIME_LIMIT_SECONDS: Final = TASK_SOFT_TIME_LIMIT_SECONDS + 60
 
@@ -45,13 +46,13 @@ def _configure_worker_logging(**_: Any) -> None:
 def _attach_request_id(headers: dict[str, Any] | None = None, **_: Any) -> None:
     request_id = request_id_ctx.get()
     if headers is not None and request_id is not None:
-        headers.setdefault(REQUEST_ID_HEADER, request_id)
+        headers.setdefault(TASK_REQUEST_ID_KEY, request_id)
 
 
 @signals.task_prerun.connect
 def _bind_request_id(task: Task[Any, Any] | None = None, **_: Any) -> None:
     structlog.contextvars.clear_contextvars()
-    request_id = getattr(task.request, REQUEST_ID_HEADER, None) if task is not None else None
+    request_id = getattr(task.request, TASK_REQUEST_ID_KEY, None) if task is not None else None
     if isinstance(request_id, str):
         request_id_ctx.set(request_id)
         structlog.contextvars.bind_contextvars(request_id=request_id)
