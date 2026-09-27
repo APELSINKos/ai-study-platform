@@ -7,7 +7,7 @@ help: ## List available commands
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-15s %s\n", $$1, $$2}'
 
 up: ## Build and start the whole stack
-	$(COMPOSE) up --build
+	$(COMPOSE) up --build --renew-anon-volumes
 
 down: ## Stop the stack
 	$(COMPOSE) down
