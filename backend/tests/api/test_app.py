@@ -1,6 +1,8 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app import __version__
+from app.core.logging import configure_logging
 
 FRONTEND_ORIGIN = "http://localhost:3000"
 
@@ -32,3 +34,13 @@ def test_cors_ignores_unknown_origins(client: TestClient) -> None:
     )
 
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_metrics_requests_are_not_logged_at_info(
+    capsys: pytest.CaptureFixture[str], client: TestClient
+) -> None:
+    configure_logging("INFO", "json")
+
+    client.get("/metrics")
+
+    assert "request_finished" not in capsys.readouterr().out

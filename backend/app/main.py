@@ -12,7 +12,9 @@ from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 
 API_V1_PREFIX: Final = "/api/v1"
-HEALTH_PATHS: Final = frozenset({f"{API_V1_PREFIX}/health/live", f"{API_V1_PREFIX}/health/ready"})
+QUIET_PATHS: Final = frozenset(
+    {f"{API_V1_PREFIX}/health/live", f"{API_V1_PREFIX}/health/ready", "/metrics"}
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -29,7 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
         expose_headers=[REQUEST_ID_HEADER],
     )
-    app.add_middleware(RequestContextMiddleware, quiet_paths=HEALTH_PATHS)
+    app.add_middleware(RequestContextMiddleware, quiet_paths=QUIET_PATHS)
     register_exception_handlers(app)
     app.include_router(api_router, prefix=API_V1_PREFIX)
     app.include_router(metrics_router)
