@@ -15,6 +15,8 @@ AI Study Platform is a self-hosted platform for preparing for exams from your ow
 
 ## Running locally
 
+Requires Docker with Compose v2 for the stack, and Node 22 (`npm ci` in `frontend/`) for the frontend checks and `make e2e` (once: `npx playwright install chromium`).
+
 ```bash
 docker compose up --build
 ```
