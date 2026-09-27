@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const NETWORK_ERROR_CODE = "network_error";
 export const HTTP_ERROR_CODE = "http_error";
+export const INVALID_RESPONSE_CODE = "invalid_response";
 const REQUEST_ID_HEADER = "X-Request-ID";
 
 const errorEnvelopeSchema = z.object({
@@ -77,6 +78,17 @@ export async function toApiError(response: Response): Promise<ApiError> {
     message: response.statusText || `Request failed with status ${response.status}`,
     requestId: headerRequestId,
     body: body ?? text,
+  });
+}
+
+export function toInvalidResponseError(response: Response, text: string, cause: unknown): ApiError {
+  return new ApiError({
+    status: response.status,
+    code: INVALID_RESPONSE_CODE,
+    message: "The API returned a response that was not valid JSON.",
+    requestId: response.headers.get(REQUEST_ID_HEADER),
+    body: text,
+    cause,
   });
 }
 

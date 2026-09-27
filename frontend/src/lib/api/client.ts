@@ -1,4 +1,4 @@
-import { ApiError, NETWORK_ERROR_CODE, toApiError } from "./errors";
+import { ApiError, NETWORK_ERROR_CODE, toApiError, toInvalidResponseError } from "./errors";
 
 export const API_BASE_PATH = "/api/v1";
 const HTTP_NO_CONTENT = 204;
@@ -42,5 +42,10 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
   if (response.status === HTTP_NO_CONTENT) {
     return undefined as T;
   }
-  return (await response.json()) as T;
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch (cause) {
+    throw toInvalidResponseError(response, text, cause);
+  }
 }

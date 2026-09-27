@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "./client";
-import { ApiError, HTTP_ERROR_CODE, NETWORK_ERROR_CODE } from "./errors";
+import { ApiError, HTTP_ERROR_CODE, INVALID_RESPONSE_CODE, NETWORK_ERROR_CODE } from "./errors";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -107,6 +107,22 @@ describe("apiFetch", () => {
 
     expect(error.code).toBe(HTTP_ERROR_CODE);
     expect(error.body).toEqual(readiness);
+  });
+
+  it("turns an invalid JSON success response into an ApiError", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("<html>not json</html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html", "X-Request-ID": "edge-87654321" },
+      }),
+    );
+
+    const error = await captureError(apiFetch("/health/live"));
+
+    expect(error.status).toBe(200);
+    expect(error.code).toBe(INVALID_RESPONSE_CODE);
+    expect(error.requestId).toBe("edge-87654321");
+    expect(error.body).toBe("<html>not json</html>");
   });
 
   it("reports network failures with status 0", async () => {
