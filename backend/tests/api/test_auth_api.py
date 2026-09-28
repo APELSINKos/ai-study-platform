@@ -6,6 +6,7 @@ import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -189,6 +190,25 @@ def test_the_eleventh_login_attempt_for_one_ip_and_email_is_rate_limited(
         assert response.status_code == HTTPStatus.UNAUTHORIZED
 
     response = _login(auth_client, email="throttled@example.com", password="wrong")  # noqa: S106
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+    assert int(response.headers["retry-after"]) > 0
+    assert response.json()["error"]["code"] == "rate_limited"
+
+
+def test_the_login_email_limit_applies_regardless_of_which_ip_attempts_hit_it(
+    auth_app: FastAPI, auth_redis: Redis, integration_settings: Settings
+) -> None:
+    with TestClient(auth_app) as setup_client:
+        _register(setup_client, email="email-throttled@example.com")
+
+    for attempt in range(integration_settings.login_attempts_per_email_per_hour):
+        with TestClient(auth_app, client=(f"203.0.113.{attempt + 1}", 12345)) as client:
+            response = _login(client, email="email-throttled@example.com", password="wrong")  # noqa: S106
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
+    with TestClient(auth_app, client=("203.0.113.99", 12345)) as client:
+        response = _login(client, email="email-throttled@example.com", password="wrong")  # noqa: S106
 
     assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert int(response.headers["retry-after"]) > 0

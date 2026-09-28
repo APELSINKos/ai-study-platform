@@ -18,9 +18,6 @@ x-backend: &backend
     TEST_REDIS_URL: redis://redis:6379/15
     # Docker Desktop does not forward file events from Windows/macOS bind mounts.
     WATCHFILES_FORCE_POLLING: "true"
-    # Trusts X-Forwarded-* from any peer so request.client.host is the browser behind
-    # the Next.js proxy; dev only, restrict this to the proxy's own address in production.
-    FORWARDED_ALLOW_IPS: "*"
   volumes:
     - ./backend:/app
 
@@ -35,7 +32,7 @@ services:
 
   backend:
     <<: *backend
-    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload", "--proxy-headers"]
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     depends_on:

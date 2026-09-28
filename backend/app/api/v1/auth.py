@@ -34,6 +34,7 @@ _HOUR_SECONDS: Final = 3600
 _REGISTER_RATE_LIMIT_SCOPE: Final = "auth_register_ip"
 _LOGIN_IP_RATE_LIMIT_SCOPE: Final = "auth_login_ip"
 _LOGIN_IP_EMAIL_RATE_LIMIT_SCOPE: Final = "auth_login_ip_email"
+_LOGIN_EMAIL_RATE_LIMIT_SCOPE: Final = "auth_login_email"
 
 
 def _session_out(user: User, issued: IssuedSession, now: datetime) -> SessionOut:
@@ -53,7 +54,13 @@ def _with_bearer_challenge(error: AuthenticationError) -> AuthenticationError:
 
 
 def _enforce_login_rate_limits(redis: Redis, settings: Settings, *, ip: str, email: str) -> None:
-    """Per-IP and per-IP-and-email limits, checked before any password verification."""
+    """Per-IP, per-IP-and-email and per-email limits, checked before password verification.
+
+    The per-email limit is the only one that does not depend on the client address: it
+    is what still stops password guessing when every request appears to come from the
+    same IP (see the "Authentication" section of the README).
+    """
+    normalized_email = normalize_email(email)
     enforce_rate_limit(
         redis,
         RateLimit(
@@ -66,7 +73,14 @@ def _enforce_login_rate_limits(redis: Redis, settings: Settings, *, ip: str, ema
         RateLimit(
             _LOGIN_IP_EMAIL_RATE_LIMIT_SCOPE, settings.login_attempts_per_minute, _MINUTE_SECONDS
         ),
-        rate_limit_key(ip, normalize_email(email)),
+        rate_limit_key(ip, normalized_email),
+    )
+    enforce_rate_limit(
+        redis,
+        RateLimit(
+            _LOGIN_EMAIL_RATE_LIMIT_SCOPE, settings.login_attempts_per_email_per_hour, _HOUR_SECONDS
+        ),
+        rate_limit_key(normalized_email),
     )
 
 

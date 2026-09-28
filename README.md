@@ -31,7 +31,7 @@ The defaults work without any configuration; `.env.example` lists the variables 
 
 ## Authentication
 
-The web client signs in with httpOnly cookies and a double-submit CSRF token. API clients, including Swagger's "Authorize" button, use a bearer token from `POST /api/v1/auth/token` instead. Access tokens are short-lived JWTs; refresh tokens are opaque, stored hashed, and rotated on every use — a token used again after rotation revokes its whole session family. Sign-in and registration are both rate-limited.
+The web client signs in with httpOnly cookies and a double-submit CSRF token. API clients, including Swagger's "Authorize" button, use a bearer token from `POST /api/v1/auth/token` instead. Access tokens are short-lived JWTs; refresh tokens are opaque, stored hashed, and rotated on every use — a token used again after rotation revokes its whole session family. Sign-in and registration are both rate-limited; the per-IP limits assume a reverse proxy in front that overwrites `X-Forwarded-For` with the real client address. In the bundled compose stack, browser requests arrive through the web client and share one address, so the per-e-mail login limit is what actually stops password guessing there.
 
 ## Development
 

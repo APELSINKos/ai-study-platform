@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     cookie_secure: bool | None = None
     login_attempts_per_minute: PositiveInt = 10
     login_attempts_per_ip_per_minute: PositiveInt = 30
-    registrations_per_hour: PositiveInt = 5
+    login_attempts_per_email_per_hour: PositiveInt = 50
+    registrations_per_hour: PositiveInt = 30
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -1,3 +1,4 @@
+import ipaddress
 import secrets
 from collections.abc import Iterator
 from typing import Annotated, Final, cast
@@ -18,6 +19,7 @@ from app.services.auth import AuthService
 
 _SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
 _BEARER_CHALLENGE: Final = {"WWW-Authenticate": "Bearer"}
+_IPV6_RATE_LIMIT_PREFIX_BITS: Final = 64
 _CSRF_FAILED_MESSAGE: Final = "The request could not be verified."
 
 
@@ -55,8 +57,25 @@ AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 
+def collapse_ipv6(address: str) -> str:
+    """Collapse an IPv6 address to its /64 network; IPv4 and non-IP strings pass through.
+
+    A single host is commonly assigned a whole /64, so keying rate limits by the full
+    address would let it dodge them just by rotating within its own block.
+    """
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    if not isinstance(parsed, ipaddress.IPv6Address):
+        return address
+    network = ipaddress.ip_network(f"{address}/{_IPV6_RATE_LIMIT_PREFIX_BITS}", strict=False)
+    return str(network.network_address)
+
+
 def client_ip(request: Request) -> str:
-    return request.client.host if request.client is not None else "unknown"
+    host = request.client.host if request.client is not None else "unknown"
+    return collapse_ipv6(host)
 
 
 def verify_csrf(request: Request) -> None:
