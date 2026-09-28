@@ -119,8 +119,8 @@ export interface paths {
          * End the current session
          * @description End the session tied to the refresh cookie, if any, and clear all session cookies.
          *
-         *     No CSRF check: logging out has no effect an attacker could exploit, and the
-         *     refresh cookie's SameSite=Strict attribute already keeps it out of cross-site
+         *     No CSRF check: a cross-site form POST here would at worst sign the user out, and
+         *     the refresh cookie's SameSite=Strict attribute already keeps it out of cross-site
          *     requests in the first place.
          */
         post: operations["logout_api_v1_auth_logout_post"];
