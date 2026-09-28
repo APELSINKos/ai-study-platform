@@ -303,6 +303,26 @@ def test_reusing_a_rotated_refresh_token_after_the_grace_window_is_rejected(
     assert response.headers["www-authenticate"] == "Bearer"
     assert "max-age=0" in _set_cookie_header(response, ACCESS_COOKIE_NAME).lower()
     assert "max-age=0" in _set_cookie_header(response, REFRESH_COOKIE_NAME).lower()
+    assert "max-age=0" in _set_cookie_header(response, CSRF_COOKIE_NAME).lower()
+
+
+def test_refresh_with_only_a_stale_csrf_cookie_is_rejected_and_clears_it(
+    auth_app: FastAPI, auth_client: TestClient
+) -> None:
+    """A lone CSRF cookie is the web app's only sign-in hint outside /api. If a failed
+    refresh ever left it behind, it must be cleared too, or the hint would never expire."""
+    _register(auth_client, email="stale-hint@example.com")
+    csrf_token = auth_client.cookies.get(CSRF_COOKIE_NAME)
+    assert csrf_token is not None
+
+    with TestClient(auth_app) as client:
+        client.cookies.set(CSRF_COOKIE_NAME, csrf_token, path=CSRF_COOKIE_PATH)
+        response = client.post(_REFRESH_PATH, headers={CSRF_HEADER_NAME: csrf_token})
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert "max-age=0" in _set_cookie_header(response, ACCESS_COOKIE_NAME).lower()
+    assert "max-age=0" in _set_cookie_header(response, REFRESH_COOKIE_NAME).lower()
+    assert "max-age=0" in _set_cookie_header(response, CSRF_COOKIE_NAME).lower()
 
 
 # --- logout ---------------------------------------------------------------------
@@ -330,6 +350,7 @@ def test_logout_clears_cookies_and_the_refresh_token_stops_working(
     assert after_logout.status_code == HTTPStatus.UNAUTHORIZED
     assert "max-age=0" in _set_cookie_header(after_logout, ACCESS_COOKIE_NAME).lower()
     assert "max-age=0" in _set_cookie_header(after_logout, REFRESH_COOKIE_NAME).lower()
+    assert "max-age=0" in _set_cookie_header(after_logout, CSRF_COOKIE_NAME).lower()
 
 
 # --- token ------------------------------------------------------------------------
