@@ -188,5 +188,36 @@
     "validationError": "Check the highlighted fields and try again.",
     "networkError": "The API could not be reached. Check your connection and try again.",
     "fallback": "Something went wrong. Please try again."
+  },
+  "Auth": {
+    "marginNote": "Your notes stay yours.",
+    "login": {
+      "metaTitle": "Sign in",
+      "title": "Sign in",
+      "submit": "Sign in",
+      "switchPrompt": "New to Recall?",
+      "switchLink": "Create an account"
+    },
+    "register": {
+      "metaTitle": "Create account",
+      "title": "Create account",
+      "submit": "Create account",
+      "switchPrompt": "Already have an account?",
+      "switchLink": "Sign in"
+    },
+    "fields": {
+      "email": "Email",
+      "password": "Password",
+      "name": "Name"
+    },
+    "validation": {
+      "emailRequired": "Enter your email address.",
+      "emailInvalid": "Enter a valid email address.",
+      "passwordRequired": "Enter your password.",
+      "passwordTooShort": "Password must be at least {min} characters.",
+      "passwordTooLong": "Password must be at most {max} characters.",
+      "nameRequired": "Enter your name.",
+      "nameTooLong": "Name must be at most {max} characters."
+    }
   }
 }

@@ -188,5 +188,36 @@
     "validationError": "Проверьте отмеченные поля и попробуйте снова.",
     "networkError": "Не удалось связаться с API. Проверьте соединение и попробуйте снова.",
     "fallback": "Что-то пошло не так. Попробуйте ещё раз."
+  },
+  "Auth": {
+    "marginNote": "Ваши конспекты остаются вашими.",
+    "login": {
+      "metaTitle": "Вход",
+      "title": "Вход",
+      "submit": "Войти",
+      "switchPrompt": "Ещё нет аккаунта?",
+      "switchLink": "Создать аккаунт"
+    },
+    "register": {
+      "metaTitle": "Регистрация",
+      "title": "Регистрация",
+      "submit": "Создать аккаунт",
+      "switchPrompt": "Уже есть аккаунт?",
+      "switchLink": "Войти"
+    },
+    "fields": {
+      "email": "Email",
+      "password": "Пароль",
+      "name": "Имя"
+    },
+    "validation": {
+      "emailRequired": "Введите email.",
+      "emailInvalid": "Введите корректный email.",
+      "passwordRequired": "Введите пароль.",
+      "passwordTooShort": "Пароль должен содержать не менее {min} символов.",
+      "passwordTooLong": "Пароль должен содержать не более {max} символов.",
+      "nameRequired": "Введите имя.",
+      "nameTooLong": "Имя должно быть не длиннее {max} символов."
+    }
   }
 }
