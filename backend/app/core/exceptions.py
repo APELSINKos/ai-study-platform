@@ -48,3 +48,9 @@ class ConflictError(AppError):
     status_code = HTTPStatus.CONFLICT
     code = "conflict"
     message = "The request conflicts with the current state of the resource."
+
+
+class RateLimitedError(AppError):
+    status_code = HTTPStatus.TOO_MANY_REQUESTS
+    code = "rate_limited"
+    message = "Too many attempts. Try again later."
