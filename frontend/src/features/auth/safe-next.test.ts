@@ -36,4 +36,17 @@ describe("safeNext", () => {
     expect(safeNext(undefined)).toBeNull();
     expect(safeNext("")).toBeNull();
   });
+
+  it.each([
+    ["/.//evil.example"],
+    ["/..//evil.example"],
+    ["/a/../..//evil.example"],
+    ["/%2e%2e//evil.example"],
+  ])("rejects a dotted path a browser resolves to a protocol-relative URL: %s", (value) => {
+    expect(safeNext(value)).toBeNull();
+  });
+
+  it("normalises a path with a dot segment to the path it resolves to", () => {
+    expect(safeNext("/dashboard/../settings?x=1#y")).toBe("/settings?x=1#y");
+  });
 });
