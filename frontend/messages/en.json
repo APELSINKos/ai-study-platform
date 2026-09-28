@@ -179,5 +179,14 @@
     "retry": "Try again",
     "home": "Back to home",
     "reference": "Reference: {id}"
+  },
+  "AuthErrors": {
+    "emailTaken": "An account with this email already exists.",
+    "invalidCredentials": "Incorrect email or password.",
+    "rateLimited": "Too many attempts. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+    "rateLimitedGeneric": "Too many attempts. Try again in a moment.",
+    "validationError": "Check the highlighted fields and try again.",
+    "networkError": "The API could not be reached. Check your connection and try again.",
+    "fallback": "Something went wrong. Please try again."
   }
 }
