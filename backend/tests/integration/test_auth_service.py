@@ -26,7 +26,7 @@ from app.services.auth import AuthService, normalize_email
 
 pytestmark = pytest.mark.integration
 
-_PASSWORD: Final = "correct horse battery staple"  # noqa: S105 -- test fixture, not a secret
+_PASSWORD: Final = "correct horse battery staple"
 # Real wall-clock time: create_access_token's iat/exp are validated by PyJWT against
 # the real clock on decode, so the fake clock has to start close to it.
 _START: Final = utcnow()
@@ -94,7 +94,7 @@ def test_register_converts_a_concurrent_duplicate_insert_into_a_conflict_error(
     db_session: Session, integration_settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     UserRepository(db_session).add(
-        User(email="race@example.com", password_hash="hash", display_name="Existing")  # noqa: S106
+        User(email="race@example.com", password_hash="hash", display_name="Existing")
     )
     db_session.commit()
     # Simulate two requests racing past the availability check for the same e-mail.
@@ -134,7 +134,7 @@ def test_authenticate_fails_identically_for_unknown_email_wrong_password_and_ina
     with pytest.raises(AuthenticationError) as unknown_email:
         service.authenticate(email="missing@example.com", password=_PASSWORD)
     with pytest.raises(AuthenticationError) as wrong_password:
-        service.authenticate(email="wrong-pw@example.com", password="not the password")  # noqa: S106
+        service.authenticate(email="wrong-pw@example.com", password="not the password")
     with pytest.raises(AuthenticationError) as inactive_user:
         service.authenticate(email="inactive@example.com", password=_PASSWORD)
 

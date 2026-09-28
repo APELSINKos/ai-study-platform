@@ -25,10 +25,10 @@ from app.models.refresh_token import RefreshToken
 
 pytestmark = pytest.mark.integration
 
-_PASSWORD: Final = "correct horse battery staple"  # noqa: S105 -- test fixture, not a secret
+_PASSWORD: Final = "correct horse battery staple"
 _REGISTER_PATH: Final = "/api/v1/auth/register"
 _LOGIN_PATH: Final = "/api/v1/auth/login"
-_TOKEN_PATH: Final = "/api/v1/auth/token"  # noqa: S105 -- a URL path, not a credential
+_TOKEN_PATH: Final = "/api/v1/auth/token"
 _REFRESH_PATH: Final = "/api/v1/auth/refresh"
 _LOGOUT_PATH: Final = "/api/v1/auth/logout"
 _ME_PATH: Final = "/api/v1/auth/me"
@@ -106,7 +106,7 @@ def test_register_returns_a_session_and_sets_the_three_cookies(auth_client: Test
     assert body["user"]["display_name"] == "Person"
     assert "password" not in body["user"]
     assert "password_hash" not in str(body)
-    assert body["token_type"] == "bearer"  # noqa: S105 -- a token kind label, not a credential
+    assert body["token_type"] == "bearer"
     assert body["expires_in"] > 0
 
     access = _set_cookie_header(response, ACCESS_COOKIE_NAME).lower()
@@ -167,7 +167,7 @@ def test_login_unknown_email_and_wrong_password_return_identical_bodies(
     _register(auth_client, email="known@example.com")
 
     unknown = _login(auth_client, email="unknown@example.com")
-    wrong = _login(auth_client, email="known@example.com", password="not-the-password")  # noqa: S106
+    wrong = _login(auth_client, email="known@example.com", password="not-the-password")
 
     assert unknown.status_code == HTTPStatus.UNAUTHORIZED
     assert wrong.status_code == HTTPStatus.UNAUTHORIZED
@@ -186,10 +186,10 @@ def test_the_eleventh_login_attempt_for_one_ip_and_email_is_rate_limited(
     _register(auth_client, email="throttled@example.com")
 
     for _ in range(integration_settings.login_attempts_per_minute):
-        response = _login(auth_client, email="throttled@example.com", password="wrong")  # noqa: S106
+        response = _login(auth_client, email="throttled@example.com", password="wrong")
         assert response.status_code == HTTPStatus.UNAUTHORIZED
 
-    response = _login(auth_client, email="throttled@example.com", password="wrong")  # noqa: S106
+    response = _login(auth_client, email="throttled@example.com", password="wrong")
 
     assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert int(response.headers["retry-after"]) > 0
@@ -204,11 +204,11 @@ def test_the_login_email_limit_applies_regardless_of_which_ip_attempts_hit_it(
 
     for attempt in range(integration_settings.login_attempts_per_email_per_hour):
         with TestClient(auth_app, client=(f"203.0.113.{attempt + 1}", 12345)) as client:
-            response = _login(client, email="email-throttled@example.com", password="wrong")  # noqa: S106
+            response = _login(client, email="email-throttled@example.com", password="wrong")
         assert response.status_code == HTTPStatus.UNAUTHORIZED
 
     with TestClient(auth_app, client=("203.0.113.99", 12345)) as client:
-        response = _login(client, email="email-throttled@example.com", password="wrong")  # noqa: S106
+        response = _login(client, email="email-throttled@example.com", password="wrong")
 
     assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert int(response.headers["retry-after"]) > 0
@@ -388,7 +388,7 @@ def test_token_endpoint_returns_a_usable_bearer_token_and_creates_no_refresh_tok
 
     assert response.status_code == HTTPStatus.OK
     body = response.json()
-    assert body["token_type"] == "bearer"  # noqa: S105 -- a token kind label, not a credential
+    assert body["token_type"] == "bearer"
     assert "set-cookie" not in response.headers
     rows_after = db_session.execute(select(func.count()).select_from(RefreshToken)).scalar_one()
     assert rows_after == rows_before

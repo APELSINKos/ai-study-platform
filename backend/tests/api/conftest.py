@@ -10,17 +10,6 @@ from app.api.deps import CurrentUser, get_db
 from app.core.config import Settings
 from app.core.redis import get_redis_client
 from app.main import create_app
-from tests.integration import conftest as _integration_conftest
-
-# Integration fixtures live in tests/integration/conftest.py, which stays stable and
-# shared with other suites; re-exporting them here (rather than duplicating them)
-# makes them visible to this sibling test package. `_migrated_database` is a private
-# fixture that `db_session` itself depends on, so it must be re-exported too.
-database_url = _integration_conftest.database_url
-redis_url = _integration_conftest.redis_url
-integration_settings = _integration_conftest.integration_settings
-_migrated_database = _integration_conftest._migrated_database
-db_session = _integration_conftest.db_session
 
 # A route with no purpose other than exercising CurrentUser's CSRF enforcement on a
 # mutating request; production code has no such endpoint yet at this stage.

@@ -11,7 +11,7 @@ from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 
 GENERATED_ID = re.compile(r"[0-9a-f]{32}")
-LEAKED_SECRET = "postgres password is hunter2"  # noqa: S105 -- fixture value, not a real secret
+LEAKED_SECRET = "postgres password is hunter2"
 
 
 @pytest.fixture

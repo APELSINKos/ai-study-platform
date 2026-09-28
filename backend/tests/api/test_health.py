@@ -9,7 +9,7 @@ from sqlalchemy.exc import OperationalError
 from app.api.deps import get_db, get_redis
 from app.core.logging import configure_logging
 
-SECRET_IN_ERROR = "password=hunter2"  # noqa: S105 -- fixture value, not a real secret
+SECRET_IN_ERROR = "password=hunter2"
 
 
 class _Session:

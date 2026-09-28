@@ -102,7 +102,7 @@ def test_uvicorn_loggers_follow_the_configured_level(capsys: pytest.CaptureFixtu
 
 
 def _raise_with_local_secret() -> None:
-    password = "hunter2-local-secret"  # noqa: S105 -- fixture value, not a real secret
+    password = "hunter2-local-secret"
     if password:
         raise ValueError("connection failed")
 

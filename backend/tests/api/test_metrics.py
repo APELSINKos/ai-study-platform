@@ -4,7 +4,7 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.main import create_app
 
-TOKEN = "scrape-token-for-tests"  # noqa: S105 -- dummy token used only in these tests
+TOKEN = "scrape-token-for-tests"
 
 
 def _client(**overrides: object) -> TestClient:

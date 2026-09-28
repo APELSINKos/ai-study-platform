@@ -11,7 +11,7 @@ pytestmark = pytest.mark.integration
 
 
 def _make_user(email: str = "person@example.com") -> User:
-    return User(email=email, password_hash="hash", display_name="Person")  # noqa: S106
+    return User(email=email, password_hash="hash", display_name="Person")
 
 
 def test_add_assigns_an_id_and_persists_the_user(db_session: Session) -> None:

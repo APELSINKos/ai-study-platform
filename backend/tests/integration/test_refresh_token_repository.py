@@ -15,7 +15,7 @@ _TOKEN_TTL = timedelta(days=14)
 
 
 def _make_user(session: Session, email: str) -> User:
-    user = User(email=email, password_hash="hash", display_name="Person")  # noqa: S106
+    user = User(email=email, password_hash="hash", display_name="Person")
     return UserRepository(session).add(user)
 
 

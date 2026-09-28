@@ -24,7 +24,7 @@ from app.core.security import (
 
 # 32 bytes, matching MIN_SECRET_KEY_LENGTH: pyjwt warns (and filterwarnings turns it into
 # an error) about HMAC keys shorter than that.
-SECRET = "unit-test-jwt-signing-secret-key"  # noqa: S105 -- dummy secret used only in these tests
+SECRET = "unit-test-jwt-signing-secret-key"
 
 
 def _json_lines(output: str) -> list[dict[str, Any]]:
@@ -32,7 +32,7 @@ def _json_lines(output: str) -> list[dict[str, Any]]:
 
 
 def test_hash_password_returns_a_hash_that_verifies() -> None:
-    password = "correct horse battery staple"  # noqa: S105 -- test fixture, not a secret
+    password = "correct horse battery staple"
 
     password_hash = hash_password(password)
 
@@ -88,7 +88,7 @@ def test_decode_access_token_rejects_a_token_signed_with_another_secret() -> Non
     token = create_access_token(
         uuid.uuid4(), secret=SECRET, ttl=timedelta(minutes=15), now=utcnow()
     )
-    other_secret = "a-completely-different-signing-secret"  # noqa: S105 -- test fixture
+    other_secret = "a-completely-different-signing-secret"
 
     with pytest.raises(AuthenticationError) as exc_info:
         decode_access_token(token.value, secret=other_secret)
@@ -145,7 +145,7 @@ def test_decode_access_token_rejects_a_token_missing_the_subject_claim() -> None
 
 
 def test_hash_opaque_token_is_deterministic_and_hex_encoded() -> None:
-    token = "some-opaque-token-value"  # noqa: S105 -- test fixture, not a secret
+    token = "some-opaque-token-value"
 
     digest = hash_opaque_token(token)
 
