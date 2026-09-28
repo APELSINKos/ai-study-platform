@@ -7,6 +7,7 @@ from typing import Final
 import structlog
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
+from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.metrics import observe_http_request
@@ -84,7 +85,25 @@ def route_template(scope: Scope) -> str:
     path_format = getattr(effective_route, "path_format", None)
     if not isinstance(path_format, str):
         path_format = getattr(scope.get("route"), "path_format", None)
+    if not isinstance(path_format, str):
+        path_format = _plain_route_path_format(scope)
     return path_format if isinstance(path_format, str) else UNMATCHED_ROUTE
+
+
+def _plain_route_path_format(scope: Scope) -> str | None:
+    """Templates the docs routes (/docs, /redoc, /openapi.json, ...).
+
+    FastAPI adds them as plain Starlette routes, and unlike APIRoute they never record
+    themselves on scope["route"]; re-matching against the app's own route list is the
+    only reliable way to recover their template.
+    """
+    for route in getattr(scope.get("router"), "routes", []):
+        match, _ = route.matches(scope)
+        if match != Match.NONE:
+            path_format = getattr(route, "path_format", None)
+            if isinstance(path_format, str):
+                return path_format
+    return None
 
 
 def _resolve_request_id(incoming: str | None) -> str:

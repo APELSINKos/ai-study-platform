@@ -35,3 +35,14 @@ def test_route_template_keeps_the_prefixes_of_nested_routers() -> None:
 
     assert 'route="/api/v1/health/live"' in metrics
     assert 'route="/direct"' in metrics
+
+
+def test_route_template_labels_docs_routes_that_have_no_fastapi_route_context() -> None:
+    with TestClient(_build_app()) as client:
+        client.get("/openapi.json")
+        client.get("/wp-admin/1")
+
+    metrics = generate_latest().decode()
+
+    assert 'route="/openapi.json"' in metrics
+    assert 'route="unmatched"' in metrics
