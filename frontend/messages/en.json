@@ -37,5 +37,19 @@
     },
     "latency": "{ms} ms",
     "requestId": "Request ID: {id}"
+  },
+  "NotFound": {
+    "marginNote": "Wrong page, right notebook.",
+    "title": "Page not found",
+    "lead": "The page you are looking for does not exist or has moved.",
+    "home": "Back to home"
+  },
+  "ErrorPage": {
+    "marginNote": "Something slipped off the page.",
+    "title": "Something went wrong",
+    "lead": "An unexpected error interrupted this page. You can try again or go back home.",
+    "retry": "Try again",
+    "home": "Back to home",
+    "reference": "Reference: {id}"
   }
 }
