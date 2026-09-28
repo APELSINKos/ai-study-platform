@@ -94,6 +94,7 @@ describe("LoginForm", () => {
 
     expect(await screen.findByText("Введите корректный email.")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Email")).toHaveFocus();
     expect(screen.queryByText(/special-use/)).not.toBeInTheDocument();
   });
 

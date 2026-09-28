@@ -9,7 +9,12 @@ export function DashboardGreeting() {
   const { data: user } = useCurrentUser();
 
   if (!user) {
-    return <div aria-hidden className="bg-ink/10 h-10 w-64 animate-pulse rounded" />;
+    return (
+      <>
+        <h1 className="sr-only">{t("metaTitle")}</h1>
+        <div aria-hidden className="bg-ink/10 h-10 w-64 animate-pulse rounded" />
+      </>
+    );
   }
 
   return (

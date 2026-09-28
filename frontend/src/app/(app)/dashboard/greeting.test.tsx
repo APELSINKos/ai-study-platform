@@ -17,11 +17,11 @@ describe("DashboardGreeting", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows a quiet placeholder while the account is pending", () => {
+  it("shows a quiet placeholder while the account is pending, with a hidden heading", () => {
     fetchMock.mockImplementation(() => new Promise(() => {}));
     renderWithIntl(<DashboardGreeting />);
 
-    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
   it("greets the signed-in user by name", async () => {
@@ -38,6 +38,8 @@ describe("DashboardGreeting", () => {
     );
     renderWithIntl(<DashboardGreeting />);
 
-    expect(await screen.findByRole("heading")).toHaveTextContent("Welcome back, Ada Lovelace.");
+    expect(
+      await screen.findByRole("heading", { name: "Hello, Ada Lovelace." }),
+    ).toBeInTheDocument();
   });
 });

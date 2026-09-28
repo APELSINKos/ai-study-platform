@@ -98,6 +98,7 @@ describe("RegisterForm", () => {
     const email = screen.getByLabelText("Email");
     await waitFor(() => expect(email).toHaveAttribute("aria-invalid", "true"));
     expect(screen.getByText("An account with this email already exists.")).toBeInTheDocument();
+    expect(email).toHaveFocus();
   });
 
   it("puts a server-side validation error on the matching field in its own wording", async () => {
@@ -116,10 +117,33 @@ describe("RegisterForm", () => {
 
     expect(await screen.findByText("Check this field.")).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Name")).toHaveFocus();
     expect(screen.queryByText(/String should have/)).not.toBeInTheDocument();
     expect(
       screen.queryByText("Check the highlighted fields and try again."),
     ).not.toBeInTheDocument();
+  });
+
+  it("focuses only the first of several server-rejected fields", async () => {
+    apiFetchMock.mockRejectedValue(
+      new ApiError({
+        status: 422,
+        code: "validation_error",
+        message: "x",
+        details: [
+          { field: "password", message: "x" },
+          { field: "display_name", message: "x" },
+        ],
+      }),
+    );
+    renderWithIntl(<RegisterForm />);
+
+    await fillValidDetails();
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Password")).toHaveAttribute("aria-invalid"));
+    expect(screen.getByLabelText("Password")).toHaveFocus();
+    expect(screen.getByLabelText("Name")).not.toHaveFocus();
   });
 
   it("also shows the form alert when the server names a field the form does not have", async () => {

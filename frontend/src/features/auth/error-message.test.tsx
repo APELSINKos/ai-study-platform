@@ -41,6 +41,59 @@ describe("authErrorMessage", () => {
     expect(screen.getByText("Too many attempts. Try again in 30 seconds.")).toBeInTheDocument();
   });
 
+  it("still uses seconds just under a minute", () => {
+    renderWithIntl(
+      <Probe
+        error={
+          new ApiError({ status: 429, code: "rate_limited", message: "x", retryAfterSeconds: 59 })
+        }
+      />,
+    );
+
+    expect(screen.getByText("Too many attempts. Try again in 59 seconds.")).toBeInTheDocument();
+  });
+
+  it("switches to minutes at 60 seconds", () => {
+    renderWithIntl(
+      <Probe
+        error={
+          new ApiError({ status: 429, code: "rate_limited", message: "x", retryAfterSeconds: 60 })
+        }
+      />,
+    );
+
+    expect(screen.getByText("Too many attempts. Try again in 1 minute.")).toBeInTheDocument();
+  });
+
+  it("rounds a partial minute up", () => {
+    renderWithIntl(
+      <Probe
+        error={
+          new ApiError({ status: 429, code: "rate_limited", message: "x", retryAfterSeconds: 61 })
+        }
+      />,
+    );
+
+    expect(screen.getByText("Too many attempts. Try again in 2 minutes.")).toBeInTheDocument();
+  });
+
+  it("rounds a long wait up to whole minutes", () => {
+    renderWithIntl(
+      <Probe
+        error={
+          new ApiError({
+            status: 429,
+            code: "rate_limited",
+            message: "x",
+            retryAfterSeconds: 3412,
+          })
+        }
+      />,
+    );
+
+    expect(screen.getByText("Too many attempts. Try again in 57 minutes.")).toBeInTheDocument();
+  });
+
   it("falls back to a generic rate-limit message without a Retry-After", () => {
     renderWithIntl(
       <Probe error={new ApiError({ status: 429, code: "rate_limited", message: "x" })} />,
@@ -96,6 +149,29 @@ describe("authErrorMessage", () => {
     [5, "Слишком много попыток. Повторите через 5 секунд."],
     [21, "Слишком много попыток. Повторите через 21 секунду."],
   ] as const)("pluralises %i second(s) in Russian", (seconds, expected) => {
+    renderWithIntl(
+      <Probe
+        error={
+          new ApiError({
+            status: 429,
+            code: "rate_limited",
+            message: "x",
+            retryAfterSeconds: seconds,
+          })
+        }
+      />,
+      { locale: "ru" },
+    );
+
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it.each([
+    [60, "Слишком много попыток. Повторите через 1 минуту."],
+    [180, "Слишком много попыток. Повторите через 3 минуты."],
+    [300, "Слишком много попыток. Повторите через 5 минут."],
+    [1260, "Слишком много попыток. Повторите через 21 минуту."],
+  ] as const)("pluralises minutes in Russian for %i seconds", (seconds, expected) => {
     renderWithIntl(
       <Probe
         error={

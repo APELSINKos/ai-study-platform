@@ -56,17 +56,21 @@ export function RegisterForm({ next }: { next?: string }) {
       onSuccess: () => router.replace(redirectTo ?? "/dashboard"),
       onError: (error) => {
         if (error instanceof ApiError && error.code === "email_taken") {
-          setError("email", { message: authErrorMessage(error, tErrors) });
+          setError("email", { message: authErrorMessage(error, tErrors) }, { shouldFocus: true });
           return;
         }
         if (error instanceof ApiError && error.code === "validation_error") {
           // The backend's own wording is English-only, so fields get messages from the catalog.
           const { fields, hasUnmatched } = matchServerFields(error.details, FIELD_BY_SERVER_NAME);
-          for (const field of fields) {
-            setError(field, {
-              message:
-                field === "email" ? t("validation.emailInvalid") : t("validation.fieldRejected"),
-            });
+          for (const [index, field] of fields.entries()) {
+            setError(
+              field,
+              {
+                message:
+                  field === "email" ? t("validation.emailInvalid") : t("validation.fieldRejected"),
+              },
+              { shouldFocus: index === 0 },
+            );
           }
           if (fields.length > 0 && !hasUnmatched) {
             return;

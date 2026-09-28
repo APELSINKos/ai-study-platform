@@ -184,6 +184,7 @@
     "emailTaken": "An account with this email already exists.",
     "invalidCredentials": "Incorrect email or password.",
     "rateLimited": "Too many attempts. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+    "rateLimitedMinutes": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
     "rateLimitedGeneric": "Too many attempts. Try again in a moment.",
     "validationError": "Check the highlighted fields and try again.",
     "networkError": "The API could not be reached. Check your connection and try again.",
@@ -243,7 +244,7 @@
   },
   "Dashboard": {
     "metaTitle": "Dashboard",
-    "greeting": "Welcome back, {name}.",
+    "greeting": "Hello, {name}.",
     "emptyState": {
       "title": "Nothing here yet",
       "body": "Workspaces and study materials will appear here once you create them."
