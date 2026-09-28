@@ -17,7 +17,7 @@ const REFRESH_EXEMPT_PATHS = new Set([
   "/auth/logout",
   "/auth/token",
 ]);
-const REAUTH_ERROR_CODES = new Set(["token_expired", "not_authenticated"]);
+const REAUTH_ERROR_CODES = new Set(["token_expired", "not_authenticated", "invalid_token"]);
 
 export interface ApiRequestInit extends Omit<RequestInit, "body"> {
   /** Sent as JSON with the matching Content-Type header. */

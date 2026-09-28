@@ -202,6 +202,47 @@ describe("apiFetch", () => {
     expect(refreshCalls).toHaveLength(1);
   });
 
+  it("refreshes the session on an invalid_token 401 and retries", async () => {
+    const callCounts = new Map<string, number>();
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/refresh")) {
+        return jsonResponse({ status: "ok" });
+      }
+      const count = (callCounts.get(url) ?? 0) + 1;
+      callCounts.set(url, count);
+      if (count === 1) {
+        return errorResponse("invalid_token", 401);
+      }
+      return jsonResponse({ ok: true });
+    });
+
+    await expect(apiFetch("/workspaces/a")).resolves.toEqual({ ok: true });
+
+    const refreshCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/auth/refresh"),
+    );
+    expect(refreshCalls).toHaveLength(1);
+  });
+
+  it("emits sessionExpired once and rethrows for invalid_token when the refresh fails", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/refresh")) {
+        return errorResponse("invalid_refresh_token", 401);
+      }
+      return errorResponse("invalid_token", 401);
+    });
+    const listener = vi.fn();
+    const unsubscribe = onSessionExpired(listener);
+
+    const error = await captureError(apiFetch("/workspaces/a"));
+
+    expect(error.code).toBe("invalid_token");
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
   it("never refreshes for auth endpoints themselves", async () => {
     fetchMock.mockResolvedValue(errorResponse("token_expired", 401));
 
