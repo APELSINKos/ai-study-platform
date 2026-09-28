@@ -21,7 +21,13 @@ from app.core.security import (
     password_needs_rehash,
     verify_password,
 )
-from app.models.refresh_token import USER_AGENT_MAX_LENGTH, RefreshToken
+from app.models.refresh_token import (
+    REVOKED_REUSE_DETECTED,
+    REVOKED_ROTATED,
+    REVOKED_SIGNED_OUT,
+    USER_AGENT_MAX_LENGTH,
+    RefreshToken,
+)
 from app.models.user import User
 from app.repositories.refresh_tokens import RefreshTokenRepository
 from app.repositories.users import UserRepository
@@ -105,17 +111,26 @@ class AuthService:
         if user is None or not user.is_active:
             raise AuthenticationError(_INVALID_REFRESH_TOKEN_MESSAGE, code="invalid_refresh_token")
         if token.revoked_at is None:
-            self._refresh_tokens.revoke(token, now)
+            self._refresh_tokens.revoke(token, now, REVOKED_ROTATED)
         else:
             grace = timedelta(seconds=self._settings.refresh_reuse_grace_seconds)
-            if now - token.revoked_at > grace:
-                self._refresh_tokens.revoke_family(token.family_id, now)
-                self._session.commit()
-                logger.warning(
-                    "refresh_token_reuse_detected",
-                    user_id=str(user.id),
-                    family_id=str(token.family_id),
-                )
+            eligible_for_grace = (
+                token.revocation_reason == REVOKED_ROTATED
+                and now - token.revoked_at <= grace
+                and self._refresh_tokens.family_has_active_token(token.family_id, now)
+            )
+            if not eligible_for_grace:
+                # Sign-out and reuse detection are already final for every token they
+                # touch, so only a lapsed or now-dead rotation grace needs to finish
+                # the job by revoking whatever is left of the family.
+                if token.revocation_reason == REVOKED_ROTATED:
+                    self._refresh_tokens.revoke_family(token.family_id, now, REVOKED_REUSE_DETECTED)
+                    self._session.commit()
+                    logger.warning(
+                        "refresh_token_reuse_detected",
+                        user_id=str(user.id),
+                        family_id=str(token.family_id),
+                    )
                 raise AuthenticationError(
                     _INVALID_REFRESH_TOKEN_MESSAGE, code="invalid_refresh_token"
                 )
@@ -131,7 +146,7 @@ class AuthService:
         token = self._refresh_tokens.get_by_hash(hash_opaque_token(refresh_token))
         if token is None:
             return
-        self._refresh_tokens.revoke_family(token.family_id, self._clock())
+        self._refresh_tokens.revoke_family(token.family_id, self._clock(), REVOKED_SIGNED_OUT)
         self._session.commit()
 
     def get_active_user(self, user_id: uuid.UUID) -> User:

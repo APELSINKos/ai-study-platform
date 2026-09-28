@@ -11,7 +11,12 @@ from app.core.config import Settings
 from app.core.exceptions import AuthenticationError, ConflictError
 from app.core.logging import configure_logging
 from app.core.security import decode_access_token, hash_opaque_token, verify_password
-from app.models.refresh_token import USER_AGENT_MAX_LENGTH
+from app.models.refresh_token import (
+    REVOKED_REUSE_DETECTED,
+    REVOKED_ROTATED,
+    REVOKED_SIGNED_OUT,
+    USER_AGENT_MAX_LENGTH,
+)
 from app.models.user import User
 from app.repositories.refresh_tokens import RefreshTokenRepository
 from app.repositories.users import UserRepository
@@ -236,6 +241,7 @@ def test_rotate_session_returns_a_new_refresh_token_and_revokes_the_old_one(
     fresh = repo.get_by_hash(hash_opaque_token(rotated.refresh_token))
     assert original is not None
     assert original.revoked_at == clock()
+    assert original.revocation_reason == REVOKED_ROTATED
     assert fresh is not None
     assert fresh.revoked_at is None
     assert fresh.family_id == original.family_id
@@ -351,6 +357,78 @@ def test_rotate_session_reuse_outside_the_grace_window_revokes_the_family_and_lo
     assert later_exc_info.value.code == "invalid_refresh_token"
 
 
+def test_rotate_session_replayed_right_after_sign_out_is_rejected_with_no_grace(
+    db_session: Session, integration_settings: Settings
+) -> None:
+    clock = _FakeClock()
+    service = AuthService(db_session, integration_settings, clock)
+    user = service.register(
+        email="signout-replay@example.com", password=_PASSWORD, display_name="Person"
+    )
+    issued = service.start_session(user, user_agent=None)
+
+    service.end_session(issued.refresh_token)
+    clock.advance(timedelta(seconds=1))
+
+    with pytest.raises(AuthenticationError) as exc_info:
+        service.rotate_session(issued.refresh_token, user_agent=None)
+
+    assert exc_info.value.code == "invalid_refresh_token"
+    repo = RefreshTokenRepository(db_session)
+    token = repo.get_by_hash(hash_opaque_token(issued.refresh_token))
+    assert token is not None
+    assert token.revocation_reason == REVOKED_SIGNED_OUT
+
+
+def test_rotate_session_replayed_right_after_reuse_detection_is_rejected_with_no_grace(
+    db_session: Session, integration_settings: Settings
+) -> None:
+    clock = _FakeClock()
+    service = AuthService(db_session, integration_settings, clock)
+    user = service.register(
+        email="reuse-replay@example.com", password=_PASSWORD, display_name="Person"
+    )
+    original = service.start_session(user, user_agent=None)
+    _, newest = service.rotate_session(original.refresh_token, user_agent=None)
+    clock.advance(timedelta(seconds=integration_settings.refresh_reuse_grace_seconds + 1))
+    with pytest.raises(AuthenticationError):
+        service.rotate_session(original.refresh_token, user_agent=None)
+
+    # The newest token of the family was just revoked as part of reuse detection;
+    # replaying it inside what would otherwise be its own grace window must still fail.
+    clock.advance(timedelta(seconds=1))
+    with pytest.raises(AuthenticationError) as exc_info:
+        service.rotate_session(newest.refresh_token, user_agent=None)
+
+    assert exc_info.value.code == "invalid_refresh_token"
+    repo = RefreshTokenRepository(db_session)
+    newest_token = repo.get_by_hash(hash_opaque_token(newest.refresh_token))
+    assert newest_token is not None
+    assert newest_token.revocation_reason == REVOKED_REUSE_DETECTED
+
+
+def test_rotate_session_denies_grace_when_the_family_has_no_active_token_left(
+    db_session: Session, integration_settings: Settings
+) -> None:
+    clock = _FakeClock()
+    service = AuthService(db_session, integration_settings, clock)
+    user = service.register(
+        email="dead-family@example.com", password=_PASSWORD, display_name="Person"
+    )
+    original = service.start_session(user, user_agent=None)
+    _, rotated = service.rotate_session(original.refresh_token, user_agent=None)
+    service.end_session(rotated.refresh_token)
+    clock.advance(timedelta(seconds=1))
+
+    # `original` was revoked because it was rotated, and this replay is well inside
+    # its grace window, but the family's only other token was since signed out, so
+    # there is nothing left to hand a fresh session to.
+    with pytest.raises(AuthenticationError) as exc_info:
+        service.rotate_session(original.refresh_token, user_agent=None)
+
+    assert exc_info.value.code == "invalid_refresh_token"
+
+
 def test_end_session_revokes_the_whole_family(
     db_session: Session, integration_settings: Settings
 ) -> None:
@@ -367,7 +445,9 @@ def test_end_session_revokes_the_whole_family(
     assert original_token is not None
     assert rotated_token is not None
     assert original_token.revoked_at is not None
+    assert original_token.revocation_reason == REVOKED_ROTATED
     assert rotated_token.revoked_at is not None
+    assert rotated_token.revocation_reason == REVOKED_SIGNED_OUT
 
 
 def test_end_session_is_a_no_op_for_none(

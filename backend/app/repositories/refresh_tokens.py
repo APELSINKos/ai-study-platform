@@ -23,31 +23,44 @@ class RefreshTokenRepository:
         statement = select(RefreshToken).where(RefreshToken.token_hash == token_hash)
         return self._session.execute(statement).scalar_one_or_none()
 
-    def revoke(self, token: RefreshToken, now: datetime) -> None:
+    def revoke(self, token: RefreshToken, now: datetime, reason: str) -> None:
         if token.revoked_at is None:
             token.revoked_at = now
+            token.revocation_reason = reason
 
-    def revoke_family(self, family_id: uuid.UUID, now: datetime) -> int:
+    def revoke_family(self, family_id: uuid.UUID, now: datetime, reason: str) -> int:
         statement = (
             update(RefreshToken)
             .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=now)
+            .values(revoked_at=now, revocation_reason=reason)
             .returning(RefreshToken.id)
         )
         revoked_ids = self._session.execute(statement).scalars().all()
         self._expire_revoked_tokens(revoked_ids)
         return len(revoked_ids)
 
-    def revoke_all_for_user(self, user_id: uuid.UUID, now: datetime) -> int:
+    def revoke_all_for_user(self, user_id: uuid.UUID, now: datetime, reason: str) -> int:
         statement = (
             update(RefreshToken)
             .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=now)
+            .values(revoked_at=now, revocation_reason=reason)
             .returning(RefreshToken.id)
         )
         revoked_ids = self._session.execute(statement).scalars().all()
         self._expire_revoked_tokens(revoked_ids)
         return len(revoked_ids)
+
+    def family_has_active_token(self, family_id: uuid.UUID, now: datetime) -> bool:
+        statement = (
+            select(RefreshToken.id)
+            .where(
+                RefreshToken.family_id == family_id,
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > now,
+            )
+            .limit(1)
+        )
+        return self._session.execute(statement).scalar_one_or_none() is not None
 
     def _expire_revoked_tokens(self, revoked_ids: Sequence[uuid.UUID]) -> None:
         # A bulk UPDATE bypasses the ORM, so identity-mapped instances the caller

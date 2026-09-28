@@ -306,7 +306,7 @@ def test_reusing_a_rotated_refresh_token_after_the_grace_window_is_rejected(
 
 
 def test_logout_clears_cookies_and_the_refresh_token_stops_working(
-    auth_app: FastAPI, auth_client: TestClient, integration_settings: Settings
+    auth_app: FastAPI, auth_client: TestClient
 ) -> None:
     _register(auth_client, email="logout@example.com")
     refresh_token = auth_client.cookies.get(REFRESH_COOKIE_NAME)
@@ -321,12 +321,12 @@ def test_logout_clears_cookies_and_the_refresh_token_stops_working(
     assert "max-age=0" in _set_cookie_header(response, REFRESH_COOKIE_NAME).lower()
     assert "max-age=0" in _set_cookie_header(response, CSRF_COOKIE_NAME).lower()
 
-    # end_session revokes the token but rotate_session still honours the reuse-grace
-    # window for it (same as any other revoked token), so a replay only fails for
-    # good once that window has passed.
-    time.sleep(integration_settings.refresh_reuse_grace_seconds + 1)
+    # Sign-out is final: even an immediate replay of the pre-logout refresh cookie
+    # is rejected, with no reuse-grace window.
     after_logout = _replay_refresh(auth_app, refresh_token=refresh_token, csrf_token=csrf_token)
     assert after_logout.status_code == HTTPStatus.UNAUTHORIZED
+    assert "max-age=0" in _set_cookie_header(after_logout, ACCESS_COOKIE_NAME).lower()
+    assert "max-age=0" in _set_cookie_header(after_logout, REFRESH_COOKIE_NAME).lower()
 
 
 # --- token ------------------------------------------------------------------------
