@@ -1,7 +1,8 @@
+from datetime import datetime
 from typing import Final
 
-from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import DateTime, MetaData, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Stable constraint names keep Alembic autogenerate diffs predictable.
 NAMING_CONVENTION: Final = {
@@ -15,3 +16,11 @@ NAMING_CONVENTION: Final = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+class TimestampMixin:
+    """Adds a server-timestamped `created_at` column to a mapped class."""
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
