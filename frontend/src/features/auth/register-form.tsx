@@ -10,23 +10,20 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { ApiError, type ApiErrorDetail } from "@/lib/api/errors";
+import { ApiError } from "@/lib/api/errors";
 import type { RegisterRequest } from "@/lib/api/types";
 
 import { authErrorMessage } from "./error-message";
 import { useRegister } from "./hooks";
 import { registerSchema, type RegisterFormValues } from "./schemas";
 import { safeNext } from "./safe-next";
+import { matchServerFields } from "./server-fields";
 
 const FIELD_BY_SERVER_NAME: Record<string, keyof RegisterFormValues> = {
   email: "email",
   password: "password",
   display_name: "displayName",
 };
-
-function fieldNameFor(detail: ApiErrorDetail): keyof RegisterFormValues | null {
-  return detail.field ? (FIELD_BY_SERVER_NAME[detail.field] ?? null) : null;
-}
 
 function toRegisterRequest(values: RegisterFormValues): RegisterRequest {
   return { email: values.email, password: values.password, display_name: values.displayName };
@@ -62,15 +59,15 @@ export function RegisterForm({ next }: { next?: string }) {
           return;
         }
         if (error instanceof ApiError && error.code === "validation_error") {
-          const fieldErrors = error.details
-            .map((detail) => ({ field: fieldNameFor(detail), message: detail.message }))
-            .filter((entry): entry is { field: keyof RegisterFormValues; message: string } =>
-              Boolean(entry.field),
-            );
-          if (fieldErrors.length > 0) {
-            for (const { field, message } of fieldErrors) {
-              setError(field, { message });
-            }
+          // The backend's own wording is English-only, so fields get messages from the catalog.
+          const { fields, hasUnmatched } = matchServerFields(error.details, FIELD_BY_SERVER_NAME);
+          for (const field of fields) {
+            setError(field, {
+              message:
+                field === "email" ? t("validation.emailInvalid") : t("validation.fieldRejected"),
+            });
+          }
+          if (fields.length > 0 && !hasUnmatched) {
             return;
           }
         }
@@ -88,7 +85,7 @@ export function RegisterForm({ next }: { next?: string }) {
         <form
           onSubmit={handleSubmit(onSubmit)}
           noValidate
-          className="flex flex-col gap-4 px-5 pb-6 sm:px-6"
+          className="flex flex-col gap-4 px-5 pt-5 pb-6 sm:px-6 sm:pt-6"
         >
           <Field label={t("fields.name")} error={errors.displayName?.message}>
             <Input type="text" autoComplete="name" {...register("displayName")} />

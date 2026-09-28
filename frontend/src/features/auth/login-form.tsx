@@ -10,21 +10,18 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { ApiError, type ApiErrorDetail } from "@/lib/api/errors";
+import { ApiError } from "@/lib/api/errors";
 
 import { authErrorMessage } from "./error-message";
 import { useLogin } from "./hooks";
 import { loginSchema, type LoginFormValues } from "./schemas";
 import { safeNext } from "./safe-next";
+import { matchServerFields } from "./server-fields";
 
 const FIELD_BY_SERVER_NAME: Record<string, keyof LoginFormValues> = {
   email: "email",
   password: "password",
 };
-
-function fieldNameFor(detail: ApiErrorDetail): keyof LoginFormValues | null {
-  return detail.field ? (FIELD_BY_SERVER_NAME[detail.field] ?? null) : null;
-}
 
 export function LoginForm({ next }: { next?: string }) {
   const t = useTranslations("Auth");
@@ -54,15 +51,15 @@ export function LoginForm({ next }: { next?: string }) {
       onSuccess: () => router.replace(redirectTo ?? "/dashboard"),
       onError: (error) => {
         if (error instanceof ApiError && error.code === "validation_error") {
-          const fieldErrors = error.details
-            .map((detail) => ({ field: fieldNameFor(detail), message: detail.message }))
-            .filter((entry): entry is { field: keyof LoginFormValues; message: string } =>
-              Boolean(entry.field),
-            );
-          if (fieldErrors.length > 0) {
-            for (const { field, message } of fieldErrors) {
-              setError(field, { message });
-            }
+          // The backend's own wording is English-only, so fields get messages from the catalog.
+          const { fields, hasUnmatched } = matchServerFields(error.details, FIELD_BY_SERVER_NAME);
+          for (const field of fields) {
+            setError(field, {
+              message:
+                field === "email" ? t("validation.emailInvalid") : t("validation.fieldRejected"),
+            });
+          }
+          if (fields.length > 0 && !hasUnmatched) {
             return;
           }
         }
@@ -80,7 +77,7 @@ export function LoginForm({ next }: { next?: string }) {
         <form
           onSubmit={handleSubmit(onSubmit)}
           noValidate
-          className="flex flex-col gap-4 px-5 pb-6 sm:px-6"
+          className="flex flex-col gap-4 px-5 pt-5 pb-6 sm:px-6 sm:pt-6"
         >
           <Field label={t("fields.email")} error={errors.email?.message}>
             <Input type="email" autoComplete="email" {...register("email")} />

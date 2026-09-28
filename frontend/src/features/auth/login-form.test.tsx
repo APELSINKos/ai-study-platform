@@ -65,6 +65,38 @@ describe("LoginForm", () => {
     expect(await screen.findByText("Enter a valid email address.")).toBeInTheDocument();
   });
 
+  it("rejects a password longer than the backend maximum", async () => {
+    renderWithIntl(<LoginForm />);
+
+    await userEvent.type(screen.getByLabelText("Email"), "person@example.com");
+    await userEvent.click(screen.getByLabelText("Password"));
+    await userEvent.paste("x".repeat(129));
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText("Password must be at most 128 characters.")).toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("shows its own wording when the server rejects a field", async () => {
+    apiFetchMock.mockRejectedValue(
+      new ApiError({
+        status: 422,
+        code: "validation_error",
+        message: "x",
+        details: [{ field: "email", message: "The domain name site.local is a special-use name." }],
+      }),
+    );
+    renderWithIntl(<LoginForm />, { locale: "ru" });
+
+    await userEvent.type(screen.getByLabelText("Email"), "person@site.local");
+    await userEvent.type(screen.getByLabelText("Пароль"), "correct horse battery");
+    await userEvent.click(screen.getByRole("button", { name: "Войти" }));
+
+    expect(await screen.findByText("Введите корректный email.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText(/special-use/)).not.toBeInTheDocument();
+  });
+
   it("navigates to a safe next on success", async () => {
     apiFetchMock.mockResolvedValue(SESSION);
     renderWithIntl(<LoginForm next="/dashboard?tab=progress" />);

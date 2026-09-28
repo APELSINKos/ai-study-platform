@@ -25,7 +25,10 @@ function emailField(t: AuthTranslator) {
 export function loginSchema(t: AuthTranslator) {
   return z.object({
     email: emailField(t),
-    password: z.string().min(1, t("validation.passwordRequired")),
+    password: z
+      .string()
+      .min(1, t("validation.passwordRequired"))
+      .max(PASSWORD_MAX_LENGTH, t("validation.passwordTooLong", { max: PASSWORD_MAX_LENGTH })),
   });
 }
 

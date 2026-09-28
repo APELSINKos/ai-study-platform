@@ -100,13 +100,13 @@ describe("RegisterForm", () => {
     expect(screen.getByText("An account with this email already exists.")).toBeInTheDocument();
   });
 
-  it("puts a server-side validation error on the matching field", async () => {
+  it("puts a server-side validation error on the matching field in its own wording", async () => {
     apiFetchMock.mockRejectedValue(
       new ApiError({
         status: 422,
         code: "validation_error",
         message: "x",
-        details: [{ field: "password", message: "Password is too common." }],
+        details: [{ field: "display_name", message: "String should have at most 80 characters" }],
       }),
     );
     renderWithIntl(<RegisterForm />);
@@ -114,7 +114,36 @@ describe("RegisterForm", () => {
     await fillValidDetails();
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(await screen.findByText("Password is too common.")).toBeInTheDocument();
+    expect(await screen.findByText("Check this field.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText(/String should have/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Check the highlighted fields and try again."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("also shows the form alert when the server names a field the form does not have", async () => {
+    apiFetchMock.mockRejectedValue(
+      new ApiError({
+        status: 422,
+        code: "validation_error",
+        message: "x",
+        details: [
+          { field: "password", message: "x" },
+          { field: "invite_code", message: "x" },
+        ],
+      }),
+    );
+    renderWithIntl(<RegisterForm />);
+
+    await fillValidDetails();
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByText("Check the highlighted fields and try again.")).toHaveAttribute(
+      "role",
+      "alert",
+    );
+    expect(screen.getByLabelText("Password")).toHaveAttribute("aria-invalid", "true");
   });
 
   it("does not submit twice when the form is resubmitted while pending", async () => {
@@ -130,6 +159,22 @@ describe("RegisterForm", () => {
     fireEvent.submit(form as HTMLFormElement);
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
     fireEvent.submit(form as HTMLFormElement);
+    await settle();
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not submit twice when the loading button is clicked again", async () => {
+    apiFetchMock.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(SESSION), 20)),
+    );
+    renderWithIntl(<RegisterForm />);
+
+    await fillValidDetails();
+    const button = screen.getByRole("button", { name: "Create account" });
+    await userEvent.click(button);
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(button);
     await settle();
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
