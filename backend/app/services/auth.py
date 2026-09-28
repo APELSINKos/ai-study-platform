@@ -12,6 +12,7 @@ from app.core.clock import utcnow
 from app.core.config import Settings
 from app.core.exceptions import AuthenticationError, ConflictError
 from app.core.security import (
+    INVALID_TOKEN_MESSAGE,
     AccessToken,
     burn_password_check,
     create_access_token,
@@ -37,7 +38,6 @@ logger = structlog.get_logger(__name__)
 _EMAIL_TAKEN_MESSAGE: Final = "An account with this email already exists."
 _INVALID_CREDENTIALS_MESSAGE: Final = "Incorrect email or password."
 _INVALID_REFRESH_TOKEN_MESSAGE: Final = "Your session has ended. Sign in again."  # noqa: S105 -- user-facing text
-_INVALID_TOKEN_MESSAGE: Final = "The access token is invalid."  # noqa: S105 -- user-facing text
 
 
 def normalize_email(email: str) -> str:
@@ -126,33 +126,28 @@ class AuthService:
         if token.revoked_at is None:
             self._refresh_tokens.revoke(token, now, REVOKED_ROTATED)
         else:
-            grace = timedelta(seconds=self._settings.refresh_reuse_grace_seconds)
-            eligible_for_grace = (
-                token.revocation_reason == REVOKED_ROTATED
-                and now - token.revoked_at <= grace
-                and self._refresh_tokens.family_has_active_token(token.family_id, now)
-            )
-            if not eligible_for_grace:
-                # Sign-out and reuse detection are already final for every token they
-                # touch. A rotated token only means theft once its own grace window
-                # has lapsed; a dead family replayed inside the window is just a
-                # late arrival with nothing left to protect.
-                if token.revocation_reason == REVOKED_ROTATED and now - token.revoked_at > grace:
-                    self._refresh_tokens.revoke_family(token.family_id, now, REVOKED_REUSE_DETECTED)
-                    self._session.commit()
-                    logger.warning(
-                        "refresh_token_reuse_detected",
-                        user_id=str(user.id),
-                        family_id=str(token.family_id),
-                    )
-                raise AuthenticationError(
-                    _INVALID_REFRESH_TOKEN_MESSAGE, code="invalid_refresh_token"
-                )
+            self._reject_reused_token(token, token.revoked_at, user, now)
         issued = self._issue_session(
             user, family_id=token.family_id, user_agent=user_agent, now=now
         )
         self._session.commit()
         return user, issued
+
+    def _reject_reused_token(
+        self, token: RefreshToken, revoked_at: datetime, user: User, now: datetime
+    ) -> None:
+        """Raise unless a rotated token is replayed inside its own grace window."""
+        grace = timedelta(seconds=self._settings.refresh_reuse_grace_seconds)
+        within_grace = token.revocation_reason == REVOKED_ROTATED and now - revoked_at <= grace
+        if within_grace and self._refresh_tokens.family_has_active_token(token.family_id, now):
+            return
+        if token.revocation_reason == REVOKED_ROTATED and not within_grace:
+            self._refresh_tokens.revoke_family(token.family_id, now, REVOKED_REUSE_DETECTED)
+            self._session.commit()
+            logger.warning(
+                "refresh_token_reuse_detected", user_id=str(user.id), family_id=str(token.family_id)
+            )
+        raise AuthenticationError(_INVALID_REFRESH_TOKEN_MESSAGE, code="invalid_refresh_token")
 
     def end_session(self, refresh_token: str | None) -> None:
         if refresh_token is None:
@@ -166,7 +161,7 @@ class AuthService:
     def get_active_user(self, user_id: uuid.UUID) -> User:
         user = self._users.get(user_id)
         if user is None or not user.is_active:
-            raise AuthenticationError(_INVALID_TOKEN_MESSAGE, code="invalid_token")
+            raise AuthenticationError(INVALID_TOKEN_MESSAGE, code="invalid_token")
         return user
 
     def _issue_session(

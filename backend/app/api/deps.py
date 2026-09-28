@@ -18,7 +18,6 @@ from app.models.user import User
 from app.services.auth import AuthService
 
 _SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
-_BEARER_CHALLENGE: Final = {"WWW-Authenticate": "Bearer"}
 _IPV6_RATE_LIMIT_PREFIX_BITS: Final = 64
 _CSRF_FAILED_MESSAGE: Final = "The request could not be verified."
 
@@ -58,11 +57,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=F
 
 
 def collapse_ipv6(address: str) -> str:
-    """Collapse an IPv6 address to its /64 network; IPv4 and non-IP strings pass through.
-
-    A single host is commonly assigned a whole /64, so keying rate limits by the full
-    address would let it dodge them just by rotating within its own block.
-    """
+    """Collapse an IPv6 address to its /64 network (one host can own a whole /64);
+    IPv4 addresses and non-IP strings pass through unchanged."""
     try:
         parsed = ipaddress.ip_address(address)
     except ValueError:
@@ -79,11 +75,10 @@ def client_ip(request: Request) -> str:
 
 
 def verify_csrf(request: Request) -> None:
-    """Double-submit CSRF check: the readable cookie and the header must match.
+    """Double-submit CSRF check: the cookie and header token must match.
 
-    Only meaningful for cookie-authenticated requests: a cross-site page can make
-    the browser send the cookie automatically, but it cannot read the cookie's
-    value to reproduce it in a custom header.
+    Meaningful only for cookie-authenticated requests: a cross-site page can trigger
+    the cookie automatically but cannot read it to reproduce it in the header.
     """
     cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
     header_token = request.headers.get(CSRF_HEADER_NAME)
@@ -107,16 +102,11 @@ def get_current_user(
     if from_cookie:
         token = request.cookies.get(ACCESS_COOKIE_NAME)
     if token is None:
-        raise AuthenticationError(headers=_BEARER_CHALLENGE)
+        raise AuthenticationError()
     if from_cookie and request.method not in _SAFE_METHODS:
         verify_csrf(request)
-    try:
-        user_id = decode_access_token(token, secret=settings.secret_key.get_secret_value())
-        user = auth_service.get_active_user(user_id)
-    except AuthenticationError as exc:
-        raise AuthenticationError(
-            exc.message, code=exc.code, details=exc.details, headers=_BEARER_CHALLENGE
-        ) from exc
+    user_id = decode_access_token(token, secret=settings.secret_key.get_secret_value())
+    user = auth_service.get_active_user(user_id)
     request.state.user_id = str(user.id)
     return user
 

@@ -1,7 +1,10 @@
 from collections.abc import Mapping, Sequence
 from http import HTTPStatus
+from typing import Final
 
 from app.schemas.errors import ErrorDetail
+
+_BEARER_CHALLENGE: Final = {"WWW-Authenticate": "Bearer"}
 
 
 class AppError(Exception):
@@ -27,9 +30,21 @@ class AppError(Exception):
 
 
 class AuthenticationError(AppError):
+    """Always carries the bearer challenge header, unless the caller supplies its own."""
+
     status_code = HTTPStatus.UNAUTHORIZED
     code = "not_authenticated"
     message = "Authentication is required."
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        code: str | None = None,
+        details: Sequence[ErrorDetail] = (),
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        super().__init__(message, code=code, details=details, headers=headers or _BEARER_CHALLENGE)
 
 
 class PermissionDeniedError(AppError):

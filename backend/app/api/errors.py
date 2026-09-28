@@ -39,7 +39,7 @@ def error_response(
         )
     )
     return JSONResponse(
-        status_code=status_code, content=body.model_dump(mode="json"), headers=headers
+        status_code=int(status_code), content=body.model_dump(mode="json"), headers=headers
     )
 
 

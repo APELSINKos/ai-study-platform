@@ -28,7 +28,6 @@ from app.services.auth import IssuedSession, normalize_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_BEARER_CHALLENGE: Final = {"WWW-Authenticate": "Bearer"}
 _MINUTE_SECONDS: Final = 60
 _HOUR_SECONDS: Final = 3600
 _REGISTER_RATE_LIMIT_SCOPE: Final = "auth_register_ip"
@@ -42,14 +41,7 @@ def _session_out(user: User, issued: IssuedSession, now: datetime) -> SessionOut
     return SessionOut(
         user=UserOut.model_validate(user),
         access_token=issued.access_token.value,
-        token_type="bearer",  # noqa: S106 -- a token kind label, not a credential
         expires_in=expires_in,
-    )
-
-
-def _with_bearer_challenge(error: AuthenticationError) -> AuthenticationError:
-    return AuthenticationError(
-        error.message, code=error.code, details=error.details, headers=_BEARER_CHALLENGE
     )
 
 
@@ -129,10 +121,7 @@ def login(  # noqa: PLR0913, PLR0917 -- FastAPI dependency injection, not real c
     redis: RedisClient,
 ) -> SessionOut:
     _enforce_login_rate_limits(redis, settings, ip=client_ip(request), email=payload.email)
-    try:
-        user = auth_service.authenticate(email=payload.email, password=payload.password)
-    except AuthenticationError as exc:
-        raise _with_bearer_challenge(exc) from exc
+    user = auth_service.authenticate(email=payload.email, password=payload.password)
     issued = auth_service.start_session(user, user_agent=request.headers.get("user-agent"))
     now = utcnow()
     set_session_cookies(response, issued, settings, now)
@@ -155,15 +144,9 @@ def issue_token(
     redis: RedisClient,
 ) -> TokenOut:
     _enforce_login_rate_limits(redis, settings, ip=client_ip(request), email=form.username)
-    try:
-        user = auth_service.authenticate(email=form.username, password=form.password)
-    except AuthenticationError as exc:
-        raise _with_bearer_challenge(exc) from exc
+    user = auth_service.authenticate(email=form.username, password=form.password)
     access_token = auth_service.issue_access_token(user)
-    return TokenOut(
-        access_token=access_token.value,
-        token_type="bearer",  # noqa: S106 -- a token kind label, not a credential
-    )
+    return TokenOut(access_token=access_token.value)
 
 
 @router.post(
@@ -185,9 +168,7 @@ def refresh(
             refresh_token, user_agent=request.headers.get("user-agent")
         )
     except AuthenticationError as exc:
-        failure = error_response(
-            exc.status_code, exc.code, exc.message, exc.details, headers=_BEARER_CHALLENGE
-        )
+        failure = error_response(exc.status_code, exc.code, exc.message, exc.details, exc.headers)
         clear_session_cookies(failure, settings)
         return failure
     now = utcnow()
@@ -201,8 +182,8 @@ def logout(
 ) -> None:
     """End the session tied to the refresh cookie, if any, and clear all session cookies.
 
-    No CSRF check: logging out has no effect an attacker could exploit, and the
-    refresh cookie's SameSite=Strict attribute already keeps it out of cross-site
+    No CSRF check: a cross-site form POST here would at worst sign the user out, and
+    the refresh cookie's SameSite=Strict attribute already keeps it out of cross-site
     requests in the first place.
     """
     auth_service.end_session(request.cookies.get(REFRESH_COOKIE_NAME))

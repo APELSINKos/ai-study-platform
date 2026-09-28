@@ -16,7 +16,7 @@ JWT_ALGORITHM: Final = "HS256"
 ACCESS_TOKEN_TYPE: Final = "access"  # noqa: S105 -- a token kind label, not a credential
 OPAQUE_TOKEN_BYTES: Final = 32
 _REQUIRED_CLAIMS: Final = ["sub", "exp", "iat", "type"]
-_INVALID_TOKEN_MESSAGE: Final = "The access token is invalid."  # noqa: S105 -- user-facing text
+INVALID_TOKEN_MESSAGE: Final = "The access token is invalid."  # noqa: S105 -- user-facing text
 
 logger = structlog.get_logger(__name__)
 _hasher = PasswordHasher()
@@ -74,13 +74,13 @@ def decode_access_token(token: str, *, secret: str) -> uuid.UUID:
     except jwt.ExpiredSignatureError as exc:
         raise AuthenticationError("The session has expired.", code="token_expired") from exc
     except jwt.InvalidTokenError as exc:
-        raise AuthenticationError(_INVALID_TOKEN_MESSAGE, code="invalid_token") from exc
+        raise AuthenticationError(INVALID_TOKEN_MESSAGE, code="invalid_token") from exc
     if payload.get("type") != ACCESS_TOKEN_TYPE:
-        raise AuthenticationError(_INVALID_TOKEN_MESSAGE, code="invalid_token")
+        raise AuthenticationError(INVALID_TOKEN_MESSAGE, code="invalid_token")
     try:
         return uuid.UUID(str(payload["sub"]))
     except ValueError as exc:
-        raise AuthenticationError(_INVALID_TOKEN_MESSAGE, code="invalid_token") from exc
+        raise AuthenticationError(INVALID_TOKEN_MESSAGE, code="invalid_token") from exc
 
 
 def new_opaque_token() -> str:
