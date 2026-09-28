@@ -134,9 +134,10 @@ class AuthService:
             )
             if not eligible_for_grace:
                 # Sign-out and reuse detection are already final for every token they
-                # touch, so only a lapsed or now-dead rotation grace needs to finish
-                # the job by revoking whatever is left of the family.
-                if token.revocation_reason == REVOKED_ROTATED:
+                # touch. A rotated token only means theft once its own grace window
+                # has lapsed; a dead family replayed inside the window is just a
+                # late arrival with nothing left to protect.
+                if token.revocation_reason == REVOKED_ROTATED and now - token.revoked_at > grace:
                     self._refresh_tokens.revoke_family(token.family_id, now, REVOKED_REUSE_DETECTED)
                     self._session.commit()
                     logger.warning(

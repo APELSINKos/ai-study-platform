@@ -383,8 +383,9 @@ def test_rotate_session_reuse_outside_the_grace_window_revokes_the_family_and_lo
 
 
 def test_rotate_session_replayed_right_after_sign_out_is_rejected_with_no_grace(
-    db_session: Session, integration_settings: Settings
+    db_session: Session, integration_settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    configure_logging("INFO", "json")
     clock = _FakeClock()
     service = AuthService(db_session, integration_settings, clock)
     user = service.register(
@@ -403,11 +404,18 @@ def test_rotate_session_replayed_right_after_sign_out_is_rejected_with_no_grace(
     token = repo.get_by_hash(hash_opaque_token(issued.refresh_token))
     assert token is not None
     assert token.revocation_reason == REVOKED_SIGNED_OUT
+    warnings = [
+        line
+        for line in _json_lines(capsys.readouterr().out)
+        if line["event"] == "refresh_token_reuse_detected"
+    ]
+    assert warnings == []
 
 
 def test_rotate_session_replayed_right_after_reuse_detection_is_rejected_with_no_grace(
-    db_session: Session, integration_settings: Settings
+    db_session: Session, integration_settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    configure_logging("INFO", "json")
     clock = _FakeClock()
     service = AuthService(db_session, integration_settings, clock)
     user = service.register(
@@ -430,11 +438,18 @@ def test_rotate_session_replayed_right_after_reuse_detection_is_rejected_with_no
     newest_token = repo.get_by_hash(hash_opaque_token(newest.refresh_token))
     assert newest_token is not None
     assert newest_token.revocation_reason == REVOKED_REUSE_DETECTED
+    warnings = [
+        line
+        for line in _json_lines(capsys.readouterr().out)
+        if line["event"] == "refresh_token_reuse_detected"
+    ]
+    assert len(warnings) == 1
 
 
 def test_rotate_session_denies_grace_when_the_family_has_no_active_token_left(
-    db_session: Session, integration_settings: Settings
+    db_session: Session, integration_settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    configure_logging("INFO", "json")
     clock = _FakeClock()
     service = AuthService(db_session, integration_settings, clock)
     user = service.register(
@@ -452,6 +467,12 @@ def test_rotate_session_denies_grace_when_the_family_has_no_active_token_left(
         service.rotate_session(original.refresh_token, user_agent=None)
 
     assert exc_info.value.code == "invalid_refresh_token"
+    warnings = [
+        line
+        for line in _json_lines(capsys.readouterr().out)
+        if line["event"] == "refresh_token_reuse_detected"
+    ]
+    assert warnings == []
 
 
 def test_end_session_revokes_the_whole_family(
