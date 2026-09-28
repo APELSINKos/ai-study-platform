@@ -7,6 +7,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.api.cookies import (
     ACCESS_COOKIE_NAME,
@@ -18,6 +20,7 @@ from app.api.cookies import (
 )
 from app.api.deps import get_redis
 from app.core.config import Settings
+from app.models.refresh_token import RefreshToken
 
 pytestmark = pytest.mark.integration
 
@@ -332,8 +335,11 @@ def test_logout_clears_cookies_and_the_refresh_token_stops_working(
 # --- token ------------------------------------------------------------------------
 
 
-def test_token_endpoint_returns_a_usable_bearer_token(auth_client: TestClient) -> None:
+def test_token_endpoint_returns_a_usable_bearer_token_and_creates_no_refresh_token_row(
+    auth_client: TestClient, db_session: Session
+) -> None:
     _register(auth_client, email="token-user@example.com")
+    rows_before = db_session.execute(select(func.count()).select_from(RefreshToken)).scalar_one()
 
     response = auth_client.post(
         _TOKEN_PATH, data={"username": "token-user@example.com", "password": _PASSWORD}
@@ -343,6 +349,8 @@ def test_token_endpoint_returns_a_usable_bearer_token(auth_client: TestClient) -
     body = response.json()
     assert body["token_type"] == "bearer"  # noqa: S105 -- a token kind label, not a credential
     assert "set-cookie" not in response.headers
+    rows_after = db_session.execute(select(func.count()).select_from(RefreshToken)).scalar_one()
+    assert rows_after == rows_before
 
     me_response = auth_client.get(
         _ME_PATH, headers={"Authorization": f"Bearer {body['access_token']}"}
@@ -373,3 +381,14 @@ def test_openapi_documents_the_auth_routes_and_the_oauth2_scheme(
         assert path in paths
     security_schemes = schema["components"]["securitySchemes"]
     assert any(scheme["type"] == "oauth2" for scheme in security_schemes.values())
+
+
+def test_openapi_documents_a_401_response_for_me(auth_client: TestClient) -> None:
+    response = auth_client.get("/openapi.json")
+
+    assert response.status_code == HTTPStatus.OK
+    schema = response.json()
+    me_responses = schema["paths"]["/api/v1/auth/me"]["get"]["responses"]
+    assert me_responses["401"]["content"]["application/json"]["schema"]["$ref"] == (
+        "#/components/schemas/ErrorResponse"
+    )

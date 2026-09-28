@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.clock import utcnow
@@ -16,6 +17,7 @@ from app.models.refresh_token import (
     REVOKED_ROTATED,
     REVOKED_SIGNED_OUT,
     USER_AGENT_MAX_LENGTH,
+    RefreshToken,
 )
 from app.models.user import User
 from app.repositories.refresh_tokens import RefreshTokenRepository
@@ -221,6 +223,29 @@ def test_start_session_uses_a_new_family_and_csrf_token_each_time(
     assert first_token is not None
     assert second_token is not None
     assert first_token.family_id != second_token.family_id
+
+
+def test_issue_access_token_returns_a_token_and_creates_no_refresh_token(
+    db_session: Session, integration_settings: Settings
+) -> None:
+    clock = _FakeClock()
+    service = AuthService(db_session, integration_settings, clock)
+    user = service.register(
+        email="access-only@example.com", password=_PASSWORD, display_name="Person"
+    )
+
+    token = service.issue_access_token(user)
+
+    assert (
+        decode_access_token(token.value, secret=integration_settings.secret_key.get_secret_value())
+        == user.id
+    )
+    ttl = timedelta(minutes=integration_settings.access_token_ttl_minutes)
+    assert token.expires_at == _START + ttl
+    count = db_session.execute(
+        select(func.count()).select_from(RefreshToken).where(RefreshToken.user_id == user.id)
+    ).scalar_one()
+    assert count == 0
 
 
 def test_rotate_session_returns_a_new_refresh_token_and_revokes_the_old_one(

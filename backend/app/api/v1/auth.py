@@ -145,9 +145,9 @@ def issue_token(
         user = auth_service.authenticate(email=form.username, password=form.password)
     except AuthenticationError as exc:
         raise _with_bearer_challenge(exc) from exc
-    issued = auth_service.start_session(user, user_agent=request.headers.get("user-agent"))
+    access_token = auth_service.issue_access_token(user)
     return TokenOut(
-        access_token=issued.access_token.value,
+        access_token=access_token.value,
         token_type="bearer",  # noqa: S106 -- a token kind label, not a credential
     )
 
@@ -195,6 +195,10 @@ def logout(
     clear_session_cookies(response, settings)
 
 
-@router.get("/me", summary="Get the current user")
+@router.get(
+    "/me",
+    summary="Get the current user",
+    responses={HTTPStatus.UNAUTHORIZED: {"model": ErrorResponse}},
+)
 def me(current_user: CurrentUser) -> UserOut:
     return UserOut.model_validate(current_user)

@@ -100,6 +100,19 @@ class AuthService:
         self._session.commit()
         return issued
 
+    def issue_access_token(self, user: User) -> AccessToken:
+        """Issue a bearer access token with no refresh token or session state.
+
+        Used by the OAuth2 password form (`/token`), which only needs a token for
+        Swagger's "Authorize" dialog and has nowhere to deliver a refresh cookie.
+        """
+        return create_access_token(
+            user.id,
+            secret=self._settings.secret_key.get_secret_value(),
+            ttl=timedelta(minutes=self._settings.access_token_ttl_minutes),
+            now=self._clock(),
+        )
+
     def rotate_session(
         self, refresh_token: str, *, user_agent: str | None
     ) -> tuple[User, IssuedSession]:
