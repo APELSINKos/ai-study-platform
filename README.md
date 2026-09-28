@@ -2,7 +2,7 @@
 
 AI Study Platform is a self-hosted platform for preparing for exams from your own material; its web interface is called Recall. You upload lecture notes or textbook chapters; it answers questions with citations to the exact passage, generates quizzes and flashcards, schedules reviews with spaced repetition and shows which topics need more work.
 
-**Status:** early development. The foundation is in place — API, background worker, database with pgvector, the web client shell, containers and CI. Study features are being added next.
+**Status:** early development. Accounts and sign-in work, and the web client shell and dashboard are in place, on top of the API, background worker, database with pgvector, containers and CI. Study features are next.
 
 ## Tech stack
 
@@ -28,6 +28,10 @@ docker compose up --build
 | Metrics (Prometheus format) | http://localhost:8000/metrics |
 
 The defaults work without any configuration; `.env.example` lists the variables that can be overridden.
+
+## Authentication
+
+The web client signs in with httpOnly cookies and a double-submit CSRF token. API clients, including Swagger's "Authorize" button, use a bearer token from `POST /api/v1/auth/token` instead. Access tokens are short-lived JWTs; refresh tokens are opaque, stored hashed, and rotated on every use — a token used again after rotation revokes its whole session family. Sign-in and registration are both rate-limited.
 
 ## Development
 
