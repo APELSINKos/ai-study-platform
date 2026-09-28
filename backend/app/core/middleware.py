@@ -69,9 +69,17 @@ class RequestContextMiddleware:
                 route=route,
                 status=status_code,
                 duration_ms=to_ms(duration),
+                **_user_id_field(scope),
             )
             structlog.contextvars.unbind_contextvars("request_id")
             request_id_ctx.reset(token)
+
+
+def _user_id_field(scope: Scope) -> dict[str, str]:
+    """The authenticated user's id, if `get_current_user` set one on this request."""
+    state = scope.get("state")
+    user_id = state.get("user_id") if isinstance(state, dict) else None
+    return {"user_id": user_id} if isinstance(user_id, str) else {}
 
 
 def route_template(scope: Scope) -> str:

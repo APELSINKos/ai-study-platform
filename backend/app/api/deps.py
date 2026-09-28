@@ -1,13 +1,24 @@
+import secrets
 from collections.abc import Iterator
-from typing import Annotated, cast
+from typing import Annotated, Final, cast
 
 from fastapi import Depends, Request
+from fastapi.security import OAuth2PasswordBearer
 from redis import Redis
 from sqlalchemy.orm import Session
 
+from app.api.cookies import ACCESS_COOKIE_NAME, CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from app.core.config import Settings
+from app.core.exceptions import AuthenticationError, PermissionDeniedError
 from app.core.redis import get_redis_client
+from app.core.security import decode_access_token
 from app.db.session import get_session_factory
+from app.models.user import User
+from app.services.auth import AuthService
+
+_SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
+_BEARER_CHALLENGE: Final = {"WWW-Authenticate": "Bearer"}
+_CSRF_FAILED_MESSAGE: Final = "The request could not be verified."
 
 
 def get_request_settings(request: Request) -> Settings:
@@ -30,3 +41,65 @@ def get_redis(settings: SettingsDep) -> Redis:
 
 
 RedisClient = Annotated[Redis, Depends(get_redis)]
+
+
+def get_auth_service(db: DbSession, settings: SettingsDep) -> AuthService:
+    return AuthService(db, settings)
+
+
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+
+# tokenUrl points Swagger's "Authorize" dialog at /api/v1/auth/token; auto_error is
+# disabled because a missing bearer token is not necessarily a failure here, the
+# recall_access cookie is an equally valid way to authenticate.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
+
+
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client is not None else "unknown"
+
+
+def verify_csrf(request: Request) -> None:
+    """Double-submit CSRF check: the readable cookie and the header must match.
+
+    Only meaningful for cookie-authenticated requests: a cross-site page can make
+    the browser send the cookie automatically, but it cannot read the cookie's
+    value to reproduce it in a custom header.
+    """
+    cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+    header_token = request.headers.get(CSRF_HEADER_NAME)
+    tokens_match = (
+        cookie_token is not None
+        and header_token is not None
+        and secrets.compare_digest(cookie_token, header_token)
+    )
+    if not tokens_match:
+        raise PermissionDeniedError(_CSRF_FAILED_MESSAGE, code="csrf_failed")
+
+
+def get_current_user(
+    request: Request,
+    auth_service: AuthServiceDep,
+    settings: SettingsDep,
+    bearer_token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+) -> User:
+    token = bearer_token
+    from_cookie = token is None
+    if from_cookie:
+        token = request.cookies.get(ACCESS_COOKIE_NAME)
+    if token is None:
+        raise AuthenticationError(headers=_BEARER_CHALLENGE)
+    if from_cookie and request.method not in _SAFE_METHODS:
+        verify_csrf(request)
+    try:
+        user_id = decode_access_token(token, secret=settings.secret_key.get_secret_value())
+        user = auth_service.get_active_user(user_id)
+    except AuthenticationError as exc:
+        raise AuthenticationError(
+            exc.message, code=exc.code, details=exc.details, headers=_BEARER_CHALLENGE
+        ) from exc
+    request.state.user_id = str(user.id)
+    return user
+
+
+CurrentUser = Annotated[User, Depends(get_current_user)]
