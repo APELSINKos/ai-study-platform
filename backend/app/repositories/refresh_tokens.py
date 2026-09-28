@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import select, update
@@ -33,7 +34,9 @@ class RefreshTokenRepository:
             .values(revoked_at=now)
             .returning(RefreshToken.id)
         )
-        return len(self._session.execute(statement).all())
+        revoked_ids = self._session.execute(statement).scalars().all()
+        self._expire_revoked_tokens(revoked_ids)
+        return len(revoked_ids)
 
     def revoke_all_for_user(self, user_id: uuid.UUID, now: datetime) -> int:
         statement = (
@@ -42,4 +45,17 @@ class RefreshTokenRepository:
             .values(revoked_at=now)
             .returning(RefreshToken.id)
         )
-        return len(self._session.execute(statement).all())
+        revoked_ids = self._session.execute(statement).scalars().all()
+        self._expire_revoked_tokens(revoked_ids)
+        return len(revoked_ids)
+
+    def _expire_revoked_tokens(self, revoked_ids: Sequence[uuid.UUID]) -> None:
+        # A bulk UPDATE bypasses the ORM, so identity-mapped instances the caller
+        # already holds (or fetched earlier in this session) would otherwise keep
+        # their stale, pre-revocation attribute values until something reloads them.
+        ids = set(revoked_ids)
+        if not ids:
+            return
+        for obj in list(self._session.identity_map.values()):
+            if isinstance(obj, RefreshToken) and obj.id in ids:
+                self._session.expire(obj)

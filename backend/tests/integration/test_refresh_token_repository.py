@@ -85,9 +85,6 @@ def test_revoke_family_revokes_only_that_familys_active_tokens(db_session: Sessi
     count = repository.revoke_family(family_a, now)
 
     assert count == 1
-    db_session.refresh(active_in_family)
-    db_session.refresh(already_revoked)
-    db_session.refresh(other_family_token)
     assert active_in_family.revoked_at == now
     assert already_revoked.revoked_at == pre_existing_revocation
     assert other_family_token.revoked_at is None
@@ -105,9 +102,6 @@ def test_revoke_all_for_user_counts_correctly(db_session: Session) -> None:
     count = repository.revoke_all_for_user(user.id, now)
 
     assert count == 2
-    db_session.refresh(token_one)
-    db_session.refresh(token_two)
-    db_session.refresh(other_users_token)
     assert token_one.revoked_at == now
     assert token_two.revoked_at == now
     assert other_users_token.revoked_at is None
