@@ -89,4 +89,27 @@ describe("authErrorMessage", () => {
 
     expect(screen.getByText("Неверный email или пароль.")).toBeInTheDocument();
   });
+
+  it.each([
+    [1, "Слишком много попыток. Повторите через 1 секунду."],
+    [3, "Слишком много попыток. Повторите через 3 секунды."],
+    [5, "Слишком много попыток. Повторите через 5 секунд."],
+    [21, "Слишком много попыток. Повторите через 21 секунду."],
+  ] as const)("pluralises %i second(s) in Russian", (seconds, expected) => {
+    renderWithIntl(
+      <Probe
+        error={
+          new ApiError({
+            status: 429,
+            code: "rate_limited",
+            message: "x",
+            retryAfterSeconds: seconds,
+          })
+        }
+      />,
+      { locale: "ru" },
+    );
+
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
 });
