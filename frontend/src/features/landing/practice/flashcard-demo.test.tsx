@@ -15,7 +15,7 @@ vi.mock("motion/react", async (importOriginal) => ({
 }));
 
 const FIRST_QUESTION = /What did Ebbinghaus measure in 1885\?/;
-const FIRST_ANSWER = /How much of a memorised list he still knew/;
+const FIRST_ANSWER = /He measured how much of a memorised list he could still recall/;
 const SECOND_QUESTION = /Why do spaced reviews beat rereading in one sitting\?/;
 
 function renderDemo() {
@@ -35,7 +35,7 @@ describe("FlashcardDemo", () => {
     await user.click(card);
 
     expect(card).toHaveAccessibleName(FIRST_ANSWER);
-    expect(screen.getByText(/^Answer: How much of a memorised list/)).toBeInTheDocument();
+    expect(screen.getByText(/^Answer: He measured how much/)).toBeInTheDocument();
   });
 
   it("turns the card over with Space and back again", async () => {
