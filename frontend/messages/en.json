@@ -61,6 +61,61 @@
         "second": "Lecture 6, page 2"
       }
     },
+    "practice": {
+      "title": "Practise until it sticks",
+      "body": "Recall writes quizzes and flashcards from your material. Flip a card, say how well you remembered it, and it comes back just as you start to forget. Questions you miss in a quiz become new cards.",
+      "note": "A sample deck. Try it.",
+      "demoLabel": "Sample flashcards",
+      "hint": "Recall the answer, then click the card or press Space to flip it.",
+      "rateLabel": "How well did you remember?",
+      "counter": "{current} of {total}",
+      "flipped": "Answer: {answer}",
+      "scheduled": "Next review in {interval}.",
+      "ratings": {
+        "again": {
+          "label": "Again",
+          "interval": "10 min"
+        },
+        "hard": {
+          "label": "Hard",
+          "interval": "1 day"
+        },
+        "good": {
+          "label": "Good",
+          "interval": "3 days"
+        },
+        "easy": {
+          "label": "Easy",
+          "interval": "5 days"
+        }
+      },
+      "cards": {
+        "measure": {
+          "topic": "Forgetting curve",
+          "question": "What did Ebbinghaus measure in 1885?",
+          "answer": "How much of a memorised list he still knew after hours and days without review.",
+          "source": "Lecture 6, page 1"
+        },
+        "spacing": {
+          "topic": "Spacing",
+          "question": "Why do spaced reviews beat rereading in one sitting?",
+          "answer": "Each review makes the next loss slower, so the same study time keeps the material for longer.",
+          "source": "Lecture 6, page 2"
+        },
+        "testing": {
+          "topic": "Testing effect",
+          "question": "What is the testing effect?",
+          "answer": "Recalling an answer from memory strengthens it more than reading the answer again.",
+          "source": "Lecture 6, page 3"
+        },
+        "interference": {
+          "topic": "Interference",
+          "question": "What is retroactive interference?",
+          "answer": "New material making it harder to recall something you learned earlier.",
+          "source": "Lecture 6, page 4"
+        }
+      }
+    },
     "remember": {
       "title": "Remember it longer",
       "body": "Without review, most of a lecture is gone within a week. Recall schedules each card for the day you are about to forget it, so every review lifts the curve back up and the next drop is gentler.",

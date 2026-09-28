@@ -2,6 +2,7 @@ import { SiteHeader } from "@/components/site-header";
 import { ClosingCta } from "@/features/landing/closing-cta";
 import { Hero } from "@/features/landing/hero/hero";
 import { HowItWorks } from "@/features/landing/how-it-works/how-it-works";
+import { Practice } from "@/features/landing/practice/practice";
 import { RememberLonger } from "@/features/landing/remember/remember-longer";
 import { SiteFooter } from "@/features/landing/site-footer";
 
@@ -15,6 +16,7 @@ export default function LandingPage() {
         <main className="col-span-full grid grid-cols-subgrid">
           <Hero />
           <HowItWorks />
+          <Practice />
           <RememberLonger />
           <ClosingCta />
         </main>
