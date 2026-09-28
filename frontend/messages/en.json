@@ -13,10 +13,77 @@
     "dark": "Dark",
     "system": "Match system"
   },
-  "Home": {
-    "headline": "<line>Read it once.</line> <line>Recall it on exam day.</line>",
-    "lead": "Recall turns lecture notes and textbook chapters into answers with sources, quizzes and flashcards, and reminds you what to review before you forget it.",
-    "marginNote": "Early build: the study tools are on their way."
+  "Landing": {
+    "cta": {
+      "createAccount": "Create account",
+      "signIn": "Sign in"
+    },
+    "hero": {
+      "headline": "<line>Read it once.</line> <line>Recall it on exam day.</line>",
+      "lead": "Recall answers questions from your lecture notes and textbook chapters, cites the exact passage, and brings each topic back as quizzes and flashcards just before you would forget it.",
+      "page": {
+        "course": "Introduction to psychology, lecture 6",
+        "title": "How memory fades",
+        "intro1": "In 1885 Ebbinghaus learned lists of",
+        "intro2": "nonsense syllables and tested recall.",
+        "marked1": "A day later he had lost more than",
+        "marked2": "half of what he had learned.",
+        "outro": "Each review made the next loss slower.",
+        "note": "this will be on the exam"
+      }
+    },
+    "how": {
+      "title": "How it works",
+      "lead": "Every answer comes from your own material, and you can always see where.",
+      "steps": {
+        "passages": {
+          "title": "Your file becomes passages",
+          "body": "Recall reads the PDF or notes you upload and cuts them into short passages, keeping the page and heading of each."
+        },
+        "map": {
+          "title": "Passages are mapped by meaning",
+          "body": "Each passage becomes a point on a map where passages about the same idea sit close together, even when they use different words."
+        },
+        "search": {
+          "title": "Your question finds its neighbours",
+          "body": "The question lands on the same map. The passages nearest to it are pulled in, along with any that use its exact terms."
+        },
+        "answer": {
+          "title": "The answer cites them",
+          "body": "The answer is written only from those passages, and each claim points to its source. If your notes do not cover the question, Recall says so instead of guessing."
+        }
+      },
+      "question": "How does reviewing slow down forgetting?",
+      "answer": "Without review, more than half is forgotten within a day [1]. Each review makes the next loss slower, so spaced reviews outlast rereading in one sitting [2].",
+      "citation": "source {number}",
+      "sources": {
+        "first": "Lecture 6, page 1",
+        "second": "Lecture 6, page 2"
+      }
+    },
+    "remember": {
+      "title": "Remember it longer",
+      "body": "Without review, most of a lecture is gone within a week. Recall schedules each card for the day you are about to forget it, so every review lifts the curve back up and the next drop is gentler.",
+      "weakTopics": "Quiz results show which topics are slipping, so you know what to open before the exam.",
+      "note": "After Ebbinghaus, 1885",
+      "withoutReview": "Without review",
+      "withReviews": "With reviews in Recall",
+      "yAxis": "How much you remember",
+      "axis": {
+        "start": "Lecture",
+        "week": "1 week",
+        "twoWeeks": "2 weeks",
+        "fourWeeks": "4 weeks"
+      },
+      "caption": "An illustration of the forgetting curve. Without review, recall falls to about a fifth within a week. Reviews on days 1, 3, 7 and 16 keep it high, and each drop after a review is gentler than the one before."
+    },
+    "closing": {
+      "title": "Start with one chapter.",
+      "body": "Create an account, upload the chapter you are studying now and ask it your first question."
+    },
+    "footer": {
+      "status": "System status"
+    }
   },
   "StatusPage": {
     "metaTitle": "System status",

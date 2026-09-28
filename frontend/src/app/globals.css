@@ -2,6 +2,13 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Screens too narrow or too short to list every step of a pinned story beside its picture. */
+@custom-variant cramped {
+  @media (width < 64rem), (height < 52rem) {
+    @slot;
+  }
+}
+
 /*
  * Palette of a student's desk: blue ballpoint ink for actions, the red margin rule of a
  * notebook for errors and emphasis lines, a fluorescent highlighter for marked text.
@@ -51,6 +58,10 @@
   --text-display: clamp(2.5rem, 1.4rem + 4.4vw, 4.5rem);
   --text-display--line-height: 1.05;
   --text-display--letter-spacing: -0.022em;
+  /* Section headings of long pages: between the hero display size and page titles. */
+  --text-headline: clamp(2rem, 1.55rem + 1.5vw, 2.75rem);
+  --text-headline--line-height: 1.12;
+  --text-headline--letter-spacing: -0.016em;
   --text-title: 2rem;
   --text-title--line-height: 1.2;
   --text-title--letter-spacing: -0.012em;

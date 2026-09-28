@@ -1,26 +1,24 @@
-import { getTranslations } from "next-intl/server";
-
 import { SiteHeader } from "@/components/site-header";
+import { ClosingCta } from "@/features/landing/closing-cta";
+import { Hero } from "@/features/landing/hero/hero";
+import { HowItWorks } from "@/features/landing/how-it-works/how-it-works";
+import { RememberLonger } from "@/features/landing/remember/remember-longer";
+import { SiteFooter } from "@/features/landing/site-footer";
 
-export default async function HomePage() {
-  const t = await getTranslations("Home");
-
+export default function LandingPage() {
   return (
-    <div className="px-4 py-6 sm:px-8 sm:py-12">
-      <div className="notebook mx-auto max-w-5xl">
+    // `clip` rather than `hidden`: it stops sideways scrolling without breaking sticky pinning.
+    <div className="overflow-x-clip px-4 py-6 sm:px-8 sm:py-12">
+      <div className="notebook mx-auto max-w-6xl">
         <SiteHeader />
-        <main className="notebook-row mt-16 sm:mt-24">
-          <p className="margin-note">{t("marginNote")}</p>
-          <div>
-            {/* Each sentence starts its own line; a long one still wraps evenly within it. */}
-            <h1 className="font-display text-display font-semibold text-balance">
-              {t.rich("headline", {
-                line: (chunks) => <span className="block">{chunks}</span>,
-              })}
-            </h1>
-            <p className="text-ink-soft mt-8 max-w-[58ch] text-lg leading-8">{t("lead")}</p>
-          </div>
+        {/* The sections share the notebook's two columns, so margin notes line up with the rule. */}
+        <main className="col-span-full grid grid-cols-subgrid">
+          <Hero />
+          <HowItWorks />
+          <RememberLonger />
+          <ClosingCta />
         </main>
+        <SiteFooter />
       </div>
     </div>
   );

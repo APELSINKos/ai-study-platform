@@ -1,0 +1,238 @@
+/*
+ * The printed lecture page beside the hero headline. On load a highlighter sweeps across two
+ * lines, then a pen brackets them and writes a note in the margin. The whole timeline lives in the
+ * custom properties below; without motion the page is simply shown already marked.
+ */
+
+.frame {
+  container-type: inline-size;
+}
+
+.page {
+  --sweep-first: 560ms;
+  --sweep-second: 360ms;
+  --pen-stroke: 420ms;
+  --pen-write: 720ms;
+  --start-first: 750ms;
+  --start-second: calc(var(--start-first) + var(--sweep-first) + 80ms);
+  --start-stroke: calc(var(--start-second) + var(--sweep-second) + 180ms);
+  --start-write: calc(var(--start-stroke) + var(--pen-stroke) - 80ms);
+  /* A marker starts a little slower than a pen and still lands softly. */
+  --sweep-ease: cubic-bezier(0.4, 0.1, 0.25, 1);
+
+  position: relative;
+  padding: 1.4em 1.75em 1.6em;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0.25rem;
+  background-color: var(--sheet);
+  box-shadow: var(--shadow-raised);
+  color: var(--ink);
+  font-family: var(--font-display);
+  /* Scales with the illustration so the fixed line breaks of a printed page always fit. */
+  font-size: min(1.0625rem, 3.25cqi);
+  line-height: 2;
+}
+
+.course {
+  font-family: var(--font-sans);
+  font-size: 0.75em;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.title {
+  margin-top: 0.3em;
+  font-size: 1.4em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75em;
+  margin-top: 0.6em;
+}
+
+.body > * {
+  grid-column: 1;
+}
+
+.line {
+  white-space: nowrap;
+}
+
+/* A marked line: the plain ink copy is wiped away exactly where the highlighted copy appears. */
+.marked {
+  position: relative;
+  width: fit-content;
+  margin-inline: -0.2em;
+  white-space: nowrap;
+}
+
+.ink,
+.marker {
+  display: block;
+  padding-inline: 0.2em;
+}
+
+.ink {
+  clip-path: inset(0 0 0 100%);
+}
+
+.marker {
+  position: absolute;
+  inset: 0;
+  isolation: isolate;
+  color: var(--on-highlight);
+}
+
+.marker::before {
+  content: "";
+  position: absolute;
+  inset: 0.42em 0 0.34em;
+  z-index: -1;
+  border-radius: 0.18em 0.32em 0.26em 0.2em;
+  background-color: var(--highlight);
+}
+
+.first {
+  --sweep: var(--sweep-first);
+  --start: var(--start-first);
+}
+
+.second {
+  --sweep: var(--sweep-second);
+  --start: var(--start-second);
+}
+
+.note {
+  grid-column: 2;
+  grid-row: 3 / span 2;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--pen);
+}
+
+.bracket {
+  width: 0.8em;
+  height: 3.4em;
+  flex: none;
+  overflow: visible;
+}
+
+.arrow {
+  display: none;
+  width: 1.6em;
+  height: 1.3em;
+  flex: none;
+  overflow: visible;
+}
+
+.stroke {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.noteText {
+  max-width: 6.5em;
+  font-size: 0.95em;
+  font-style: italic;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+/* On a narrow page the note moves under the marked lines and points back up at them. */
+@container (width < 26rem) {
+  .page {
+    padding: 1.1em 1.2em 1.3em;
+    font-size: min(1rem, 4.35cqi);
+  }
+
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .note {
+    grid-column: 1;
+    grid-row: 5;
+    justify-self: end;
+    margin-top: -0.2em;
+  }
+
+  .bracket {
+    display: none;
+  }
+
+  .arrow {
+    display: block;
+  }
+
+  .noteText {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ink {
+    animation: ink-out var(--sweep) var(--sweep-ease) var(--start) both;
+  }
+
+  .marker {
+    animation: marker-in var(--sweep) var(--sweep-ease) var(--start) both;
+  }
+
+  .stroke {
+    stroke-dasharray: 1;
+    animation: pen-stroke var(--pen-stroke) cubic-bezier(0.22, 1, 0.36, 1) var(--start-stroke) both;
+  }
+
+  .noteText {
+    animation: pen-write var(--pen-write) cubic-bezier(0.22, 1, 0.36, 1) var(--start-write) both;
+  }
+}
+
+@keyframes ink-out {
+  from {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 100%);
+  }
+}
+
+@keyframes marker-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* Hidden until the pen starts moving: a round cap would otherwise show as a dot. */
+@keyframes pen-stroke {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  1% {
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pen-write {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
