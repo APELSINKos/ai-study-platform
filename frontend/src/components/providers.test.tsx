@@ -1,16 +1,21 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useCurrentUser } from "@/features/auth/hooks";
+import { emitSessionExpired } from "@/lib/api/session-events";
 
 import { Providers } from "./providers";
 
 const replace = vi.fn();
+const navigation = { pathname: "/" };
 
 vi.mock("next-themes", () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace }),
+  usePathname: () => navigation.pathname,
+}));
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -31,6 +36,7 @@ function errorResponse(code: string, status: number): Response {
 
 function setPath(path: string): void {
   window.history.pushState({}, "", path);
+  navigation.pathname = window.location.pathname;
 }
 
 async function settle(): Promise<void> {
@@ -85,6 +91,27 @@ describe("Providers", () => {
       `/login?next=${encodeURIComponent("/dashboard?tab=progress")}`,
     );
     expect(countCallsTo("/auth/me")).toBeLessThanOrEqual(2);
+  });
+
+  it("redirects again when a later session is lost after signing back in", async () => {
+    setPath("/dashboard");
+    const tree = () => (
+      <Providers>
+        <Probe />
+      </Providers>
+    );
+    const { rerender } = render(tree());
+    await waitFor(() => expect(replace).toHaveBeenCalledTimes(1));
+
+    // The redirect lands on the login page, then signing in leads back to the dashboard.
+    setPath("/login");
+    rerender(tree());
+    setPath("/dashboard");
+    rerender(tree());
+    act(() => emitSessionExpired());
+
+    expect(replace).toHaveBeenCalledTimes(2);
+    expect(replace).toHaveBeenLastCalledWith(`/login?next=${encodeURIComponent("/dashboard")}`);
   });
 
   it("does nothing on the login page", async () => {
