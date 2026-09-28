@@ -64,6 +64,15 @@ test.describe.serial("account lifecycle", () => {
 
     await expect(page).toHaveURL(/\/dashboard$/);
   });
+
+  test("refreshes the session once the access cookie expires", async () => {
+    await page.context().clearCookies({ name: "recall_access" });
+    await page.reload();
+
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(CREDENTIALS.displayName);
+    const cookies = await page.context().cookies();
+    expect(cookies.some((cookie) => cookie.name === "recall_access")).toBe(true);
+  });
 });
 
 test("shows the login page in Russian after switching from the header", async ({ page }) => {
