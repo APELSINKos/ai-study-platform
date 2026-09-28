@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 
 import { IndexCard, IndexCardBody, IndexCardHeader } from "@/components/ui/index-card";
-
-import { DashboardGreeting } from "./greeting";
-import { DashboardMarginDate } from "./margin-date";
+import { DashboardGreeting } from "@/features/dashboard/greeting";
+import { DashboardMarginDate } from "@/features/dashboard/margin-date";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("Dashboard");

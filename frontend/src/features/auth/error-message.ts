@@ -2,7 +2,7 @@ import type { useTranslations } from "next-intl";
 
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 
-type AuthErrorsTranslator = ReturnType<typeof useTranslations<"AuthErrors">>;
+type AuthErrorsTranslator = ReturnType<typeof useTranslations<"Auth.errors">>;
 
 const SECONDS_PER_MINUTE = 60;
 

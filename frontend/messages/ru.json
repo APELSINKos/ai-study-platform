@@ -180,16 +180,6 @@
     "home": "На главную",
     "reference": "Код ошибки: {id}"
   },
-  "AuthErrors": {
-    "emailTaken": "Аккаунт с таким email уже существует.",
-    "invalidCredentials": "Неверный email или пароль.",
-    "rateLimited": "Слишком много попыток. Повторите через {seconds, plural, one {# секунду} few {# секунды} many {# секунд} other {# секунды}}.",
-    "rateLimitedMinutes": "Слишком много попыток. Повторите через {minutes, plural, one {# минуту} few {# минуты} many {# минут} other {# минуты}}.",
-    "rateLimitedGeneric": "Слишком много попыток. Повторите чуть позже.",
-    "validationError": "Проверьте отмеченные поля и попробуйте снова.",
-    "networkError": "Не удалось связаться с API. Проверьте соединение и попробуйте снова.",
-    "fallback": "Что-то пошло не так. Попробуйте ещё раз."
-  },
   "Auth": {
     "marginNote": "Ваши конспекты остаются вашими.",
     "login": {
@@ -220,6 +210,16 @@
       "nameRequired": "Введите имя.",
       "nameTooLong": "Имя должно быть не длиннее {max} символов.",
       "fieldRejected": "Проверьте это поле."
+    },
+    "errors": {
+      "emailTaken": "Аккаунт с таким email уже существует.",
+      "invalidCredentials": "Неверный email или пароль.",
+      "rateLimited": "Слишком много попыток. Повторите через {seconds, plural, one {# секунду} few {# секунды} many {# секунд} other {# секунды}}.",
+      "rateLimitedMinutes": "Слишком много попыток. Повторите через {minutes, plural, one {# минуту} few {# минуты} many {# минут} other {# минуты}}.",
+      "rateLimitedGeneric": "Слишком много попыток. Повторите чуть позже.",
+      "validationError": "Проверьте отмеченные поля и попробуйте снова.",
+      "networkError": "Не удалось связаться с API. Проверьте соединение и попробуйте снова.",
+      "fallback": "Что-то пошло не так. Попробуйте ещё раз."
     }
   },
   "AppShell": {

@@ -8,7 +8,7 @@ import { renderWithIntl } from "@/test/render";
 import { authErrorMessage } from "./error-message";
 
 function Probe({ error }: { error: unknown }) {
-  const t = useTranslations("AuthErrors");
+  const t = useTranslations("Auth.errors");
   return <p>{authErrorMessage(error, t)}</p>;
 }
 

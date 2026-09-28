@@ -1,6 +1,7 @@
 import type { useTranslations } from "next-intl";
 import { z } from "zod";
 
+// Mirrors the limits in backend/app/schemas/auth.py.
 export const PASSWORD_MIN_LENGTH = 10;
 export const PASSWORD_MAX_LENGTH = 128;
 export const DISPLAY_NAME_MAX_LENGTH = 80;

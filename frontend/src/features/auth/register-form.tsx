@@ -11,14 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IndexCard, IndexCardBody, IndexCardHeader } from "@/components/ui/index-card";
 import { Input } from "@/components/ui/input";
-import { ApiError } from "@/lib/api/errors";
 import type { RegisterRequest } from "@/lib/api/types";
 
-import { authErrorMessage } from "./error-message";
+import { DASHBOARD_PATH } from "./constants";
+import { handleAuthFormError } from "./form-error";
 import { useRegister } from "./hooks";
 import { registerSchema, type RegisterFormValues } from "./schemas";
 import { safeNext } from "./safe-next";
-import { matchServerFields } from "./server-fields";
 
 const FIELD_BY_SERVER_NAME: Record<string, keyof RegisterFormValues> = {
   email: "email",
@@ -32,7 +31,7 @@ function toRegisterRequest(values: RegisterFormValues): RegisterRequest {
 
 export function RegisterForm({ next }: { next?: string }) {
   const t = useTranslations("Auth");
-  const tErrors = useTranslations("AuthErrors");
+  const tErrors = useTranslations("Auth.errors");
   const router = useRouter();
   const registerUser = useRegister();
   const [formError, setFormError] = useState<string | null>(null);
@@ -53,31 +52,17 @@ export function RegisterForm({ next }: { next?: string }) {
     }
     setFormError(null);
     registerUser.mutate(toRegisterRequest(values), {
-      onSuccess: () => router.replace(redirectTo ?? "/dashboard"),
-      onError: (error) => {
-        if (error instanceof ApiError && error.code === "email_taken") {
-          setError("email", { message: authErrorMessage(error, tErrors) }, { shouldFocus: true });
-          return;
-        }
-        if (error instanceof ApiError && error.code === "validation_error") {
-          // The backend's own wording is English-only, so fields get messages from the catalog.
-          const { fields, hasUnmatched } = matchServerFields(error.details, FIELD_BY_SERVER_NAME);
-          for (const [index, field] of fields.entries()) {
-            setError(
-              field,
-              {
-                message:
-                  field === "email" ? t("validation.emailInvalid") : t("validation.fieldRejected"),
-              },
-              { shouldFocus: index === 0 },
-            );
-          }
-          if (fields.length > 0 && !hasUnmatched) {
-            return;
-          }
-        }
-        setFormError(authErrorMessage(error, tErrors));
-      },
+      onSuccess: () => router.replace(redirectTo ?? DASHBOARD_PATH),
+      onError: (error) =>
+        handleAuthFormError<keyof RegisterFormValues>({
+          error,
+          fieldByServerName: FIELD_BY_SERVER_NAME,
+          emailTakenField: "email",
+          t,
+          tErrors,
+          setError,
+          setFormError,
+        }),
     });
   }
 

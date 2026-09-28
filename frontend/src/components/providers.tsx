@@ -5,6 +5,7 @@ import { ThemeProvider } from "next-themes";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { loginRedirectUrl } from "@/features/auth/constants";
 import { isProtectedPath } from "@/features/auth/protected-paths";
 import { onSessionExpired } from "@/lib/api/session-events";
 import { makeQueryClient } from "@/lib/query-client";
@@ -31,7 +32,7 @@ export function Providers({ children }: { children: ReactNode }) {
         redirectingRef.current = true;
         const next = `${window.location.pathname}${window.location.search}`;
         // Clearing the cache first would make the still-mounted page refetch at once.
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
+        router.replace(loginRedirectUrl(next));
         queryClient.clear();
       }),
     [queryClient, router],

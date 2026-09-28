@@ -1,3 +1,5 @@
+import { CSRF_COOKIE_NAME } from "@/features/auth/constants";
+
 import { ApiError, NETWORK_ERROR_CODE, toApiError, toInvalidResponseError } from "./errors";
 import { emitSessionExpired } from "./session-events";
 
@@ -5,7 +7,6 @@ export const API_BASE_PATH = "/api/v1";
 const HTTP_NO_CONTENT = 204;
 const HTTP_UNAUTHORIZED = 401;
 
-const CSRF_COOKIE_NAME = "recall_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const REFRESH_PATH = "/auth/refresh";
