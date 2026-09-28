@@ -48,7 +48,7 @@ def test_a_configured_token_is_required() -> None:
 
 
 def test_metrics_are_hidden_in_production_without_a_token() -> None:
-    with _client(environment="production") as production:
+    with _client(environment="production", secret_key=SecretStr("x" * 40)) as production:
         response = production.get("/metrics")
 
     assert response.status_code == 404
