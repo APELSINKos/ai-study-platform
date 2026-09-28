@@ -1,7 +1,6 @@
 import { getTranslations } from "next-intl/server";
 
 import { SiteHeader } from "@/components/site-header";
-import { SystemStatus } from "@/features/system-status/system-status";
 
 export default async function HomePage() {
   const t = await getTranslations("Home");
@@ -20,7 +19,6 @@ export default async function HomePage() {
               })}
             </h1>
             <p className="text-ink-soft mt-8 max-w-[58ch] text-lg leading-8">{t("lead")}</p>
-            <SystemStatus className="mt-16" />
           </div>
         </main>
       </div>

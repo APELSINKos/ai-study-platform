@@ -18,6 +18,12 @@
     "lead": "Recall turns lecture notes and textbook chapters into answers with sources, quizzes and flashcards, and reminds you what to review before you forget it.",
     "marginNote": "Early build: the study tools are on their way."
   },
+  "StatusPage": {
+    "metaTitle": "System status",
+    "title": "Is Recall running?",
+    "lead": "This page checks the database and the task queue that Recall depends on.",
+    "marginNote": "{seconds, plural, one {Checked every second.} other {Checked every # seconds.}}"
+  },
   "Status": {
     "title": "System status",
     "refresh": "Check again",
