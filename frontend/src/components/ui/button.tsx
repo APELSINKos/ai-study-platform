@@ -1,7 +1,7 @@
 import { CircleNotchIcon } from "@phosphor-icons/react/ssr";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
-import type { ComponentProps } from "react";
+import type { ComponentProps, MouseEvent } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -49,15 +49,27 @@ export function Button({
   isLoading = false,
   disabled,
   type = "button",
+  onClick,
   children,
   ...props
 }: ButtonProps) {
   const classes = cn(buttonVariants({ variant, size }), className);
   const dataVariant = variant ?? "secondary";
 
+  // Loading must not set native `disabled`: a disabled button drops keyboard focus to the page
+  // body, which is disorienting right after the user triggered the action. Blocking the click
+  // in the handler achieves the same "no double submit" guarantee without that side effect.
+  function handleClick(event: MouseEvent<HTMLButtonElement>) {
+    if (isLoading) {
+      event.preventDefault();
+      return;
+    }
+    onClick?.(event);
+  }
+
   if (asChild) {
     return (
-      <Slot.Root data-variant={dataVariant} className={classes} {...props}>
+      <Slot.Root data-variant={dataVariant} className={classes} onClick={onClick} {...props}>
         {children}
       </Slot.Root>
     );
@@ -67,9 +79,12 @@ export function Button({
     <button
       type={type}
       data-variant={dataVariant}
+      data-loading={isLoading || undefined}
       className={classes}
-      disabled={disabled || isLoading}
+      disabled={disabled}
+      aria-disabled={isLoading || undefined}
       aria-busy={isLoading || undefined}
+      onClick={handleClick}
       {...props}
     >
       {isLoading ? <CircleNotchIcon aria-hidden className="animate-spin" /> : null}

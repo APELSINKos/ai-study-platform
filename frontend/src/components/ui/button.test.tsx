@@ -28,7 +28,7 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toHaveAttribute("type", "submit");
   });
 
-  it("blocks clicks and announces progress while loading", async () => {
+  it("stays focusable while loading, but blocks clicks and announces progress", async () => {
     const onClick = vi.fn();
     render(
       <Button isLoading onClick={onClick}>
@@ -37,10 +37,19 @@ describe("Button", () => {
     );
 
     const button = screen.getByRole("button", { name: "Generate quiz" });
-    expect(button).toBeDisabled();
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAttribute("aria-busy", "true");
+    button.focus();
+    expect(button).toHaveFocus();
     await userEvent.click(button);
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("still disables natively via the explicit disabled prop", () => {
+    render(<Button disabled>Save draft</Button>);
+
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled();
   });
 
   it("styles a link when rendered as its child", () => {

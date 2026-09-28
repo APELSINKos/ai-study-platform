@@ -1,6 +1,5 @@
 "use client";
 
-import { CircleNotchIcon } from "@phosphor-icons/react/ssr";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -58,18 +57,14 @@ export function SystemStatus({ className }: { className?: string }) {
         <h2 id="system-status-title" className="font-display text-lg font-semibold">
           {t("title")}
         </h2>
-        {/*
-          Not `isLoading`: that disables the button, and a disabled button drops keyboard focus
-          to the page body. The negative margin lines the label up with the latency column.
-        */}
+        {/* The negative margin lines the label up with the latency column. */}
         <Button
           variant="ghost"
           size="sm"
           className="-mr-3"
-          aria-busy={isRechecking || undefined}
+          isLoading={isRechecking}
           onClick={recheck}
         >
-          {isRechecking ? <CircleNotchIcon aria-hidden className="animate-spin" /> : null}
           {t("refresh")}
         </Button>
       </div>
