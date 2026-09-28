@@ -228,12 +228,17 @@
     },
     "menu": {
       "open": "Open menu",
-      "close": "Close menu"
+      "close": "Close menu",
+      "description": "Main navigation and account"
     },
     "account": {
       "loading": "Loading account…",
       "signOut": "Sign out",
       "signOutError": "Could not sign out. Try again."
+    },
+    "contentError": {
+      "message": "We couldn't load your account.",
+      "retry": "Try again"
     }
   },
   "Dashboard": {

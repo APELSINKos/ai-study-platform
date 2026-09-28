@@ -6,15 +6,23 @@ import type { ReactNode } from "react";
 
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
 import { useCurrentUser } from "@/features/auth/hooks";
+import { ApiError } from "@/lib/api/errors";
 
 import { MobileNav } from "./mobile-nav";
 import { NavList } from "./nav-list";
 import { UserMenu } from "./user-menu";
 
+const UNAUTHORIZED_STATUS = 401;
+
 export function AppShell({ children }: { children: ReactNode }) {
   const t = useTranslations("AppShell.nav");
-  const { data: user } = useCurrentUser();
+  const { data: user, error, isError, refetch } = useCurrentUser();
+  // A 401 means the session-expired redirect is already under way; showing an
+  // error here would just flash before the navigation completes.
+  const showContentError =
+    isError && !(error instanceof ApiError && error.status === UNAUTHORIZED_STATUS);
 
   return (
     <div className="md:grid md:grid-cols-[16rem_1fr]">
@@ -50,10 +58,22 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <main className="px-4 py-6 sm:px-8 sm:py-12">
           <div className="notebook mx-auto max-w-5xl">
-            <div>{children}</div>
+            {showContentError ? <ContentError onRetry={() => void refetch()} /> : children}
           </div>
         </main>
       </div>
+    </div>
+  );
+}
+
+function ContentError({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations("AppShell.contentError");
+  return (
+    <div className="flex flex-col items-start gap-4">
+      <p className="text-ink-soft text-sm">{t("message")}</p>
+      <Button variant="secondary" onClick={onRetry}>
+        {t("retry")}
+      </Button>
     </div>
   );
 }

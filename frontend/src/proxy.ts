@@ -5,8 +5,10 @@ import { routeDecision } from "@/features/auth/route-guard";
 
 const SESSION_HINT_COOKIE = "recall_csrf";
 
-// recall_access and recall_refresh are scoped to path /api and never reach page requests;
-// recall_csrf is readable on every path, so its presence is the only session hint available here.
+// recall_access is scoped to /api and recall_refresh to /api/v1/auth, so neither ever
+// reaches page requests; recall_csrf is readable on every path, so its presence is the
+// only session hint available here. A failed refresh deletes it along with the other
+// two cookies, so a stale hint cannot loop the user between /dashboard and /login.
 export function proxy(request: NextRequest): NextResponse {
   const { pathname, search } = request.nextUrl;
   const hasSession = request.cookies.has(SESSION_HINT_COOKIE);

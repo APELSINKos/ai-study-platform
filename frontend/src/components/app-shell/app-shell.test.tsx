@@ -29,6 +29,13 @@ function meResponse(): Response {
   );
 }
 
+function meErrorResponse(status: number, code = "http_error"): Response {
+  return new Response(
+    JSON.stringify({ error: { code, message: "boom", details: [], request_id: null } }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 describe("AppShell", () => {
   beforeEach(() => {
     fetchMock.mockReset();
@@ -83,10 +90,52 @@ describe("AppShell", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
+    expect(dialog).toHaveAccessibleDescription("Main navigation and account");
 
     await user.keyboard("{Escape}");
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(menuButton).toHaveFocus();
+  });
+
+  it("shows an error state with a retry when the account fails to load with a 500", async () => {
+    fetchMock.mockResolvedValue(meErrorResponse(500));
+    renderWithIntl(
+      <AppShell>
+        <p>page content</p>
+      </AppShell>,
+    );
+
+    expect(await screen.findByText("We couldn't load your account.")).toBeInTheDocument();
+    expect(screen.queryByText("page content")).not.toBeInTheDocument();
+
+    fetchMock.mockResolvedValue(meResponse());
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("page content")).toBeInTheDocument();
+  });
+
+  it("shows the error state when the account request fails outright", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderWithIntl(
+      <AppShell>
+        <p>page content</p>
+      </AppShell>,
+    );
+
+    expect(await screen.findByText("We couldn't load your account.")).toBeInTheDocument();
+  });
+
+  it("does not flash the error state on a 401, since a redirect is already under way", async () => {
+    fetchMock.mockResolvedValue(meErrorResponse(401, "not_authenticated"));
+    renderWithIntl(
+      <AppShell>
+        <p>page content</p>
+      </AppShell>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.queryByText("We couldn't load your account.")).not.toBeInTheDocument();
+    expect(screen.getByText("page content")).toBeInTheDocument();
   });
 });

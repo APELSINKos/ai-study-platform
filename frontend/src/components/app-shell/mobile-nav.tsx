@@ -2,7 +2,7 @@
 
 import { ListIcon, XIcon } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
-import { Dialog } from "radix-ui";
+import { Dialog, VisuallyHidden } from "radix-ui";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,9 @@ export function MobileNav({ user }: { user: UserOut | undefined }) {
       <Dialog.Portal>
         <Dialog.Overlay className="bg-ink/30 fixed inset-0 z-40" />
         <Dialog.Content className="bg-sheet fixed inset-y-0 left-0 z-50 flex w-72 flex-col gap-6 p-4 shadow-[var(--shadow-raised)]">
+          <VisuallyHidden.Root asChild>
+            <Dialog.Description>{t("description")}</Dialog.Description>
+          </VisuallyHidden.Root>
           <div className="flex items-center justify-between">
             <Dialog.Title className="font-display text-xl font-semibold">Recall</Dialog.Title>
             <Dialog.Close asChild>
