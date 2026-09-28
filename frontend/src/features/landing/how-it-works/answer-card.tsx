@@ -32,7 +32,7 @@ export function AnswerCard({
       style={cardStyle}
       className={cn("index-card", styles.card, className)}
     >
-      <p className="flex items-start gap-3 px-4 py-3 text-sm font-medium sm:px-5">
+      <p className="index-card-header flex items-start gap-3 px-4 py-3 text-sm font-medium sm:px-5">
         <QuestionDot />
         {t("question")}
       </p>

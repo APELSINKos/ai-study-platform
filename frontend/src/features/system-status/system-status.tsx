@@ -53,7 +53,7 @@ export function SystemStatus({ className }: { className?: string }) {
       aria-busy={isPending || undefined}
       className={cn("index-card w-full max-w-xl", className)}
     >
-      <div className="flex items-center justify-between gap-4 px-4 pt-4 pb-3 sm:px-5">
+      <div className="index-card-header flex items-center justify-between gap-4 px-4 pt-4 pb-3 sm:px-5">
         <h2 id="system-status-title" className="font-display text-lg font-semibold">
           {t("title")}
         </h2>

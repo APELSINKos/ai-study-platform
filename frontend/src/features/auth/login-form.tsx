@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
+import { IndexCard, IndexCardBody, IndexCardHeader } from "@/components/ui/index-card";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api/errors";
 
@@ -70,14 +71,15 @@ export function LoginForm({ next }: { next?: string }) {
 
   return (
     <>
-      <div className="index-card w-full max-w-md">
-        <div className="px-5 pt-5 pb-4 sm:px-6 sm:pt-6">
+      <IndexCard className="w-full max-w-md">
+        <IndexCardHeader>
           <h1 className="font-display text-title font-semibold">{t("login.title")}</h1>
-        </div>
-        <form
+        </IndexCardHeader>
+        <IndexCardBody
+          as="form"
           onSubmit={handleSubmit(onSubmit)}
           noValidate
-          className="flex flex-col gap-4 px-5 pt-5 pb-6 sm:px-6 sm:pt-6"
+          className="flex flex-col gap-4"
         >
           <Field label={t("fields.email")} error={errors.email?.message}>
             <Input type="email" autoComplete="email" {...register("email")} />
@@ -93,8 +95,8 @@ export function LoginForm({ next }: { next?: string }) {
           <Button type="submit" variant="primary" isLoading={login.isPending}>
             {t("login.submit")}
           </Button>
-        </form>
-      </div>
+        </IndexCardBody>
+      </IndexCard>
       <p className="text-ink-soft mt-6 text-sm">
         {t("login.switchPrompt")}{" "}
         <Button asChild variant="link">

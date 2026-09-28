@@ -102,7 +102,7 @@ function CardFace({
         isBack && "rotate-y-180",
       )}
     >
-      <span className="text-ink-soft flex items-center justify-between gap-4 px-5 pt-3.5 pb-2.5 text-sm">
+      <span className="index-card-header text-ink-soft flex items-center justify-between gap-4 px-5 pt-3.5 pb-2.5 text-sm">
         <span>{header}</span>
         {aside ? <span className="tabular-nums">{aside}</span> : null}
       </span>
