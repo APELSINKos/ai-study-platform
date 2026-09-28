@@ -1,7 +1,9 @@
 import pytest
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from app import __version__
+from app.api.v1.router import api_router
 from app.core.logging import configure_logging
 
 FRONTEND_ORIGIN = "http://localhost:3000"
@@ -44,3 +46,24 @@ def test_metrics_requests_are_not_logged_at_info(
     client.get("/metrics")
 
     assert "request_finished" not in capsys.readouterr().out
+
+
+def test_openapi_documents_the_unified_error_shape_for_validation_errors() -> None:
+    original_routes = list(api_router.routes)
+    throwaway_router = APIRouter()
+
+    @throwaway_router.get("/test-throwaway")
+    def throwaway(value: int) -> dict[str, int]:
+        return {"value": value}
+
+    api_router.include_router(throwaway_router)
+    try:
+        test_app = FastAPI()
+        test_app.include_router(api_router, prefix="/api/v1")
+        schema = test_app.openapi()
+    finally:
+        api_router.routes = original_routes
+
+    schemas = schema["components"]["schemas"]
+    assert "ErrorResponse" in schemas
+    assert "HTTPValidationError" not in schemas
