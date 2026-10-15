@@ -31,6 +31,7 @@ HOSTILE_UNITS: Final = (
     "< ",
     "<document",
     "</document",
+    "<document x",
     "<document>",
     "</docu</document>ment>",
 )
@@ -153,6 +154,16 @@ def test_a_forged_delimiter_is_replaced_so_the_text_around_it_stays_apart() -> N
 
     # Deleting the inner tag would join "</docu" and "ment>" into a new closing tag.
     assert f"before </docu[{ELLIPSIS}]ment> after" in user
+
+
+def test_the_text_after_an_unclosed_look_alike_is_kept() -> None:
+    sentence = "Every child element follows the root."
+    sample = f"The root element is written as <document and so on. {' '.join([sentence] * 100)}"
+
+    _, user = _contents(_request(sample=sample))
+
+    assert f"The root element is written as [{ELLIPSIS}] and so on." in user
+    assert user.count(sentence) == 100
 
 
 def test_other_angle_brackets_are_kept() -> None:

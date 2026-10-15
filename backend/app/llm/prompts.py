@@ -26,9 +26,11 @@ SUGGESTED_MIN_TOPICS: Final = 3
 # ("</docu</document>ment>"); a mark that cannot be part of a tag makes one pass enough.
 OMISSION_MARK: Final = EXCERPT_SEPARATOR.strip()
 # A tag the model could take for a delimiter: "</DOCUMENT >", "< /document x='y'>", or one left
-# unclosed. A match stops at the next "<" and the possessive quantifiers never give characters
-# back, so the search stays linear on runs such as "<document<document…" or "<" and spaces.
-_FORGED_DELIMITER_RE: Final = re.compile(r"<\s*+/?+\s*+document\b[^<>]*+>?+", re.IGNORECASE)
+# unclosed. The rest of a tag is taken only up to a ">" that comes before the next "<", so an
+# unclosed "<document" is replaced alone and the text after it stays. The possessive
+# quantifiers never give characters back, so the search stays linear on runs such as
+# "<document<document…" or "<" and spaces.
+_FORGED_DELIMITER_RE: Final = re.compile(r"<\s*+/?+\s*+document\b(?:[^<>]*+>)?+", re.IGNORECASE)
 _DIFFICULTY_CHOICES: Final = " or ".join(f'"{difficulty}"' for difficulty in DIFFICULTIES)
 
 ANALYSIS_SYSTEM_PROMPT: Final = (
