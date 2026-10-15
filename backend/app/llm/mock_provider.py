@@ -38,6 +38,10 @@ PREFIX_LENGTH: Final = 5
 BIGRAM_WEIGHT: Final = 0.5
 # Longer runs of letters are data such as base64 rather than words.
 TOKEN_MAX_CHARS: Final = 64
+# Text between spaces up to this length is composed before it is split into words: room for
+# the longest word kept, even with combining marks on its letters. Longer runs stay as they
+# are, because CPython normalises a long run that expands in quadratic time.
+_PIECE_MAX_CHARS: Final = 4 * TOKEN_MAX_CHARS
 _HASH_PERSON: Final = b"recall-v1"
 _HASH_BYTES: Final = 8
 _SIGN_BIT: Final = _HASH_BYTES * 8 - 1
@@ -137,10 +141,16 @@ def _fold(word: str) -> str:
 def _folded_words(text: str) -> Iterator[tuple[str, str]]:
     """Each word of a text with its folded form, stop words and overlong runs left out.
 
-    Words are folded one at a time: CPython grows the NFKC result a few characters at a
-    time, which is quadratic on a long run that expands, such as "…" turning into "...".
+    A combining mark is not a word character, so the text is composed to NFC first, piece
+    by piece, or "ё" written as "е" and a diaeresis would split its word in two. Words are
+    folded one at a time: CPython grows the NFKC result a few characters at a time, which
+    is quadratic on a long run that expands, such as "…" turning into "...".
     """
-    for word in words(text):
+    composed = " ".join(
+        unicodedata.normalize("NFC", piece) if len(piece) <= _PIECE_MAX_CHARS else piece
+        for piece in text.split()
+    )
+    for word in words(composed):
         if len(word) <= TOKEN_MAX_CHARS and (folded := _fold(word)) not in _STOPWORDS:
             yield word, folded
 

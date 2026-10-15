@@ -175,8 +175,16 @@ def test_a_vector_does_not_depend_on_the_rest_of_the_batch(
         ("ＳＱＬ ﬁle", "sql file"),
         ("rock’n’roll", "rock'n'roll"),
         ("The 2024 database of the year", "database year"),
+        # Ё and й written as a base letter and a combining mark (NFD).
+        ("Ёлка и йод, «йод»", "Ёлка и йод, «йод»"),
     ],
-    ids=["case-and-yo", "compatibility-forms", "apostrophes", "stop-words-and-numbers"],
+    ids=[
+        "case-and-yo",
+        "compatibility-forms",
+        "apostrophes",
+        "stop-words-and-numbers",
+        "decomposed-letters",
+    ],
 )
 def test_texts_that_differ_only_in_form_get_the_same_vector(
     embedder: HashingEmbeddingProvider, text: str, same_as: str
