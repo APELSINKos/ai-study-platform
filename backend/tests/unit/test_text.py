@@ -186,10 +186,51 @@ def test_initials_do_not_end_a_sentence(text: str, expected: list[str]) -> None:
             "Москва основана в 1147 г. Юрием Долгоруким. Это известно.",
             ["Москва основана в 1147 г. Юрием Долгоруким.", "Это известно."],
         ),
+        ("Item no. 5 is missing. Next.", ["Item no. 5 is missing.", "Next."]),
+        ("Ask Ms. Smith first. Then wait.", ["Ask Ms. Smith first.", "Then wait."]),
+        ("The U.S. Army is large. It grows.", ["The U.S. Army is large.", "It grows."]),
+        (
+            "The Ph.D. Program starts in May. Apply now.",
+            ["The Ph.D. Program starts in May.", "Apply now."],
+        ),
     ],
-    ids=["dr", "e.g.", "i.e.", "т. е.", "т.е.", "рис.", "fig.-and-eq.", "single-letter-г."],
+    ids=[
+        "dr",
+        "e.g.",
+        "i.e.",
+        "т. е.",
+        "т.е.",
+        "рис.",
+        "fig.-and-eq.",
+        "single-letter-г.",
+        "no.-before-a-number",
+        "ms.-before-a-name",
+        "u.s.",
+        "ph.d.",
+    ],
 )
 def test_abbreviations_do_not_end_a_sentence(text: str, expected: list[str]) -> None:
+    assert split_sentences(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("The answer is no. That is final.", ["The answer is no.", "That is final."]),
+        ("Я думал о нем. Он ушёл.", ["Я думал о нем.", "Он ушёл."]),
+        (
+            "Длина стороны равна 5 см. Найдите площадь.",
+            ["Длина стороны равна 5 см.", "Найдите площадь."],
+        ),
+        ("The delay is 50 ms. Then it fails.", ["The delay is 50 ms.", "Then it fails."]),
+        ("Wait 5 sec. Then try again.", ["Wait 5 sec.", "Then try again."]),
+        ("The shop closes at 5 p.m. Come early.", ["The shop closes at 5 p.m.", "Come early."]),
+    ],
+    ids=["no", "о нем", "5 см.", "50 ms.", "5 sec.", "p.m."],
+)
+def test_a_word_that_is_only_sometimes_an_abbreviation_can_end_a_sentence(
+    text: str, expected: list[str]
+) -> None:
     assert split_sentences(text) == expected
 
 
@@ -277,6 +318,12 @@ def test_shortened_text_never_exceeds_the_limit(max_chars: int) -> None:
     text = "word " * 100 + "x" * 300
 
     assert len(shorten(text, max_chars)) <= max_chars
+
+
+@pytest.mark.parametrize("max_chars", [0, -1])
+def test_a_limit_without_room_for_the_ellipsis_is_rejected(max_chars: int) -> None:
+    with pytest.raises(ValueError, match="max_chars"):
+        shorten("abc def ghi", max_chars)
 
 
 @pytest.mark.parametrize("unit", HOSTILE_UNITS)

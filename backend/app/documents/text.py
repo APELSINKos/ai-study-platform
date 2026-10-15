@@ -31,16 +31,25 @@ _WORD_EDGE_MARKS: Final = "\"'«»“”‘’()[]"
 # Long enough for the longest abbreviation together with the word before it.
 _ABBREVIATION_WINDOW: Final = 32
 # Abbreviations that a capitalised word or a number often follows inside a sentence
-# ("Dr. Watson", "e.g. Python", "см. рис. 2"). Ones that usually close a list ("etc.",
-# "и др.", "т.д.") are left out, so a capital letter after them starts a new sentence.
+# ("Dr. Watson", "Fig. 4", "рис. 2"). Ones that usually close a list ("etc.", "и др.",
+# "т.д.") are left out, so a capital letter after them starts a new sentence.
 _ABBREVIATIONS: Final = _word_set(
     """
-    al approx apr aug ca capt cf ch chap col dec dr e.g ed eds eq eqs feb fig figs gen i.e jan
-    jr jul jun lt mr mrs ms no nos nov oct pp prof ref refs rev sec sep sept sgt sr st viz vol
-    vols vs акад англ вв вып гг гл греч доц изд им кв лат напр нем обл пер пп просп проф разд
-    ред рис см ср ст стр т.е т.к т.н табл тел тыс ул франц
+    al approx apr aug ca capt cf ch chap col dec dr ed eds eq eqs feb fig figs gen jan jr jul
+    jun lt mr mrs nov oct pp prof ref refs rev sep sept sgt sr st viz vol vols vs акад англ вв
+    вып гг гл греч доц изд им кв лат напр обл пер пп просп проф разд ред рис ср ст стр табл
+    тел тыс ул франц
     """
 )
+# Abbreviations only before a number: "no. 5", while "The answer is no." ends a sentence.
+_NUMBER_ABBREVIATIONS: Final = frozenset({"no", "nos"})
+# Abbreviations except after a number, where they are units: "Ms. Smith" and "см. рис. 2",
+# while "50 ms." and "5 см." may end a sentence.
+_UNIT_ABBREVIATIONS: Final = frozenset({"ms", "sec", "см"})
+# Short groups of letters joined by dots ("U.S.", "Ph.D.", "e.g.", "т.е."); of these only
+# "т.д." and "т.п." close a list and "a.m." and "p.m." a time, so those may end a sentence.
+_DOTTED_ABBREVIATION_RE: Final = re.compile(r"[^\W\d_]{1,2}+(?:\.[^\W\d_]{1,2}+)++")
+_DOTTED_SENTENCE_ENDS: Final = frozenset({"т.д", "т.п", "a.m", "p.m"})
 # A single letter is an initial ("А. С. Пушкин") or part of an abbreviation such as
 # "т. е."; only "т. д." and "т. п." close a list and so may end a sentence.
 _LIST_END_PREFIX: Final = "т."
@@ -94,7 +103,7 @@ def split_sentences(text: str) -> list[str]:
     start = 0
     for match in _SENTENCE_END_RE.finditer(text):
         single_period = match.group(1).rstrip(_CLOSING_MARKS) == "."
-        if single_period and _is_abbreviation(text, match.start()):
+        if single_period and _is_abbreviation(text, match.start(), match.end()):
             continue
         if sentence := text[start : match.end(1)].strip():
             sentences.append(sentence)
@@ -104,15 +113,24 @@ def split_sentences(text: str) -> list[str]:
     return sentences
 
 
-def _is_abbreviation(text: str, period: int) -> bool:
-    """Whether the period at text[period] closes an initial or a known abbreviation."""
+def _is_abbreviation(text: str, period: int, next_start: int) -> bool:
+    """Whether the period at text[period] closes an initial or a known abbreviation.
+
+    next_start is where the next sentence would begin if the period ended this one.
+    """
     tokens = text[max(0, period - _ABBREVIATION_WINDOW) : period].split()
     if not tokens:
         return False
     word = tokens[-1].strip(_WORD_EDGE_MARKS).casefold()
+    previous = tokens[-2].casefold() if len(tokens) > 1 else ""
     if len(word) == 1 and word.isalpha():
-        previous = tokens[-2].casefold() if len(tokens) > 1 else ""
         return not (previous == _LIST_END_PREFIX and word in _LIST_END_LETTERS)
+    if word in _NUMBER_ABBREVIATIONS:
+        return text[next_start].isdigit()
+    if word in _UNIT_ABBREVIATIONS:
+        return not previous[-1:].isdigit()
+    if _DOTTED_ABBREVIATION_RE.fullmatch(word):
+        return word not in _DOTTED_SENTENCE_ENDS
     return word in _ABBREVIATIONS
 
 
@@ -122,6 +140,8 @@ def has_cyrillic(text: str) -> bool:
 
 def shorten(text: str, max_chars: int) -> str:
     """Cut text to at most max_chars at a word boundary and mark the cut with an ellipsis."""
+    if max_chars < len(ELLIPSIS):
+        raise ValueError(f"max_chars must leave room for the ellipsis, got {max_chars}")
     if len(text) <= max_chars:
         return text
     cut = text[: max_chars - len(ELLIPSIS)]
