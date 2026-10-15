@@ -14,8 +14,10 @@ from app.core.exceptions import AuthenticationError, PermissionDeniedError
 from app.core.redis import get_redis_client
 from app.core.security import decode_access_token
 from app.db.session import get_session_factory
+from app.documents.storage import FileStorage
 from app.models.user import User
 from app.services.auth import AuthService
+from app.services.workspaces import WorkspaceService
 
 _SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
 _IPV6_RATE_LIMIT_PREFIX_BITS: Final = 64
@@ -49,6 +51,20 @@ def get_auth_service(db: DbSession, settings: SettingsDep) -> AuthService:
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+
+
+def get_storage(settings: SettingsDep) -> FileStorage:
+    return FileStorage(settings.storage_dir)
+
+
+StorageDep = Annotated[FileStorage, Depends(get_storage)]
+
+
+def get_workspace_service(db: DbSession, storage: StorageDep) -> WorkspaceService:
+    return WorkspaceService(db, storage)
+
+
+WorkspaceServiceDep = Annotated[WorkspaceService, Depends(get_workspace_service)]
 
 # tokenUrl points Swagger's "Authorize" dialog at /api/v1/auth/token; auto_error is
 # disabled because a missing bearer token is not necessarily a failure here, the
