@@ -1,6 +1,7 @@
+import uuid
 from collections.abc import Iterator
 from http import HTTPStatus
-from typing import Final
+from typing import Final, NamedTuple
 
 import httpx2
 import pytest
@@ -10,9 +11,11 @@ from redis import Redis
 from sqlalchemy.orm import Session
 
 from app.api.cookies import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
-from app.api.deps import CurrentUser, get_db
+from app.api.deps import CurrentUser, get_db, get_document_queue
 from app.core.config import Settings
 from app.core.redis import get_redis_client
+from app.core.request_context import get_request_id
+from app.documents.queue import QueueUnavailableError
 from app.main import create_app
 
 PASSWORD: Final = "correct horse battery staple"
@@ -49,10 +52,38 @@ def _sign_up(client: TestClient, email: str) -> None:
     assert response.status_code == HTTPStatus.CREATED
 
 
+class QueuedDocument(NamedTuple):
+    document_id: uuid.UUID
+    # The id of the API request that queued the document, which the worker logs with it.
+    request_id: str | None
+
+
+class RecordingDocumentQueue:
+    """Stands in for the broker: remembers what was queued, or fails like a broker that is down."""
+
+    def __init__(self) -> None:
+        self.enqueued: list[QueuedDocument] = []
+        self.unavailable = False
+
+    def enqueue(self, document_id: uuid.UUID) -> None:
+        if self.unavailable:
+            raise QueueUnavailableError("The broker is not reachable.")
+        self.enqueued.append(QueuedDocument(document_id, get_request_id()))
+
+
 @pytest.fixture
-def auth_app(integration_settings: Settings, db_session: Session) -> FastAPI:
+def document_queue() -> RecordingDocumentQueue:
+    return RecordingDocumentQueue()
+
+
+@pytest.fixture
+def auth_app(
+    integration_settings: Settings, db_session: Session, document_queue: RecordingDocumentQueue
+) -> FastAPI:
     app = create_app(integration_settings)
     app.dependency_overrides[get_db] = lambda: db_session
+    # Tests never publish to a real broker.
+    app.dependency_overrides[get_document_queue] = lambda: document_queue
     app.include_router(_csrf_probe_router)
     return app
 

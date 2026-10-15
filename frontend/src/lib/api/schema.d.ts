@@ -184,6 +184,28 @@ export interface paths {
         patch: operations["update_workspace_api_v1_workspaces__workspace_id__patch"];
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the documents of a workspace, the newest first */
+        get: operations["list_documents_api_v1_workspaces__workspace_id__documents_get"];
+        put?: never;
+        /**
+         * Upload a PDF, Markdown or text file to a workspace and queue it for processing
+         * @description The document starts as uploaded. When the queue cannot take it, it comes back failed
+         *     with the error code queue_unavailable, and processing can be retried.
+         */
+        post: operations["upload_document_api_v1_workspaces__workspace_id__documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -212,6 +234,14 @@ export interface components {
              */
             client_secret?: string | null;
         };
+        /** Body_upload_document_api_v1_workspaces__workspace_id__documents_post */
+        Body_upload_document_api_v1_workspaces__workspace_id__documents_post: {
+            /**
+             * File
+             * @description A PDF, Markdown (.md) or plain text (.txt) file.
+             */
+            file: string;
+        };
         /** ComponentHealth */
         ComponentHealth: {
             /**
@@ -222,6 +252,94 @@ export interface components {
             /** Latency Ms */
             latency_ms?: number | null;
         };
+        /** @enum {string} */
+        Difficulty: "easy" | "medium" | "hard";
+        /** @enum {string} */
+        DocumentContentType: "application/pdf" | "text/markdown" | "text/plain";
+        /** @enum {string} */
+        DocumentErrorCode: "pdf_unreadable" | "pdf_encrypted" | "no_text" | "too_many_pages" | "text_too_long" | "file_missing" | "ai_unavailable" | "ai_quota_exceeded" | "ai_rejected" | "ai_invalid_output" | "embedding_dimension_mismatch" | "processing_timeout" | "queue_unavailable" | "internal_error";
+        /** DocumentOut */
+        DocumentOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Original Filename */
+            original_filename: string;
+            content_type: components["schemas"]["DocumentContentType"];
+            /** Size Bytes */
+            size_bytes: number;
+            status: components["schemas"]["DocumentStatus"];
+            /** @description Why processing failed. While an automatic retry is pending the status is uploaded and the code ai_unavailable. */
+            error_code: components["schemas"]["DocumentErrorCode"] | null;
+            /**
+             * Attempts
+             * @description Processing runs started so far.
+             */
+            attempts: number;
+            /** Title */
+            title: string | null;
+            /** Summary */
+            summary: string | null;
+            /** Topics */
+            topics: string[] | null;
+            difficulty: components["schemas"]["Difficulty"] | null;
+            /** Estimated Study Minutes */
+            estimated_study_minutes: number | null;
+            /** Page Count */
+            page_count: number | null;
+            /** Word Count */
+            word_count: number | null;
+            /** Chunk Count */
+            chunk_count: number | null;
+            /** Analysis Model */
+            analysis_model: string | null;
+            /** Embedding Model */
+            embedding_model: string | null;
+            /** Processing Ms */
+            processing_ms: number | null;
+            /** Processing Started At */
+            processing_started_at: string | null;
+            /** Processed At */
+            processed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Can Retry
+             * @description Whether processing can be started again: the document failed, or its status has not changed for too long.
+             */
+            can_retry: boolean;
+        };
+        /** DocumentPage */
+        DocumentPage: {
+            /** Items */
+            items: components["schemas"]["DocumentOut"][];
+            /**
+             * Total
+             * @description Number of items on all pages.
+             */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /** @enum {string} */
+        DocumentStatus: "uploaded" | "processing" | "indexing" | "ready" | "failed";
         /** ErrorBody */
         ErrorBody: {
             /**
@@ -1011,6 +1129,158 @@ export interface operations {
             };
             /** @description The request contains invalid data. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_documents_api_v1_workspaces__workspace_id__documents_get: {
+        parameters: {
+            query?: {
+                /** @description Only the documents in this status. */
+                status?: components["schemas"]["DocumentStatus"] | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upload_document_api_v1_workspaces__workspace_id__documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_document_api_v1_workspaces__workspace_id__documents_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

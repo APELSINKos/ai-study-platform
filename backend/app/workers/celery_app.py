@@ -11,6 +11,7 @@ from app.core.logging import configure_logging
 from app.core.request_context import request_id_ctx
 
 TASK_REQUEST_ID_KEY: Final = "request_id"
+PROCESS_DOCUMENT_TASK_NAME: Final = "documents.process"
 TASK_SOFT_TIME_LIMIT_SECONDS: Final = 5 * 60
 TASK_TIME_LIMIT_SECONDS: Final = TASK_SOFT_TIME_LIMIT_SECONDS + 60
 DOCUMENT_TASK_SOFT_TIME_LIMIT_SECONDS: Final = 10 * 60

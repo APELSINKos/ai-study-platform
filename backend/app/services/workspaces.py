@@ -19,6 +19,11 @@ logger = structlog.get_logger(__name__)
 _WORKSPACE_NOT_FOUND_MESSAGE: Final = "The workspace was not found."
 
 
+def workspace_not_found() -> NotFoundError:
+    """The error for a workspace that does not exist or belongs to another user."""
+    return NotFoundError(_WORKSPACE_NOT_FOUND_MESSAGE, code="workspace_not_found")
+
+
 class WorkspaceService:
     """A user's workspaces with the statistics of their documents."""
 
@@ -88,7 +93,7 @@ class WorkspaceService:
         # Another user's workspace is reported exactly like a missing one.
         workspace = self._workspaces.get_for_owner(workspace_id, user.id)
         if workspace is None:
-            raise NotFoundError(_WORKSPACE_NOT_FOUND_MESSAGE, code="workspace_not_found")
+            raise workspace_not_found()
         return workspace
 
     def _with_stats(self, workspace: Workspace) -> WorkspaceWithStats:

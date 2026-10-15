@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from http import HTTPStatus
-from typing import Final
+from typing import Any, Final
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -24,6 +24,11 @@ _HTTP_ERROR_CODES: Final[dict[int, str]] = {
     HTTPStatus.UNSUPPORTED_MEDIA_TYPE: "unsupported_media_type",
     HTTPStatus.TOO_MANY_REQUESTS: "rate_limited",
 }
+
+
+def error_responses(*statuses: HTTPStatus) -> dict[int | str, dict[str, Any]]:
+    """A route's `responses=`: each status documented with the unified error body."""
+    return {status: {"model": ErrorResponse} for status in statuses}
 
 
 def error_response(

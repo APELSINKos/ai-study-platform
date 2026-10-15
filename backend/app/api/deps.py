@@ -11,10 +11,13 @@ from app.core.config import Settings
 from app.core.redis import get_redis_client
 from app.core.request_auth import authenticate_request, check_csrf
 from app.db.session import get_session_factory
+from app.documents.queue import CeleryDocumentQueue, DocumentQueue
 from app.documents.storage import FileStorage
 from app.models.user import User
 from app.services.auth import AuthService
+from app.services.documents import DocumentService
 from app.services.workspaces import WorkspaceService
+from app.workers.celery_app import celery_app
 
 _IPV6_RATE_LIMIT_PREFIX_BITS: Final = 64
 
@@ -60,6 +63,22 @@ def get_workspace_service(db: DbSession, storage: StorageDep) -> WorkspaceServic
 
 
 WorkspaceServiceDep = Annotated[WorkspaceService, Depends(get_workspace_service)]
+
+
+def get_document_queue() -> DocumentQueue:
+    return CeleryDocumentQueue(celery_app)
+
+
+DocumentQueueDep = Annotated[DocumentQueue, Depends(get_document_queue)]
+
+
+def get_document_service(
+    db: DbSession, storage: StorageDep, queue: DocumentQueueDep, settings: SettingsDep
+) -> DocumentService:
+    return DocumentService(db, storage, queue, settings)
+
+
+DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
 
 # tokenUrl points Swagger's "Authorize" dialog at /api/v1/auth/token; auto_error is
 # disabled because a missing bearer token is not necessarily a failure here, the
