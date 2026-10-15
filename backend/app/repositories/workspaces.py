@@ -11,7 +11,7 @@ from app.models.workspace import Workspace
 
 
 @dataclass(frozen=True, slots=True)
-class WorkspaceStats:
+class WorkspaceStatsRow:
     document_count: int
     ready_count: int
     # Documents still waiting for, or going through, processing.
@@ -24,11 +24,11 @@ class WorkspaceStats:
 @dataclass(frozen=True, slots=True)
 class WorkspaceWithStats:
     workspace: Workspace
-    stats: WorkspaceStats
+    stats: WorkspaceStatsRow
 
 
 def _stats_columns() -> tuple[Label[Any], ...]:
-    """The per-workspace aggregate, labelled with the WorkspaceStats field names."""
+    """The per-workspace aggregate, labelled with the WorkspaceStatsRow field names."""
     is_ready = Document.status == "ready"
     is_active = Document.status.in_(ACTIVE_DOCUMENT_STATUSES)
     ready_minutes = func.sum(Document.estimated_study_minutes).filter(is_ready)
@@ -41,8 +41,8 @@ def _stats_columns() -> tuple[Label[Any], ...]:
     )
 
 
-def _stats_from(row: Row[Any]) -> WorkspaceStats:
-    return WorkspaceStats(
+def _stats_from(row: Row[Any]) -> WorkspaceStatsRow:
+    return WorkspaceStatsRow(
         document_count=row.document_count,
         ready_count=row.ready_count,
         processing_count=row.processing_count,
@@ -68,7 +68,7 @@ class WorkspaceRepository:
         )
         return self._session.execute(statement).scalar_one_or_none()
 
-    def get_stats(self, workspace_id: uuid.UUID) -> WorkspaceStats:
+    def get_stats(self, workspace_id: uuid.UUID) -> WorkspaceStatsRow:
         statement = select(*_stats_columns()).where(Document.workspace_id == workspace_id)
         return _stats_from(self._session.execute(statement).one())
 

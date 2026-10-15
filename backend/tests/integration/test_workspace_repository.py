@@ -10,12 +10,12 @@ from app.models.document import Document, DocumentStatus
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.repositories.users import UserRepository
-from app.repositories.workspaces import WorkspaceRepository, WorkspaceStats
+from app.repositories.workspaces import WorkspaceRepository, WorkspaceStatsRow
 
 pytestmark = pytest.mark.integration
 
 _NOW: Final = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
-_EMPTY_STATS: Final = WorkspaceStats(
+_EMPTY_STATS: Final = WorkspaceStatsRow(
     document_count=0,
     ready_count=0,
     processing_count=0,
@@ -145,7 +145,7 @@ def test_list_for_owner_reports_document_stats_per_workspace(db_session: Session
 
     stats = {item.workspace.name: item.stats for item in items}
     assert stats == {
-        "Busy": WorkspaceStats(
+        "Busy": WorkspaceStatsRow(
             document_count=7,
             ready_count=3,
             processing_count=3,
@@ -166,7 +166,7 @@ def test_get_stats_counts_the_documents_of_one_workspace(db_session: Session) ->
     _document(db_session, workspace, "uploaded")
     _document(db_session, neighbour, "failed")
 
-    assert repository.get_stats(workspace.id) == WorkspaceStats(
+    assert repository.get_stats(workspace.id) == WorkspaceStatsRow(
         document_count=2,
         ready_count=1,
         processing_count=1,
