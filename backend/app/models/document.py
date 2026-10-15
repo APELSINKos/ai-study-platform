@@ -130,7 +130,8 @@ class Document(TimestampMixin, Base):
     )
     title: Mapped[str | None] = mapped_column(String(TITLE_MAX_LENGTH), default=None)
     summary: Mapped[str | None] = mapped_column(String(SUMMARY_MAX_LENGTH), default=None)
-    topics: Mapped[list[str] | None] = mapped_column(JSONB, default=None)
+    # None must reach the database as SQL NULL: a JSON null fails the topics_array CHECK.
+    topics: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True), default=None)
     difficulty: Mapped[Difficulty | None] = mapped_column(
         String(DIFFICULTY_MAX_LENGTH), default=None
     )

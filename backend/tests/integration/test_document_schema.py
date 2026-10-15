@@ -5,7 +5,7 @@ from typing import Final
 
 import psycopg
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
@@ -117,6 +117,28 @@ def test_complete_ready_and_failed_documents_are_accepted(db_session: Session) -
 
     assert ready.topics == ["sorting", "complexity"]
     assert failed.error_code == "pdf_unreadable"
+
+
+def test_topics_set_to_none_are_stored_as_sql_null(db_session: Session) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    created = _document(workspace, topics=None)
+    assigned = _document(workspace, topics=["sorting"])
+    updated = _document(workspace, topics=["graphs"])
+    _flush(db_session, created, assigned, updated)
+
+    assigned.topics = None
+    db_session.flush()
+    db_session.execute(update(Document).where(Document.id == updated.id).values(topics=None))
+
+    rows = db_session.execute(
+        text("SELECT id, topics IS NULL AS is_null FROM documents WHERE workspace_id = :id"),
+        {"id": workspace.id},
+    )
+    assert {row.id: row.is_null for row in rows} == {
+        created.id: True,
+        assigned.id: True,
+        updated.id: True,
+    }
 
 
 def test_every_declared_value_is_accepted(db_session: Session) -> None:
