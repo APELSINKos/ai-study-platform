@@ -3,21 +3,20 @@ from fastapi import APIRouter
 from app.api.deps import SettingsDep
 from app.core.config import Settings
 from app.documents.validation import ALLOWED_EXTENSIONS
-from app.llm.mock_provider import MOCK_ANALYSIS_MODEL, MOCK_EMBEDDING_MODEL
+from app.llm.factory import selected_models
 from app.schemas.meta import AiInfo, MetaOut
 
 router = APIRouter(prefix="/meta", tags=["meta"])
 
 
 def _ai_info(settings: Settings) -> AiInfo:
-    llm_provider = settings.resolved_llm_provider
-    embedding_provider = settings.resolved_embedding_provider
+    # The worker builds its providers by the same rule, so these are the models in use.
+    selection = selected_models(settings)
+    offline = "mock" in (selection.chat.provider, selection.embedding.provider)
     return AiInfo(
-        mode="offline" if "mock" in (llm_provider, embedding_provider) else "live",
-        chat_model=settings.llm_model if llm_provider == "openai" else MOCK_ANALYSIS_MODEL,
-        embedding_model=(
-            settings.embedding_model if embedding_provider == "openai" else MOCK_EMBEDDING_MODEL
-        ),
+        mode="offline" if offline else "live",
+        chat_model=selection.chat.model,
+        embedding_model=selection.embedding.model,
     )
 
 

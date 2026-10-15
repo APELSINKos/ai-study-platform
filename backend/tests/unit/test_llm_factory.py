@@ -6,14 +6,17 @@ import pytest
 from openai import OpenAI, Timeout
 from pydantic import SecretStr
 
-from app.core.config import DEFAULT_OPENAI_BASE_URL, Settings
+from app.core.config import DEFAULT_OPENAI_BASE_URL, ResolvedProvider, Settings
 from app.core.logging import configure_logging
 from app.llm import factory
+from app.llm.base import EmbeddingProvider, LLMProvider
 from app.llm.factory import (
     CONNECT_TIMEOUT_SECONDS,
+    ModelChoice,
     build_embedding_provider,
     build_llm_provider,
     get_openai_client,
+    selected_models,
 )
 from app.llm.mock_provider import (
     MOCK_ANALYSIS_MODEL,
@@ -210,6 +213,40 @@ def test_one_client_serves_every_document_on_the_same_endpoint() -> None:
     assert _embedding_provider(settings).client is _embedding_provider(settings).client
     # The same key and URL with other limits get a client of their own.
     assert _chat_provider(settings).client is not _embedding_provider(settings).client
+
+
+def _provider_of(provider: LLMProvider | EmbeddingProvider) -> ResolvedProvider:
+    live = isinstance(provider, OpenAILLMProvider | OpenAIEmbeddingProvider)
+    return "openai" if live else "mock"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {},
+        {
+            "llm_provider": "mock",
+            "embedding_provider": "mock",
+            "openai_api_key": SecretStr(CHAT_API_KEY),
+        },
+        {"openai_api_key": SecretStr(CHAT_API_KEY), "llm_base_url": CHAT_BASE_URL},
+        {"openai_api_key": SecretStr(CHAT_API_KEY), "embedding_provider": "mock"},
+        {
+            "embedding_api_key": SecretStr(EMBEDDING_API_KEY),
+            "embedding_base_url": EMBEDDING_BASE_URL,
+        },
+    ],
+    ids=["no-keys", "forced-offline", "chat-key", "offline-embeddings", "embedding-key-only"],
+)
+def test_the_selected_models_are_the_ones_the_builders_build(values: dict[str, Any]) -> None:
+    settings = _settings(**values)
+    chat = build_llm_provider(settings)
+    embeddings = build_embedding_provider(settings)
+
+    selection = selected_models(settings)
+
+    assert selection.chat == ModelChoice(_provider_of(chat), chat.model_name)
+    assert selection.embedding == ModelChoice(_provider_of(embeddings), embeddings.model_name)
 
 
 def _selection_lines(output: str) -> list[dict[str, Any]]:
