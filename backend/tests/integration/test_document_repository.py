@@ -1,10 +1,10 @@
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Any, Final
 
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import event, inspect, select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 
@@ -256,15 +256,25 @@ def test_replace_for_document_drops_the_previous_chunks(db_session: Session) -> 
     assert total == 1
 
 
-def test_replace_for_document_inserts_every_batch(
+def test_replace_for_document_inserts_the_rows_in_batches(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("app.repositories.document_chunks.CHUNK_INSERT_BATCH_SIZE", 2)
     repository = DocumentChunkRepository(db_session)
     document = _document(db_session, _workspace(db_session, _user(db_session)))
+    batch_sizes: list[int] = []
+
+    def record_chunk_insert(**event_args: Any) -> None:
+        if event_args["statement"].startswith("INSERT INTO document_chunks"):
+            # A batch of one row is a plain execute() with that row's parameters.
+            rows = len(event_args["parameters"]) if event_args["executemany"] else 1
+            batch_sizes.append(rows)
+
+    event.listen(db_session.connection(), "before_cursor_execute", record_chunk_insert, named=True)
 
     repository.replace_for_document(document.id, document.workspace_id, [_row(i) for i in range(5)])
 
+    assert batch_sizes == [2, 2, 1]
     chunks, total = repository.list_for_document(document.id, offset=0, limit=10)
     assert [chunk.chunk_index for chunk in chunks] == [0, 1, 2, 3, 4]
     assert total == 5
