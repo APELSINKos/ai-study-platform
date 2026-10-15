@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import NamedTuple
 
@@ -6,7 +7,16 @@ from sqlalchemy import BigInteger, ColumnElement, Update, cast, delete, func, se
 from sqlalchemy.orm import Session
 
 from app.documents.status import retryable_condition
-from app.models.document import ACTIVE_DOCUMENT_STATUSES, Document, DocumentStatus
+from app.documents.text import shorten
+from app.models.document import (
+    ACTIVE_DOCUMENT_STATUSES,
+    ERROR_MESSAGE_MAX_LENGTH,
+    Difficulty,
+    Document,
+    DocumentContentType,
+    DocumentErrorCode,
+    DocumentStatus,
+)
 from app.models.workspace import Workspace
 
 
@@ -15,6 +25,27 @@ class OwnerUsage(NamedTuple):
     active_count: int
     # Sum of the sizes of every stored file, whatever its status.
     storage_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimedDocument:
+    """What a processing run needs of the document it claimed.
+
+    token is the attempts value the claim set: the run's later writes go through only while
+    it is unchanged. The analysis fields hold what an earlier attempt saved, if any.
+    """
+
+    id: uuid.UUID
+    token: int
+    workspace_id: uuid.UUID
+    storage_key: str
+    content_type: DocumentContentType
+    original_filename: str
+    title: str | None
+    summary: str | None
+    topics: list[str] | None
+    difficulty: Difficulty | None
+    analysis_model: str | None
 
 
 class DocumentRepository:
@@ -97,7 +128,7 @@ class DocumentRepository:
             )
             .values(status="uploaded", error_code=None, error_message=None, updated_at=now)
         )
-        return self._update_returning(statement)
+        return self._update_returning(statement) is not None
 
     def mark_queue_unavailable(self, document_id: uuid.UUID, message: str, now: datetime) -> bool:
         """Fail a document that could not be queued; False when its row is gone.
@@ -115,10 +146,109 @@ class DocumentRepository:
                 updated_at=now,
             )
         )
-        return self._update_returning(statement)
+        return self._update_returning(statement) is not None
 
-    def _update_returning(self, statement: Update) -> bool:
-        """Run an UPDATE of at most one document; False when it matched no row.
+    def claim_for_processing(self, document_id: uuid.UUID, now: datetime) -> ClaimedDocument | None:
+        """Start a processing run on an uploaded document; None when it is not uploaded.
+
+        A single compare-and-set UPDATE, so of two runs at once only one gets the document,
+        and a document already claimed, finished or deleted is left alone.
+        """
+        statement = (
+            update(Document)
+            .where(Document.id == document_id, Document.status == "uploaded")
+            .values(
+                status="processing",
+                attempts=Document.attempts + 1,
+                processing_started_at=now,
+                updated_at=now,
+                error_code=None,
+                error_message=None,
+            )
+        )
+        document = self._update_returning(statement)
+        if document is None:
+            return None
+        return ClaimedDocument(
+            id=document.id,
+            token=document.attempts,
+            workspace_id=document.workspace_id,
+            storage_key=document.storage_key,
+            content_type=document.content_type,
+            original_filename=document.original_filename,
+            title=document.title,
+            summary=document.summary,
+            topics=document.topics,
+            difficulty=document.difficulty,
+            analysis_model=document.analysis_model,
+        )
+
+    def update_if_current(
+        self, document_id: uuid.UUID, token: int, now: datetime, **values: object
+    ) -> bool:
+        """Write values to the document while the run with this token still owns it.
+
+        False when the document is gone or a later run has claimed it; that run owns it now.
+        """
+        statement = (
+            update(Document)
+            .where(Document.id == document_id, Document.attempts == token)
+            .values(**values, updated_at=now)
+        )
+        return self._update_returning(statement) is not None
+
+    def mark_failed(
+        self,
+        document_id: uuid.UUID,
+        token: int,
+        code: DocumentErrorCode,
+        message: str,
+        now: datetime,
+    ) -> bool:
+        """End the run's document as failed with this error; False when the run lost it."""
+        return self.update_if_current(
+            document_id,
+            token,
+            now,
+            status="failed",
+            error_code=code,
+            error_message=shorten(message, ERROR_MESSAGE_MAX_LENGTH),
+        )
+
+    def mark_retry_pending(
+        self,
+        document_id: uuid.UUID,
+        token: int,
+        code: DocumentErrorCode,
+        message: str,
+        now: datetime,
+    ) -> bool:
+        """Send the run's document back to uploaded with the error a later run may get past.
+
+        False when the run lost it.
+        """
+        return self.update_if_current(
+            document_id,
+            token,
+            now,
+            status="uploaded",
+            error_code=code,
+            error_message=shorten(message, ERROR_MESSAGE_MAX_LENGTH),
+        )
+
+    def complete(self, document_id: uuid.UUID, token: int, now: datetime, **values: object) -> bool:
+        """Mark the run's document ready, processed now; False when the run lost it.
+
+        values are the rest a ready document needs: chunk_count, embedding_model and
+        processing_ms. The UPDATE locks the document row until the transaction ends, so the
+        caller stores the chunks after it, in the same transaction.
+        """
+        return self.update_if_current(
+            document_id, token, now, status="ready", processed_at=now, **values
+        )
+
+    def _update_returning(self, statement: Update) -> Document | None:
+        """Run an UPDATE of at most one document; the updated document, None if no row matched.
 
         The updated row is read back into the copy of the document this session holds,
         every column of it: a column left at its default on insert was never loaded, and
@@ -127,7 +257,7 @@ class DocumentRepository:
         returning = statement.returning(Document).execution_options(
             synchronize_session=False, populate_existing=True
         )
-        return self._session.scalars(returning).first() is not None
+        return self._session.scalars(returning).first()
 
     def owner_usage(self, owner_id: uuid.UUID) -> OwnerUsage:
         statement = (

@@ -1,5 +1,6 @@
 import hashlib
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
@@ -8,22 +9,38 @@ from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 
-from app.models.document import Document, DocumentStatus
+from app.models.document import ERROR_MESSAGE_MAX_LENGTH, Document, DocumentStatus
 from app.models.document_chunk import EMBEDDING_DIMENSIONS, DocumentChunk
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.repositories.document_chunks import ChunkRow, DocumentChunkRepository
-from app.repositories.documents import DocumentRepository, OwnerUsage
+from app.repositories.documents import ClaimedDocument, DocumentRepository, OwnerUsage
 from app.repositories.users import UserRepository
 from app.repositories.workspaces import WorkspaceRepository
 
 pytestmark = pytest.mark.integration
 
 _NOW: Final = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
+_EARLIER: Final = _NOW - timedelta(minutes=5)
 # Fields a row in this status must carry to pass the documents table's CHECKs.
 _STATUS_FIELDS: Final[dict[DocumentStatus, dict[str, object]]] = {
     "ready": {"chunk_count": 2, "embedding_model": "mock-hashing-v1", "processed_at": _NOW},
     "failed": {"error_code": "pdf_unreadable"},
+}
+# Each write a processing run makes after its claim, made with a given run token.
+_RUN_WRITES: Final[dict[str, Callable[[DocumentRepository, uuid.UUID, int], bool]]] = {
+    "update_if_current": lambda repository, document_id, token: repository.update_if_current(
+        document_id, token, _NOW, word_count=10
+    ),
+    "mark_failed": lambda repository, document_id, token: repository.mark_failed(
+        document_id, token, "no_text", "The document has no text.", _NOW
+    ),
+    "mark_retry_pending": lambda repository, document_id, token: repository.mark_retry_pending(
+        document_id, token, "ai_unavailable", "The AI provider is busy.", _NOW
+    ),
+    "complete": lambda repository, document_id, token: repository.complete(
+        document_id, token, _NOW, chunk_count=1, embedding_model="mock-hashing-v1", processing_ms=1
+    ),
 }
 
 
@@ -280,6 +297,179 @@ def test_mark_queue_unavailable_fails_the_document_at_the_given_time(db_session:
     stored = (document.status, document.error_code, document.error_message, document.updated_at)
     assert loaded == stored == ("failed", "queue_unavailable", "Not queued.", _NOW)
     assert document.attempts == 1
+
+
+def test_claim_for_processing_starts_a_run_and_returns_what_the_run_needs(
+    db_session: Session,
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    # Waiting for a retry, with the analysis an earlier attempt saved.
+    document = _document(
+        db_session,
+        workspace,
+        "uploaded",
+        attempts=1,
+        error_code="ai_unavailable",
+        error_message="The AI provider is busy.",
+        title="Sorting",
+        summary="How lists are put in order.",
+        topics=["Merge sort", "Quick sort"],
+        difficulty="medium",
+        analysis_model="gpt-5.4-mini",
+        updated_at=_EARLIER,
+    )
+
+    claimed = DocumentRepository(db_session).claim_for_processing(document.id, _NOW)
+
+    assert claimed == ClaimedDocument(
+        id=document.id,
+        token=2,
+        workspace_id=workspace.id,
+        storage_key=document.storage_key,
+        content_type="text/markdown",
+        original_filename="notes.md",
+        title="Sorting",
+        summary="How lists are put in order.",
+        topics=["Merge sort", "Quick sort"],
+        difficulty="medium",
+        analysis_model="gpt-5.4-mini",
+    )
+    db_session.expire_all()
+    assert (
+        document.status,
+        document.attempts,
+        document.processing_started_at,
+        document.updated_at,
+        document.error_code,
+        document.error_message,
+    ) == ("processing", 2, _NOW, _NOW, None, None)
+
+
+@pytest.mark.parametrize("status", ["processing", "indexing", "ready", "failed"])
+def test_claim_for_processing_leaves_a_document_that_is_not_uploaded(
+    db_session: Session, status: DocumentStatus
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(db_session, workspace, status, attempts=1, updated_at=_EARLIER)
+
+    assert DocumentRepository(db_session).claim_for_processing(document.id, _NOW) is None
+
+    db_session.expire_all()
+    assert (document.status, document.attempts, document.updated_at) == (status, 1, _EARLIER)
+
+
+def test_claim_for_processing_gives_a_document_to_one_run_only(db_session: Session) -> None:
+    repository = DocumentRepository(db_session)
+    document = _document(db_session, _workspace(db_session, _user(db_session)))
+
+    first = repository.claim_for_processing(document.id, _NOW)
+    second = repository.claim_for_processing(document.id, _NOW)
+
+    assert first is not None
+    assert first.token == 1
+    assert second is None
+    assert repository.claim_for_processing(uuid.uuid4(), _NOW) is None
+
+
+@pytest.mark.parametrize("write", _RUN_WRITES.values(), ids=_RUN_WRITES.keys())
+def test_a_run_whose_token_is_no_longer_current_writes_nothing(
+    db_session: Session, write: Callable[[DocumentRepository, uuid.UUID, int], bool]
+) -> None:
+    repository = DocumentRepository(db_session)
+    workspace = _workspace(db_session, _user(db_session))
+    # A later run has claimed the document since run 1 did.
+    document = _document(db_session, workspace, "processing", attempts=2, updated_at=_EARLIER)
+
+    assert write(repository, document.id, 1) is False
+    assert write(repository, uuid.uuid4(), 2) is False
+
+    db_session.expire_all()
+    assert (
+        document.status,
+        document.updated_at,
+        document.word_count,
+        document.error_code,
+        document.chunk_count,
+    ) == ("processing", _EARLIER, None, None, None)
+
+
+def test_update_if_current_writes_the_values_at_the_given_time(db_session: Session) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(db_session, workspace, "processing", attempts=2, updated_at=_EARLIER)
+
+    updated = DocumentRepository(db_session).update_if_current(
+        document.id, 2, _NOW, status="indexing", word_count=42, topics=["Sorting"]
+    )
+
+    assert updated is True
+    loaded = (document.status, document.word_count, document.topics, document.updated_at)
+    db_session.expire_all()
+    stored = (document.status, document.word_count, document.topics, document.updated_at)
+    assert loaded == stored == ("indexing", 42, ["Sorting"], _NOW)
+    assert document.attempts == 2
+
+
+def test_mark_failed_records_the_error_and_cuts_a_long_message_to_its_column(
+    db_session: Session,
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(db_session, workspace, "indexing", attempts=1, updated_at=_EARLIER)
+
+    failed = DocumentRepository(db_session).mark_failed(
+        document.id, 1, "internal_error", "word " * 1000, _NOW
+    )
+
+    assert failed is True
+    db_session.expire_all()
+    assert (document.status, document.error_code, document.updated_at) == (
+        "failed",
+        "internal_error",
+        _NOW,
+    )
+    assert document.error_message is not None
+    assert len(document.error_message) <= ERROR_MESSAGE_MAX_LENGTH
+    assert document.error_message.startswith("word word")
+
+
+def test_mark_retry_pending_sends_the_document_back_to_uploaded_with_its_error(
+    db_session: Session,
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(db_session, workspace, "indexing", attempts=1, updated_at=_EARLIER)
+
+    pending = DocumentRepository(db_session).mark_retry_pending(
+        document.id, 1, "ai_unavailable", "The AI provider is busy.", _NOW
+    )
+
+    assert pending is True
+    db_session.expire_all()
+    assert (
+        document.status,
+        document.error_code,
+        document.error_message,
+        document.updated_at,
+        document.attempts,
+    ) == ("uploaded", "ai_unavailable", "The AI provider is busy.", _NOW, 1)
+
+
+def test_complete_marks_the_document_ready_at_the_given_time(db_session: Session) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(db_session, workspace, "indexing", attempts=1, updated_at=_EARLIER)
+
+    completed = DocumentRepository(db_session).complete(
+        document.id, 1, _NOW, chunk_count=3, embedding_model="mock-hashing-v1", processing_ms=1500
+    )
+
+    assert completed is True
+    db_session.expire_all()
+    assert (
+        document.status,
+        document.chunk_count,
+        document.embedding_model,
+        document.processing_ms,
+        document.processed_at,
+        document.updated_at,
+    ) == ("ready", 3, "mock-hashing-v1", 1500, _NOW, _NOW)
 
 
 def test_owner_usage_counts_active_documents_and_every_stored_byte(db_session: Session) -> None:
