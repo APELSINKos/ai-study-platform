@@ -1,0 +1,134 @@
+"""Asking a chat model for JSON that matches a Pydantic model, with one chance to repair it."""
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Final
+
+from openai import OpenAI
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types.shared_params import ResponseFormatJSONObject, ResponseFormatJSONSchema
+from pydantic import BaseModel, ValidationError
+
+from app.core.config import StructuredOutputMode
+from app.documents.text import shorten
+from app.llm.base import ProviderRequestError
+
+# The first answer and one repaired answer.
+STRUCTURED_OUTPUT_ATTEMPTS: Final = 2
+REPAIR_PROBLEMS_MAX_CHARS: Final = 1000
+REPAIR_PROMPT: Final = (
+    "Your previous reply did not match the required JSON schema. Problems: {problems}. "
+    "Reply again with only the corrected JSON object."
+)
+_NO_ANSWER_MESSAGE: Final = "The model returned no answer."
+_REFUSED_MESSAGE: Final = "The model refused to analyse the document."
+_CUT_OFF_MESSAGE: Final = "The model's answer was cut off by the output token limit."
+_INVALID_ANSWER_MESSAGE: Final = "The model's answer did not match the schema, even after a repair."
+
+
+@dataclass(frozen=True, slots=True)
+class ChatOptions:
+    """Which chat model answers, how it is held to the schema and how long it may answer."""
+
+    model: str
+    structured_output: StructuredOutputMode
+    max_output_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
+class StructuredOutput[T: BaseModel]:
+    """A validated answer and the tokens spent on it, repair included."""
+
+    value: T
+    prompt_tokens: int
+    completion_tokens: int
+
+
+def response_format(
+    schema: type[BaseModel], mode: StructuredOutputMode
+) -> ResponseFormatJSONSchema | ResponseFormatJSONObject:
+    """The response_format that asks for JSON shaped by schema."""
+    if mode == "json_object":
+        # Only valid JSON is promised: the prompt names the fields and validation checks them.
+        return {"type": "json_object"}
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": schema.__name__,
+            "schema": schema.model_json_schema(),
+            "strict": True,
+        },
+    }
+
+
+def complete_structured[T: BaseModel](
+    client: OpenAI,
+    options: ChatOptions,
+    messages: Sequence[ChatCompletionMessageParam],
+    schema: type[T],
+) -> StructuredOutput[T]:
+    """Ask for an answer that validates as schema; after a mismatch, ask once more.
+
+    The repair request lists what was wrong. A refusal, a cut-off answer or a second mismatch
+    raises ProviderRequestError (ai_invalid_output); errors of the API call itself propagate
+    as the SDK raises them.
+    """
+    conversation = list(messages)
+    requested_format = response_format(schema, options.structured_output)
+    prompt_tokens = completion_tokens = 0
+    for _ in range(STRUCTURED_OUTPUT_ATTEMPTS):
+        completion = client.chat.completions.create(
+            model=options.model,
+            messages=conversation,
+            response_format=requested_format,
+            max_completion_tokens=options.max_output_tokens,
+        )
+        content = _answer_text(completion)
+        if completion.usage is not None:
+            prompt_tokens += completion.usage.prompt_tokens
+            completion_tokens += completion.usage.completion_tokens
+        try:
+            value = schema.model_validate_json(content)
+        except ValidationError as error:
+            # Only the problems go back, not the rejected answer, whose text the document may
+            # have steered.
+            problems = _problems(error)
+            conversation.append(
+                {"role": "user", "content": REPAIR_PROMPT.format(problems=problems)}
+            )
+            continue
+        return StructuredOutput(
+            value=value, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
+        )
+    raise ProviderRequestError(_INVALID_ANSWER_MESSAGE, code="ai_invalid_output")
+
+
+def _answer_text(completion: ChatCompletion) -> str:
+    """The text of the first choice, or ProviderRequestError when there is nothing to use."""
+    # A body that is not JSON reaches here as a plain string.
+    choices = completion.choices if isinstance(completion, ChatCompletion) else None
+    choice = choices[0] if choices else None
+    message = choice.message if choice is not None else None
+    if choice is None or message is None:
+        raise ProviderRequestError(_NO_ANSWER_MESSAGE, code="ai_invalid_output")
+    if message.refusal or choice.finish_reason == "content_filter":
+        raise ProviderRequestError(_REFUSED_MESSAGE, code="ai_invalid_output")
+    if choice.finish_reason == "length":
+        raise ProviderRequestError(_CUT_OFF_MESSAGE, code="ai_invalid_output")
+    return message.content if isinstance(message.content, str) else ""
+
+
+def _problems(error: ValidationError) -> str:
+    """What was wrong, one "field: message" per problem, short enough to send back.
+
+    A field that the schema does not have is reported without its name, which the model made
+    up and so could carry text of its own.
+    """
+    problems: list[str] = []
+    for item in error.errors(include_url=False, include_input=False):
+        location = ".".join(str(part) for part in item["loc"])
+        if location and item["type"] != "extra_forbidden":
+            problems.append(f"{location}: {item['msg']}")
+        else:
+            problems.append(item["msg"])
+    return shorten("; ".join(dict.fromkeys(problems)), REPAIR_PROBLEMS_MAX_CHARS)
