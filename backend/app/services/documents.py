@@ -197,10 +197,14 @@ class DocumentService:
         request succeeds and the leftover file is only logged.
         """
         document = self._get_owned(user, document_id)
-        if not self._documents.delete(document):
-            # Another request deleted it after it was loaded; that request owns the file.
-            raise document_not_found()
+        # The workspace row is locked before the document's, the order a workspace delete
+        # takes them in through its cascade; the opposite order can deadlock with it.
         self._workspaces.touch(document.workspace_id, self._clock())
+        if not self._documents.delete(document):
+            # Another request deleted it after it was loaded and owns its file. Nothing was
+            # deleted here, so the workspace keeps its time.
+            self._session.rollback()
+            raise document_not_found()
         self._session.commit()
         try:
             self._storage.delete(document.storage_key)

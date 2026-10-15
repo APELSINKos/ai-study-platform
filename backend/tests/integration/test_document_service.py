@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any, Final
 
 import pytest
 from fastapi import UploadFile
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -32,6 +33,8 @@ _MARKDOWN: Final = b"# Sorting\n\nMerge sort splits the list in half.\n"
 # How long a publish to a broker that is down keeps retrying before it gives up.
 _PUBLISH_GIVE_UP: Final = timedelta(seconds=24)
 _STALE_AGE: Final = timedelta(seconds=STALE_DOCUMENT_SECONDS)
+# The verb and table of a statement that changes rows, e.g. "UPDATE workspaces".
+_WRITE_STATEMENT: Final = re.compile(r"(?:INSERT INTO|UPDATE|DELETE FROM) \w+")
 # Fields a row in this status must carry to pass the documents table's CHECKs.
 _STATUS_FIELDS: Final[dict[DocumentStatus, dict[str, object]]] = {
     "ready": {"chunk_count": 3, "embedding_model": "mock-hashing-v1", "processed_at": _START},
@@ -343,6 +346,58 @@ def test_delete_touches_the_workspace_with_the_clock_time(
     db_session.expire_all()
     assert DocumentRepository(db_session).get(document.id) is None
     assert workspace.updated_at == _START + timedelta(minutes=5)
+
+
+def test_delete_locks_the_workspace_before_the_document(
+    db_session: Session, service: DocumentService, owner: User
+) -> None:
+    workspace = _workspace(db_session, owner)
+    document = _document(db_session, workspace, "ready")
+    writes: list[str] = []
+
+    def record_write(**event_args: Any) -> None:
+        if match := _WRITE_STATEMENT.match(event_args["statement"]):
+            writes.append(match.group())
+
+    event.listen(db_session.connection(), "before_cursor_execute", record_write, named=True)
+
+    service.delete(user=owner, document_id=document.id)
+
+    # A workspace delete locks the workspace row, then its documents through the cascade.
+    # A document delete locking them the other way round could deadlock with it.
+    assert writes == ["UPDATE workspaces", "DELETE FROM documents"]
+
+
+def test_a_delete_that_finds_the_document_gone_leaves_the_workspace_untouched(
+    db_session: Session,
+    service: DocumentService,
+    owner: User,
+    clock: _FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+    document = _document(db_session, workspace, "ready")
+    touched_before = workspace.updated_at
+    load = DocumentRepository.get_for_owner
+
+    def load_then_lose_the_row(
+        repository: DocumentRepository, document_id: uuid.UUID, owner_id: uuid.UUID
+    ) -> Document | None:
+        loaded = load(repository, document_id, owner_id)
+        # Another request deletes the document and commits right after this one loaded it.
+        db_session.execute(text("DELETE FROM documents WHERE id = :id"), {"id": document_id})
+        db_session.commit()
+        return loaded
+
+    monkeypatch.setattr(DocumentRepository, "get_for_owner", load_then_lose_the_row)
+    clock.advance(timedelta(minutes=5))
+
+    with pytest.raises(NotFoundError) as exc_info:
+        service.delete(user=owner, document_id=document.id)
+
+    assert exc_info.value.code == "document_not_found"
+    db_session.expire_all()
+    assert workspace.updated_at == touched_before
 
 
 def test_delete_keeps_the_file_when_the_commit_fails(
