@@ -1,12 +1,13 @@
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
 
 import type { WorkspaceOut, WorkspacePage } from "@/lib/api/types";
-import { queryKeys, WORKSPACE_LIST_PAGE_SIZE } from "@/lib/query-keys";
+import { queryKeys, RECENT_WORKSPACES_COUNT, WORKSPACE_LIST_PAGE_SIZE } from "@/lib/query-keys";
 
 import { createWorkspace, fetchWorkspacePage } from "./api";
 
@@ -41,6 +42,14 @@ export function useWorkspaceList() {
     initialPageParam: FIRST_PAGE,
     getNextPageParam: nextPageAfter,
     select: uniqueWorkspaces,
+  });
+}
+
+/** The few workspaces changed last, for the dashboard: one page, never more. */
+export function useRecentWorkspaces() {
+  return useQuery({
+    queryKey: queryKeys.recentWorkspaces,
+    queryFn: () => fetchWorkspacePage(FIRST_PAGE, RECENT_WORKSPACES_COUNT),
   });
 }
 

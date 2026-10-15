@@ -299,9 +299,11 @@
   "Dashboard": {
     "metaTitle": "Dashboard",
     "greeting": "Hello, {name}.",
-    "emptyState": {
-      "title": "Nothing here yet",
-      "body": "Workspaces and study materials will appear here once you create them."
+    "workspaces": {
+      "recentTitle": "Recent workspaces",
+      "allLink": "All workspaces",
+      "emptyTitle": "Start with a workspace",
+      "emptyBody": "A workspace keeps the files for one course or exam together and counts down the days to the exam."
     }
   }
 }

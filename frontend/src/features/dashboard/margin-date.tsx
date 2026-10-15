@@ -27,7 +27,14 @@ export function DashboardMarginDate() {
   return (
     <p className="margin-note">
       {isClient
-        ? format.dateTime(new Date(), { weekday: "long", day: "numeric", month: "long" })
+        ? format.dateTime(new Date(), {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            // The formatter otherwise uses the time zone inherited from the server, which is
+            // not the reader's: around midnight it would name another day.
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          })
         : RESERVED_LINE}
     </p>
   );
