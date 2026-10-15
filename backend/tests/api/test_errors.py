@@ -5,7 +5,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
-from app.core.exceptions import AppError, ConflictError, NotFoundError
+from app.core.exceptions import (
+    AppError,
+    ConflictError,
+    NotFoundError,
+    PayloadTooLargeError,
+    UnprocessableContentError,
+    UnsupportedMediaTypeError,
+)
 from app.schemas.errors import ErrorDetail
 
 MIN_TITLE_LENGTH = 3
@@ -29,6 +36,22 @@ def client(app: FastAPI) -> Iterator[TestClient]:
     @app.get("/test/throttled")
     def throttled() -> None:
         raise AppError("Slow down.", code="rate_limited", headers={"Retry-After": "5"})
+
+    @app.get("/test/too-large")
+    def too_large() -> None:
+        raise PayloadTooLargeError()
+
+    @app.get("/test/unsupported-type")
+    def unsupported_type() -> None:
+        raise UnsupportedMediaTypeError()
+
+    @app.get("/test/unprocessable")
+    def unprocessable() -> None:
+        raise UnprocessableContentError()
+
+    @app.get("/test/empty-file")
+    def empty_file() -> None:
+        raise UnprocessableContentError("The file is empty.", code="empty_file")
 
     @app.post("/test/items")
     def create_item(item: _Item) -> _Item:
@@ -64,6 +87,43 @@ def test_app_error_headers_are_sent(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.headers["retry-after"] == "5"
+
+
+@pytest.mark.parametrize(
+    ("path", "status_code", "code", "message"),
+    [
+        ("/test/too-large", 413, "payload_too_large", PayloadTooLargeError.message),
+        (
+            "/test/unsupported-type",
+            415,
+            "unsupported_file_type",
+            UnsupportedMediaTypeError.message,
+        ),
+        ("/test/unprocessable", 422, "unprocessable_content", UnprocessableContentError.message),
+    ],
+)
+def test_upload_errors_use_the_unified_shape(
+    client: TestClient, path: str, status_code: int, code: str, message: str
+) -> None:
+    response = client.get(path)
+
+    assert response.status_code == status_code
+    error = response.json()["error"]
+    assert error["code"] == code
+    assert error["message"] == message
+    assert error["details"] == []
+    assert error["request_id"] == response.headers["X-Request-ID"]
+
+
+def test_unprocessable_content_keeps_its_status_under_a_specific_code(
+    client: TestClient,
+) -> None:
+    response = client.get("/test/empty-file")
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "empty_file"
+    assert error["message"] == "The file is empty."
 
 
 def test_validation_errors_list_every_invalid_field(client: TestClient) -> None:

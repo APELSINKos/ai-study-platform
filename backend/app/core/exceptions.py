@@ -65,6 +65,24 @@ class ConflictError(AppError):
     message = "The request conflicts with the current state of the resource."
 
 
+class PayloadTooLargeError(AppError):
+    status_code = HTTPStatus.CONTENT_TOO_LARGE
+    code = "payload_too_large"
+    message = "The request or file is larger than the allowed limit."
+
+
+class UnsupportedMediaTypeError(AppError):
+    status_code = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+    code = "unsupported_file_type"
+    message = "This file type is not supported."
+
+
+class UnprocessableContentError(AppError):
+    status_code = HTTPStatus.UNPROCESSABLE_CONTENT
+    code = "unprocessable_content"
+    message = "The request content could not be processed."
+
+
 class RateLimitedError(AppError):
     status_code = HTTPStatus.TOO_MANY_REQUESTS
     code = "rate_limited"
