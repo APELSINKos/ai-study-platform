@@ -13,6 +13,9 @@
     "dark": "Тёмная",
     "system": "Как в системе"
   },
+  "AlertDialog": {
+    "cancel": "Отмена"
+  },
   "Landing": {
     "cta": {
       "createAccount": "Создать аккаунт",

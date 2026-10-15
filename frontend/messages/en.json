@@ -13,6 +13,9 @@
     "dark": "Dark",
     "system": "Match system"
   },
+  "AlertDialog": {
+    "cancel": "Cancel"
+  },
   "Landing": {
     "cta": {
       "createAccount": "Create account",
