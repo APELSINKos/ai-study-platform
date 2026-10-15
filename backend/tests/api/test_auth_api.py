@@ -22,11 +22,10 @@ from app.api.cookies import (
 from app.api.deps import get_redis
 from app.core.config import Settings
 from app.models.refresh_token import RefreshToken
+from tests.api.conftest import PASSWORD, csrf_headers, register
 
 pytestmark = pytest.mark.integration
 
-_PASSWORD: Final = "correct horse battery staple"
-_REGISTER_PATH: Final = "/api/v1/auth/register"
 _LOGIN_PATH: Final = "/api/v1/auth/login"
 _TOKEN_PATH: Final = "/api/v1/auth/token"
 _REFRESH_PATH: Final = "/api/v1/auth/refresh"
@@ -35,15 +34,7 @@ _ME_PATH: Final = "/api/v1/auth/me"
 _PROTECTED_PATH: Final = "/api/v1/_test/protected"
 
 
-def _register(
-    client: TestClient, *, email: str, password: str = _PASSWORD, display_name: str = "Person"
-) -> httpx2.Response:
-    return client.post(
-        _REGISTER_PATH, json={"email": email, "password": password, "display_name": display_name}
-    )
-
-
-def _login(client: TestClient, *, email: str, password: str = _PASSWORD) -> httpx2.Response:
+def _login(client: TestClient, *, email: str, password: str = PASSWORD) -> httpx2.Response:
     return client.post(_LOGIN_PATH, json={"email": email, "password": password})
 
 
@@ -54,12 +45,6 @@ def _set_cookie_header(response: httpx2.Response, name: str) -> str:
         if header.startswith(f"{name}=")
     ]
     return value
-
-
-def _csrf_headers(client: TestClient) -> dict[str, str]:
-    token = client.cookies.get(CSRF_COOKIE_NAME)
-    assert token is not None
-    return {CSRF_HEADER_NAME: token}
 
 
 def _replay_refresh(app: FastAPI, *, refresh_token: str, csrf_token: str) -> httpx2.Response:
@@ -98,7 +83,7 @@ class _BrokenRedis:
 
 
 def test_register_returns_a_session_and_sets_the_three_cookies(auth_client: TestClient) -> None:
-    response = _register(auth_client, email="new-user@example.com")
+    response = register(auth_client, email="new-user@example.com")
 
     assert response.status_code == HTTPStatus.CREATED
     body = response.json()
@@ -128,9 +113,9 @@ def test_register_returns_a_session_and_sets_the_three_cookies(auth_client: Test
 
 
 def test_register_rejects_a_duplicate_email_with_409(auth_client: TestClient) -> None:
-    _register(auth_client, email="dupe@example.com")
+    register(auth_client, email="dupe@example.com")
 
-    response = _register(auth_client, email="Dupe@Example.com")
+    response = register(auth_client, email="Dupe@Example.com")
 
     assert response.status_code == HTTPStatus.CONFLICT
     assert response.json()["error"]["code"] == "email_taken"
@@ -139,9 +124,7 @@ def test_register_rejects_a_duplicate_email_with_409(auth_client: TestClient) ->
 def test_register_rejects_invalid_input_with_the_unified_error_shape(
     auth_client: TestClient,
 ) -> None:
-    response = auth_client.post(
-        _REGISTER_PATH, json={"email": "not-an-email", "password": "short", "display_name": ""}
-    )
+    response = register(auth_client, email="not-an-email", password="short", display_name="")
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     body = response.json()
@@ -153,7 +136,7 @@ def test_register_rejects_invalid_input_with_the_unified_error_shape(
 
 
 def test_login_with_correct_credentials_returns_a_session(auth_client: TestClient) -> None:
-    _register(auth_client, email="login-ok@example.com")
+    register(auth_client, email="login-ok@example.com")
 
     response = _login(auth_client, email="login-ok@example.com")
 
@@ -164,7 +147,7 @@ def test_login_with_correct_credentials_returns_a_session(auth_client: TestClien
 def test_login_unknown_email_and_wrong_password_return_identical_bodies(
     auth_client: TestClient,
 ) -> None:
-    _register(auth_client, email="known@example.com")
+    register(auth_client, email="known@example.com")
 
     unknown = _login(auth_client, email="unknown@example.com")
     wrong = _login(auth_client, email="known@example.com", password="not-the-password")
@@ -183,7 +166,7 @@ def test_login_unknown_email_and_wrong_password_return_identical_bodies(
 def test_the_eleventh_login_attempt_for_one_ip_and_email_is_rate_limited(
     auth_client: TestClient, integration_settings: Settings
 ) -> None:
-    _register(auth_client, email="throttled@example.com")
+    register(auth_client, email="throttled@example.com")
 
     for _ in range(integration_settings.login_attempts_per_minute):
         response = _login(auth_client, email="throttled@example.com", password="wrong")
@@ -200,7 +183,7 @@ def test_the_login_email_limit_applies_regardless_of_which_ip_attempts_hit_it(
     auth_app: FastAPI, auth_redis: Redis, integration_settings: Settings
 ) -> None:
     with TestClient(auth_app) as setup_client:
-        _register(setup_client, email="email-throttled@example.com")
+        register(setup_client, email="email-throttled@example.com")
 
     for attempt in range(integration_settings.login_attempts_per_email_per_hour):
         with TestClient(auth_app, client=(f"203.0.113.{attempt + 1}", 12345)) as client:
@@ -218,7 +201,7 @@ def test_the_login_email_limit_applies_regardless_of_which_ip_attempts_hit_it(
 def test_login_still_works_when_redis_is_unreachable(
     auth_app: FastAPI, auth_client: TestClient
 ) -> None:
-    _register(auth_client, email="resilient@example.com")
+    register(auth_client, email="resilient@example.com")
     auth_app.dependency_overrides[get_redis] = _BrokenRedis
 
     response = _login(auth_client, email="resilient@example.com")
@@ -230,7 +213,7 @@ def test_login_still_works_when_redis_is_unreachable(
 
 
 def test_me_via_bearer_token(auth_client: TestClient) -> None:
-    registered = _register(auth_client, email="bearer-me@example.com").json()
+    registered = register(auth_client, email="bearer-me@example.com").json()
 
     response = auth_client.get(
         _ME_PATH, headers={"Authorization": f"Bearer {registered['access_token']}"}
@@ -241,12 +224,23 @@ def test_me_via_bearer_token(auth_client: TestClient) -> None:
 
 
 def test_me_via_cookie(auth_client: TestClient) -> None:
-    _register(auth_client, email="cookie-me@example.com")
+    register(auth_client, email="cookie-me@example.com")
 
     response = auth_client.get(_ME_PATH)
 
     assert response.status_code == HTTPStatus.OK
     assert response.json()["email"] == "cookie-me@example.com"
+
+
+def test_two_signed_in_clients_keep_separate_sessions(
+    user_client: TestClient, other_user_client: TestClient
+) -> None:
+    user = user_client.get(_ME_PATH)
+    other_user = other_user_client.get(_ME_PATH)
+
+    assert user.status_code == HTTPStatus.OK
+    assert other_user.status_code == HTTPStatus.OK
+    assert user.json()["id"] != other_user.json()["id"]
 
 
 # --- CSRF -----------------------------------------------------------------------
@@ -255,7 +249,7 @@ def test_me_via_cookie(auth_client: TestClient) -> None:
 def test_cookie_authenticated_post_without_csrf_header_is_rejected(
     auth_client: TestClient,
 ) -> None:
-    _register(auth_client, email="csrf-missing@example.com")
+    register(auth_client, email="csrf-missing@example.com")
 
     response = auth_client.post(_PROTECTED_PATH)
 
@@ -266,9 +260,9 @@ def test_cookie_authenticated_post_without_csrf_header_is_rejected(
 def test_cookie_authenticated_post_with_matching_csrf_header_succeeds(
     auth_client: TestClient,
 ) -> None:
-    _register(auth_client, email="csrf-ok@example.com")
+    register(auth_client, email="csrf-ok@example.com")
 
-    response = auth_client.post(_PROTECTED_PATH, headers=_csrf_headers(auth_client))
+    response = auth_client.post(_PROTECTED_PATH, headers=csrf_headers(auth_client))
 
     assert response.status_code == HTTPStatus.OK
 
@@ -276,7 +270,7 @@ def test_cookie_authenticated_post_with_matching_csrf_header_succeeds(
 def test_bearer_authenticated_post_does_not_require_csrf(
     auth_app: FastAPI, auth_client: TestClient
 ) -> None:
-    registered = _register(auth_client, email="bearer-csrf@example.com").json()
+    registered = register(auth_client, email="bearer-csrf@example.com").json()
 
     with TestClient(auth_app) as bearer_client:
         response = bearer_client.post(
@@ -290,13 +284,13 @@ def test_bearer_authenticated_post_does_not_require_csrf(
 
 
 def test_refresh_rotates_the_session_and_requires_csrf(auth_client: TestClient) -> None:
-    registered = _register(auth_client, email="rotate@example.com").json()
+    registered = register(auth_client, email="rotate@example.com").json()
 
     forbidden = auth_client.post(_REFRESH_PATH)
     assert forbidden.status_code == HTTPStatus.FORBIDDEN
     assert forbidden.json()["error"]["code"] == "csrf_failed"
 
-    response = auth_client.post(_REFRESH_PATH, headers=_csrf_headers(auth_client))
+    response = auth_client.post(_REFRESH_PATH, headers=csrf_headers(auth_client))
 
     assert response.status_code == HTTPStatus.OK
     assert response.json()["access_token"] != registered["access_token"]
@@ -306,11 +300,11 @@ def test_refresh_rotates_the_session_and_requires_csrf(auth_client: TestClient) 
 def test_reusing_a_rotated_refresh_token_after_the_grace_window_is_rejected(
     auth_app: FastAPI, auth_client: TestClient, integration_settings: Settings
 ) -> None:
-    _register(auth_client, email="reuse@example.com")
+    register(auth_client, email="reuse@example.com")
     original_refresh = auth_client.cookies.get(REFRESH_COOKIE_NAME)
     assert original_refresh is not None
 
-    first = auth_client.post(_REFRESH_PATH, headers=_csrf_headers(auth_client))
+    first = auth_client.post(_REFRESH_PATH, headers=csrf_headers(auth_client))
     assert first.status_code == HTTPStatus.OK
     current_csrf = auth_client.cookies.get(CSRF_COOKIE_NAME)
     assert current_csrf is not None
@@ -331,7 +325,7 @@ def test_refresh_with_only_a_stale_csrf_cookie_is_rejected_and_clears_it(
 ) -> None:
     """A lone CSRF cookie is the web app's only sign-in hint outside /api. If a failed
     refresh ever left it behind, it must be cleared too, or the hint would never expire."""
-    _register(auth_client, email="stale-hint@example.com")
+    register(auth_client, email="stale-hint@example.com")
     csrf_token = auth_client.cookies.get(CSRF_COOKIE_NAME)
     assert csrf_token is not None
 
@@ -351,7 +345,7 @@ def test_refresh_with_only_a_stale_csrf_cookie_is_rejected_and_clears_it(
 def test_logout_clears_cookies_and_the_refresh_token_stops_working(
     auth_app: FastAPI, auth_client: TestClient
 ) -> None:
-    _register(auth_client, email="logout@example.com")
+    register(auth_client, email="logout@example.com")
     refresh_token = auth_client.cookies.get(REFRESH_COOKIE_NAME)
     csrf_token = auth_client.cookies.get(CSRF_COOKIE_NAME)
     assert refresh_token is not None
@@ -379,11 +373,11 @@ def test_logout_clears_cookies_and_the_refresh_token_stops_working(
 def test_token_endpoint_returns_a_usable_bearer_token_and_creates_no_refresh_token_row(
     auth_client: TestClient, db_session: Session
 ) -> None:
-    _register(auth_client, email="token-user@example.com")
+    register(auth_client, email="token-user@example.com")
     rows_before = db_session.execute(select(func.count()).select_from(RefreshToken)).scalar_one()
 
     response = auth_client.post(
-        _TOKEN_PATH, data={"username": "token-user@example.com", "password": _PASSWORD}
+        _TOKEN_PATH, data={"username": "token-user@example.com", "password": PASSWORD}
     )
 
     assert response.status_code == HTTPStatus.OK
