@@ -1,5 +1,4 @@
 import ipaddress
-import secrets
 from collections.abc import Iterator
 from typing import Annotated, Final, cast
 
@@ -8,20 +7,16 @@ from fastapi.security import OAuth2PasswordBearer
 from redis import Redis
 from sqlalchemy.orm import Session
 
-from app.api.cookies import ACCESS_COOKIE_NAME, CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from app.core.config import Settings
-from app.core.exceptions import AuthenticationError, PermissionDeniedError
 from app.core.redis import get_redis_client
-from app.core.security import decode_access_token
+from app.core.request_auth import authenticate_request, check_csrf
 from app.db.session import get_session_factory
 from app.documents.storage import FileStorage
 from app.models.user import User
 from app.services.auth import AuthService
 from app.services.workspaces import WorkspaceService
 
-_SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
 _IPV6_RATE_LIMIT_PREFIX_BITS: Final = 64
-_CSRF_FAILED_MESSAGE: Final = "The request could not be verified."
 
 
 def get_request_settings(request: Request) -> Settings:
@@ -91,37 +86,23 @@ def client_ip(request: Request) -> str:
 
 
 def verify_csrf(request: Request) -> None:
-    """Double-submit CSRF check: the cookie and header token must match.
-
-    Meaningful only for cookie-authenticated requests: a cross-site page can trigger
-    the cookie automatically but cannot read it to reproduce it in the header.
-    """
-    cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
-    header_token = request.headers.get(CSRF_HEADER_NAME)
-    tokens_match = (
-        cookie_token is not None
-        and header_token is not None
-        and secrets.compare_digest(cookie_token, header_token)
-    )
-    if not tokens_match:
-        raise PermissionDeniedError(_CSRF_FAILED_MESSAGE, code="csrf_failed")
+    check_csrf(request.headers, request.cookies)
 
 
 def get_current_user(
     request: Request,
     auth_service: AuthServiceDep,
     settings: SettingsDep,
-    bearer_token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    # Never read (authenticate_request parses the header itself); declared so that OpenAPI
+    # documents the bearer scheme on every route that needs a signed-in user.
+    _bearer_token: Annotated[str | None, Depends(oauth2_scheme)] = None,
 ) -> User:
-    token = bearer_token
-    from_cookie = token is None
-    if from_cookie:
-        token = request.cookies.get(ACCESS_COOKIE_NAME)
-    if token is None:
-        raise AuthenticationError()
-    if from_cookie and request.method not in _SAFE_METHODS:
-        verify_csrf(request)
-    user_id = decode_access_token(token, secret=settings.secret_key.get_secret_value())
+    user_id = authenticate_request(
+        request.method,
+        request.headers,
+        request.cookies,
+        secret=settings.secret_key.get_secret_value(),
+    )
     user = auth_service.get_active_user(user_id)
     request.state.user_id = str(user.id)
     return user
