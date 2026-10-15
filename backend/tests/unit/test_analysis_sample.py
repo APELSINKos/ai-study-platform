@@ -102,6 +102,32 @@ def test_excerpts_keep_the_order_of_the_text_and_never_repeat_a_sentence() -> No
     assert len(_excerpts(sample)) > 1
 
 
+@pytest.mark.parametrize("gap", [" ", "\n", "\n\n"], ids=["space", "line-break", "blank-line"])
+@pytest.mark.parametrize("length", [MAX_CHARS + 1, 15_000, 20_000, 30_000])
+def test_the_separator_stands_only_where_text_is_left_out(gap: str, length: int) -> None:
+    text = gap.join(SENTENCES)[:length]
+
+    outline, sample = build_analysis_sample(text, [], MAX_CHARS)
+
+    # Excerpts that follow on from each other are joined by their own spaces, so each one
+    # is found in the text as it is.
+    end = 0
+    for index, excerpt in enumerate(_excerpts(sample)):
+        start = text.index(excerpt, end)
+        assert index == 0 or text[end:start].strip()
+        end = start + len(excerpt)
+    assert len(outline) + len(sample) <= MAX_CHARS
+
+
+def test_parts_of_a_run_without_spaces_that_follow_on_are_joined_as_they_are() -> None:
+    text = "x" * (MAX_CHARS + 1)
+
+    _, sample = build_analysis_sample(text, [], MAX_CHARS)
+
+    assert sample
+    assert text.startswith(sample)
+
+
 def test_the_outline_lists_each_heading_once_in_order() -> None:
     headings = ["Keys", "Normal forms", "Keys", "Transactions", "Normal forms"]
 
