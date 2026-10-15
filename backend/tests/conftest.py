@@ -50,8 +50,14 @@ def _alembic_config(database_url: str) -> Config:
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(environment="test", cors_origins=[FRONTEND_ORIGIN])
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        environment="test",
+        cors_origins=[FRONTEND_ORIGIN],
+        llm_provider="mock",
+        embedding_provider="mock",
+        storage_dir=tmp_path,
+    )
 
 
 @pytest.fixture
@@ -78,8 +84,15 @@ def redis_url() -> str:
 
 
 @pytest.fixture
-def integration_settings(database_url: str, redis_url: str) -> Settings:
-    return Settings(environment="test", database_url=database_url, redis_url=redis_url)
+def integration_settings(database_url: str, redis_url: str, tmp_path: Path) -> Settings:
+    return Settings(
+        environment="test",
+        database_url=database_url,
+        redis_url=redis_url,
+        llm_provider="mock",
+        embedding_provider="mock",
+        storage_dir=tmp_path,
+    )
 
 
 @pytest.fixture(scope="session")
