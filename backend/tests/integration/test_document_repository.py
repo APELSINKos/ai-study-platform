@@ -208,6 +208,66 @@ def test_delete_reports_a_row_that_another_transaction_removed_first(
     assert repository.get(kept.id) is kept
 
 
+def test_mark_for_retry_sends_a_retryable_document_back_to_uploaded(db_session: Session) -> None:
+    repository = DocumentRepository(db_session)
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(
+        db_session,
+        workspace,
+        "failed",
+        error_message="The PDF could not be read.",
+        attempts=2,
+        updated_at=_NOW - timedelta(minutes=1),
+    )
+
+    assert repository.mark_for_retry(document.id, workspace.id, _NOW) is True
+
+    loaded = (document.status, document.error_code, document.error_message, document.updated_at)
+    db_session.expire_all()
+    stored = (document.status, document.error_code, document.error_message, document.updated_at)
+    assert loaded == stored == ("uploaded", None, None, _NOW)
+    assert document.attempts == 2
+
+
+def test_mark_for_retry_changes_nothing_when_the_document_may_not_be_retried(
+    db_session: Session,
+) -> None:
+    repository = DocumentRepository(db_session)
+    owner = _user(db_session)
+    workspace = _workspace(db_session, owner)
+    other = _workspace(db_session, owner, "Other")
+    moving = _document(db_session, workspace, "processing", updated_at=_NOW)
+    failed = _document(db_session, workspace, "failed", updated_at=_NOW)
+
+    assert repository.mark_for_retry(moving.id, workspace.id, _NOW) is False
+    # The workspace is part of the condition: a document is retried only through its own.
+    assert repository.mark_for_retry(failed.id, other.id, _NOW) is False
+    assert repository.mark_for_retry(uuid.uuid4(), workspace.id, _NOW) is False
+
+    db_session.expire_all()
+    assert (moving.status, failed.status, failed.error_code) == (
+        "processing",
+        "failed",
+        "pdf_unreadable",
+    )
+
+
+def test_mark_queue_unavailable_fails_the_document_at_the_given_time(db_session: Session) -> None:
+    repository = DocumentRepository(db_session)
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(db_session, workspace, "uploaded", attempts=1, updated_at=_NOW)
+
+    # The same time as before must still be written, not replaced by the database clock.
+    assert repository.mark_queue_unavailable(document.id, "Not queued.", _NOW) is True
+    assert repository.mark_queue_unavailable(uuid.uuid4(), "Not queued.", _NOW) is False
+
+    loaded = (document.status, document.error_code, document.error_message, document.updated_at)
+    db_session.expire_all()
+    stored = (document.status, document.error_code, document.error_message, document.updated_at)
+    assert loaded == stored == ("failed", "queue_unavailable", "Not queued.", _NOW)
+    assert document.attempts == 1
+
+
 def test_owner_usage_counts_active_documents_and_every_stored_byte(db_session: Session) -> None:
     repository = DocumentRepository(db_session)
     owner = _user(db_session)

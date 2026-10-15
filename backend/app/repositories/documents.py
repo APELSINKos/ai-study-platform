@@ -1,9 +1,11 @@
 import uuid
+from datetime import datetime
 from typing import NamedTuple
 
-from sqlalchemy import BigInteger, ColumnElement, cast, delete, func, select
+from sqlalchemy import BigInteger, ColumnElement, Update, cast, delete, func, select, update
 from sqlalchemy.orm import Session
 
+from app.documents.status import retryable_condition
 from app.models.document import ACTIVE_DOCUMENT_STATUSES, Document, DocumentStatus
 from app.models.workspace import Workspace
 
@@ -72,6 +74,55 @@ class DocumentRepository:
         """
         statement = delete(Document).where(Document.id == document.id).returning(Document.id)
         return self._session.execute(statement).first() is not None
+
+    def mark_for_retry(
+        self, document_id: uuid.UUID, workspace_id: uuid.UUID, now: datetime
+    ) -> bool:
+        """Send the document back to uploaded if it may be retried at `now`; False if not.
+
+        A single compare-and-set UPDATE, so of two retries at once only one succeeds. The
+        run counter is left alone: the next claim moves it.
+        """
+        statement = (
+            update(Document)
+            .where(
+                Document.id == document_id,
+                Document.workspace_id == workspace_id,
+                retryable_condition(now),
+            )
+            .values(status="uploaded", error_code=None, error_message=None, updated_at=now)
+        )
+        return self._update_returning(statement)
+
+    def mark_queue_unavailable(self, document_id: uuid.UUID, message: str, now: datetime) -> bool:
+        """Fail a document that could not be queued; False when its row is gone.
+
+        A statement, because the unit of work leaves out an updated_at equal to the loaded
+        one, and the column's onupdate would then write the database's clock instead.
+        """
+        statement = (
+            update(Document)
+            .where(Document.id == document_id)
+            .values(
+                status="failed",
+                error_code="queue_unavailable",
+                error_message=message,
+                updated_at=now,
+            )
+        )
+        return self._update_returning(statement)
+
+    def _update_returning(self, statement: Update) -> bool:
+        """Run an UPDATE of at most one document; False when it matched no row.
+
+        The updated row is read back into the copy of the document this session holds,
+        every column of it: a column left at its default on insert was never loaded, and
+        synchronising only the changed values would leave it reading as None.
+        """
+        returning = statement.returning(Document).execution_options(
+            synchronize_session=False, populate_existing=True
+        )
+        return self._session.scalars(returning).first() is not None
 
     def owner_usage(self, owner_id: uuid.UUID) -> OwnerUsage:
         statement = (

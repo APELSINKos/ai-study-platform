@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 import httpx2
 import pytest
@@ -22,19 +22,24 @@ from app.api.deps import (
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.documents.chunking import HEADING_SEPARATOR
+from app.documents.queue import QueueUnavailableError
+from app.documents.status import STALE_DOCUMENT_SECONDS
 from app.documents.storage import FileStorage
-from app.models.document import Document, DocumentStatus
+from app.models.document import Document, DocumentErrorCode, DocumentStatus
 from app.models.document_chunk import EMBEDDING_DIMENSIONS, DocumentChunk
 from app.repositories.document_chunks import ChunkRow, DocumentChunkRepository
 from app.repositories.documents import DocumentRepository
 from app.services.documents import DocumentService
-from tests.api.conftest import RecordingDocumentQueue, csrf_headers
+from tests.api.conftest import QueuedDocument, RecordingDocumentQueue, csrf_headers
 
 pytestmark = pytest.mark.integration
 
 _WORKSPACES_PATH: Final = "/api/v1/workspaces"
 _DOCUMENTS_PATH: Final = "/api/v1/documents"
+_REQUEST_ID: Final = "retry-request-0001"
 _START: Final = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
+_STALE_AGE: Final = timedelta(seconds=STALE_DOCUMENT_SECONDS)
+_JUST_STALE: Final = _STALE_AGE + timedelta(microseconds=1)
 _MARKDOWN: Final = b"# Sorting\n\nMerge sort splits the list in half.\n"
 _TEXT: Final = "Конспект лекции: интегралы и производные.\n".encode()
 # The upload checks only the signature; reading the PDF is the worker's job.
@@ -44,6 +49,13 @@ _STATUS_FIELDS: Final[dict[DocumentStatus, dict[str, object]]] = {
     "ready": {"chunk_count": 4, "embedding_model": "mock-hashing-v1", "processed_at": _START},
     "failed": {"error_code": "pdf_unreadable"},
 }
+
+
+class _RetryCase(NamedTuple):
+    status: DocumentStatus
+    error_code: DocumentErrorCode | None
+    # How long ago the status last changed, by the clock of the request.
+    age: timedelta
 
 
 class _FakeClock:
@@ -190,6 +202,14 @@ def _chunks(client: TestClient, document_id: str | uuid.UUID, **params: int) -> 
     return body
 
 
+def _retry(
+    client: TestClient, document_id: str | uuid.UUID, headers: dict[str, str] | None = None
+) -> httpx2.Response:
+    return client.post(
+        _document_path(document_id, "/retry"), headers={**csrf_headers(client), **(headers or {})}
+    )
+
+
 def _assert_error(response: httpx2.Response, status: HTTPStatus, code: str) -> None:
     assert response.status_code == status
     assert response.json()["error"]["code"] == code
@@ -264,18 +284,23 @@ def test_get_returns_the_analysis_of_a_ready_document(
     assert not {"sha256", "storage_key", "error_message"} & body.keys()
 
 
-def test_an_unknown_document_is_not_found_on_every_route(user_client: TestClient) -> None:
-    path = _document_path(uuid.uuid4())
+def test_an_unknown_document_is_not_found_on_every_route(
+    user_client: TestClient, document_queue: RecordingDocumentQueue
+) -> None:
+    document_id = uuid.uuid4()
+    path = _document_path(document_id)
 
     responses = [
         user_client.get(path),
         user_client.get(f"{path}/chunks"),
         user_client.get(f"{path}/file"),
         user_client.delete(path, headers=csrf_headers(user_client)),
+        _retry(user_client, document_id),
     ]
 
     for response in responses:
         _assert_error(response, HTTPStatus.NOT_FOUND, "document_not_found")
+    assert document_queue.enqueued == []
 
 
 def test_a_malformed_document_id_is_a_validation_error(user_client: TestClient) -> None:
@@ -498,6 +523,295 @@ def test_a_document_whose_file_is_gone_cannot_be_downloaded(
     assert warning["document_id"] == str(document.id)
 
 
+# --- retry ----------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("clock")
+@pytest.mark.parametrize(
+    "case",
+    [
+        _RetryCase("failed", "pdf_unreadable", timedelta(minutes=1)),
+        _RetryCase("failed", "queue_unavailable", timedelta(0)),
+        _RetryCase("processing", None, _JUST_STALE),
+        _RetryCase("indexing", None, timedelta(days=2)),
+        _RetryCase("uploaded", None, _JUST_STALE),
+        _RetryCase("uploaded", "ai_unavailable", _JUST_STALE),
+    ],
+    ids=[
+        "failed",
+        "failed-just-now",
+        "stalled-processing",
+        "stalled-indexing",
+        "stalled-uploaded",
+        "stalled-retry-pending",
+    ],
+)
+def test_a_failed_or_stalled_document_goes_back_to_the_queue(
+    user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    document_queue: RecordingDocumentQueue,
+    case: _RetryCase,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(
+        db_session,
+        storage,
+        workspace_id,
+        case.status,
+        error_code=case.error_code,
+        error_message="The previous run stopped." if case.error_code else None,
+        attempts=1,
+        updated_at=_START - case.age,
+    )
+    before = user_client.get(_document_path(document.id)).json()
+
+    response = _retry(user_client, document.id, {"X-Request-ID": _REQUEST_ID})
+
+    assert before["can_retry"] is True
+    assert response.status_code == HTTPStatus.ACCEPTED
+    body = response.json()
+    assert (body["status"], body["error_code"], body["attempts"], body["can_retry"]) == (
+        "uploaded",
+        None,
+        1,
+        False,
+    )
+    assert datetime.fromisoformat(body["updated_at"]) == _START
+    row = _reloaded(db_session, document.id)
+    # The run counter is the worker's run token: only claiming a run moves it.
+    assert (row.status, row.error_code, row.error_message, row.attempts, row.updated_at) == (
+        "uploaded",
+        None,
+        None,
+        1,
+        _START,
+    )
+    assert document_queue.enqueued == [QueuedDocument(document.id, _REQUEST_ID)]
+    assert user_client.get(_document_path(document.id)).json() == body
+
+
+@pytest.mark.usefixtures("clock")
+@pytest.mark.parametrize(
+    "case",
+    [
+        _RetryCase("processing", None, timedelta(0)),
+        _RetryCase("indexing", None, timedelta(minutes=14)),
+        _RetryCase("uploaded", None, timedelta(minutes=1)),
+        _RetryCase("uploaded", "ai_unavailable", timedelta(minutes=5)),
+        _RetryCase("ready", None, timedelta(days=30)),
+    ],
+    ids=["processing", "indexing", "uploaded", "retry-pending", "ready"],
+)
+def test_a_document_that_is_moving_or_ready_cannot_be_retried(
+    user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    document_queue: RecordingDocumentQueue,
+    case: _RetryCase,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(
+        db_session,
+        storage,
+        workspace_id,
+        case.status,
+        error_code=case.error_code,
+        attempts=1,
+        updated_at=_START - case.age,
+    )
+    before = user_client.get(_document_path(document.id)).json()
+
+    response = _retry(user_client, document.id)
+
+    assert before["can_retry"] is False
+    _assert_error(response, HTTPStatus.CONFLICT, "document_not_retryable")
+    row = _reloaded(db_session, document.id)
+    assert (row.status, row.error_code, row.attempts, row.updated_at) == (
+        case.status,
+        case.error_code,
+        1,
+        _START - case.age,
+    )
+    assert document_queue.enqueued == []
+
+
+def test_a_stalled_document_can_be_retried_exactly_when_can_retry_says_so(
+    user_client: TestClient, db_session: Session, storage: FileStorage, clock: _FakeClock
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(
+        db_session, storage, workspace_id, "processing", updated_at=_START - _STALE_AGE
+    )
+    path = _document_path(document.id)
+
+    on_the_boundary = user_client.get(path).json()["can_retry"]
+    refused = _retry(user_client, document.id)
+    clock.advance(timedelta(microseconds=1))
+    just_after = user_client.get(path).json()["can_retry"]
+    accepted = _retry(user_client, document.id)
+
+    assert on_the_boundary is False
+    _assert_error(refused, HTTPStatus.CONFLICT, "document_not_retryable")
+    assert just_after is True
+    assert accepted.status_code == HTTPStatus.ACCEPTED
+    assert accepted.json()["status"] == "uploaded"
+
+
+@pytest.mark.usefixtures("clock")
+def test_of_two_retries_at_once_only_one_queues_the_document(
+    user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    document_queue: RecordingDocumentQueue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(
+        db_session, storage, workspace_id, "failed", updated_at=_START - timedelta(minutes=1)
+    )
+    load = DocumentRepository.get_for_owner
+
+    def load_then_lose_the_race(
+        repository: DocumentRepository, document_id: uuid.UUID, owner_id: uuid.UUID
+    ) -> Document | None:
+        loaded = load(repository, document_id, owner_id)
+        # The other retry of the same document wins between this load and the update.
+        db_session.execute(
+            text(
+                "UPDATE documents SET status = 'uploaded', error_code = NULL,"
+                " error_message = NULL, updated_at = :now WHERE id = :id"
+            ),
+            {"id": document_id, "now": _START},
+        )
+        return loaded
+
+    monkeypatch.setattr(DocumentRepository, "get_for_owner", load_then_lose_the_race)
+
+    response = _retry(user_client, document.id)
+
+    _assert_error(response, HTTPStatus.CONFLICT, "document_not_retryable")
+    assert document_queue.enqueued == []
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_retry_the_broker_cannot_take_leaves_the_document_failed_for_another_try(
+    user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    document_queue: RecordingDocumentQueue,
+) -> None:
+    document_queue.unavailable = True
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(
+        db_session,
+        storage,
+        workspace_id,
+        "failed",
+        error_code="no_text",
+        attempts=1,
+        updated_at=_START - timedelta(hours=1),
+    )
+
+    response = _retry(user_client, document.id)
+
+    assert response.status_code == HTTPStatus.ACCEPTED
+    body = response.json()
+    assert (body["status"], body["error_code"], body["can_retry"]) == (
+        "failed",
+        "queue_unavailable",
+        True,
+    )
+    row = _reloaded(db_session, document.id)
+    assert (row.status, row.error_code, row.attempts, row.updated_at) == (
+        "failed",
+        "queue_unavailable",
+        1,
+        _START,
+    )
+    assert row.error_message is not None
+    assert user_client.get(_document_path(document.id)).json() == body
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_document_deleted_while_its_retry_could_not_be_queued_is_not_found(
+    user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    document_queue: RecordingDocumentQueue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(db_session, storage, workspace_id, "failed")
+
+    def deleted_while_the_broker_is_down(document_id: uuid.UUID) -> None:
+        # The owner deletes the document while the publish is still being retried.
+        db_session.execute(text("DELETE FROM documents WHERE id = :id"), {"id": document_id})
+        raise QueueUnavailableError("The broker is not reachable.")
+
+    monkeypatch.setattr(document_queue, "enqueue", deleted_while_the_broker_is_down)
+
+    response = _retry(user_client, document.id)
+
+    _assert_error(response, HTTPStatus.NOT_FOUND, "document_not_found")
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_retry_that_would_pass_the_active_document_cap_waits(
+    user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    document_queue: RecordingDocumentQueue,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    for _ in range(9):
+        _add_document(db_session, storage, workspace_id, "processing", updated_at=_START)
+    stalled = _add_document(
+        db_session, storage, workspace_id, "processing", updated_at=_START - _JUST_STALE
+    )
+    failed = _add_document(db_session, storage, workspace_id, "failed", updated_at=_START)
+    ready = _add_document(db_session, storage, workspace_id, "ready", updated_at=_START)
+
+    refused = _retry(user_client, failed.id)
+    # Never retryable, so waiting for the cap would not help: the answer is the conflict.
+    not_retryable = _retry(user_client, ready.id)
+    # A stalled document already counts as active, so retrying it adds none.
+    accepted = _retry(user_client, stalled.id)
+
+    _assert_error(refused, HTTPStatus.TOO_MANY_REQUESTS, "too_many_active_documents")
+    assert refused.headers["retry-after"] == "60"
+    assert _reloaded(db_session, failed.id).status == "failed"
+    _assert_error(not_retryable, HTTPStatus.CONFLICT, "document_not_retryable")
+    assert accepted.status_code == HTTPStatus.ACCEPTED
+    assert [queued.document_id for queued in document_queue.enqueued] == [stalled.id]
+
+
+@pytest.mark.usefixtures("clock")
+def test_retries_past_the_hourly_limit_of_a_user_are_rate_limited(
+    user_client: TestClient,
+    other_user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    integration_settings: Settings,
+) -> None:
+    integration_settings.document_retries_per_hour = 2
+    workspace_id = _create_workspace(user_client)
+    documents = [_add_document(db_session, storage, workspace_id, "failed") for _ in range(3)]
+    other_document = _add_document(
+        db_session, storage, _create_workspace(other_user_client), "failed"
+    )
+
+    accepted = [_retry(user_client, document.id) for document in documents[:2]]
+    limited = _retry(user_client, documents[2].id)
+    other_user = _retry(other_user_client, other_document.id)
+
+    assert [response.status_code for response in accepted] == [HTTPStatus.ACCEPTED] * 2
+    _assert_error(limited, HTTPStatus.TOO_MANY_REQUESTS, "rate_limited")
+    assert int(limited.headers["retry-after"]) > 0
+    assert _reloaded(db_session, documents[2].id).status == "failed"
+    assert other_user.status_code == HTTPStatus.ACCEPTED
+
+
 # --- two users and CSRF ---------------------------------------------------------
 
 
@@ -519,6 +833,7 @@ def test_another_users_document_is_not_found_and_stays_unchanged(
         other_user_client.get(f"{path}/chunks"),
         other_user_client.get(f"{path}/file"),
         other_user_client.delete(path, headers=csrf_headers(other_user_client)),
+        _retry(other_user_client, document.id),
     ]
 
     for response in responses:
@@ -531,7 +846,7 @@ def test_another_users_document_is_not_found_and_stays_unchanged(
     assert user_client.get(_workspace_path(workspace_id)).json() == workspace_before
 
 
-def test_a_cookie_delete_without_the_csrf_header_is_refused(
+def test_cookie_requests_that_change_a_document_need_the_csrf_header(
     user_client: TestClient,
     db_session: Session,
     storage: FileStorage,
@@ -541,7 +856,7 @@ def test_a_cookie_delete_without_the_csrf_header_is_refused(
     document = _add_document(db_session, storage, workspace_id, "failed")
     path = _document_path(document.id)
 
-    responses = [user_client.delete(path)]
+    responses = [user_client.delete(path), user_client.post(f"{path}/retry")]
 
     for response in responses:
         _assert_error(response, HTTPStatus.FORBIDDEN, "csrf_failed")
@@ -562,20 +877,26 @@ def test_openapi_documents_the_document_routes_and_their_errors(
     item = schema["paths"]["/api/v1/documents/{document_id}"]
     chunks = schema["paths"]["/api/v1/documents/{document_id}/chunks"]["get"]
     download = schema["paths"]["/api/v1/documents/{document_id}/file"]["get"]
+    retry = schema["paths"]["/api/v1/documents/{document_id}/retry"]["post"]
     statuses = {
         "get": set(item["get"]["responses"]),
         "delete": set(item["delete"]["responses"]),
         "chunks": set(chunks["responses"]),
         "file": set(download["responses"]),
+        "retry": set(retry["responses"]),
     }
     assert statuses == {
         "get": {"200", "401", "404", "422"},
         "delete": {"204", "401", "403", "404", "422"},
         "chunks": {"200", "401", "404", "422"},
         "file": {"200", "401", "404", "422"},
+        "retry": {"202", "401", "403", "404", "409", "422", "429"},
     }
-    for operation in (item["get"], item["delete"], chunks, download):
+    for operation in (item["get"], item["delete"], chunks, download, retry):
         assert operation["tags"] == ["documents"]
+    assert retry["responses"]["202"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/DocumentOut"
+    }
     assert set(download["responses"]["200"]["content"]) == {
         "application/pdf",
         "text/markdown",

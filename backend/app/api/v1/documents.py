@@ -16,6 +16,7 @@ from app.services.documents import DocumentView
 
 _HOUR_SECONDS: Final = 3600
 _UPLOAD_RATE_LIMIT_SCOPE: Final = "documents_upload_user"
+_RETRY_RATE_LIMIT_SCOPE: Final = "documents_retry_user"
 # A user's own file must never be rendered as another type or kept in a shared cache.
 _DOWNLOAD_HEADERS: Final = {
     "X-Content-Type-Options": "nosniff",
@@ -204,3 +205,30 @@ def download_document_file(
         filename=stored.filename,
         headers=_DOWNLOAD_HEADERS,
     )
+
+
+@router.post(
+    "/{document_id}/retry",
+    status_code=HTTPStatus.ACCEPTED,
+    summary="Queue a failed or stalled document for processing again",
+    responses=error_responses(
+        HTTPStatus.UNAUTHORIZED,
+        HTTPStatus.FORBIDDEN,
+        HTTPStatus.NOT_FOUND,
+        HTTPStatus.CONFLICT,
+        HTTPStatus.TOO_MANY_REQUESTS,
+    ),
+)
+def retry_document(
+    document_id: uuid.UUID,
+    current_user: CurrentUser,
+    service: DocumentServiceDep,
+    settings: SettingsDep,
+    redis: RedisClient,
+) -> DocumentOut:
+    """Allowed while the document's can_retry is true; otherwise a 409 with the error code
+    document_not_retryable. When the queue cannot take the document, it comes back failed
+    with the error code queue_unavailable, and processing can be retried."""
+    rule = RateLimit(_RETRY_RATE_LIMIT_SCOPE, settings.document_retries_per_hour, _HOUR_SECONDS)
+    enforce_rate_limit(redis, rule, rate_limit_key(str(current_user.id)))
+    return _document_out(service.retry(user=current_user, document_id=document_id))

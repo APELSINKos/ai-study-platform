@@ -8,7 +8,7 @@ from typing import Any, Final
 
 import pytest
 from fastapi import UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -222,6 +222,28 @@ def test_a_publish_failure_marks_the_document_failed_when_the_publish_gave_up(
     ]
     assert warning["level"] == "warning"
     assert warning["document_id"] == str(document.id)
+
+
+def test_an_upload_deleted_while_the_broker_was_down_is_not_found(
+    db_session: Session,
+    service: DocumentService,
+    owner: User,
+    queue: _Queue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+
+    def deleted_while_the_broker_is_down(document_id: uuid.UUID) -> None:
+        # The owner deletes the new document while the publish is still being retried.
+        db_session.execute(text("DELETE FROM documents WHERE id = :id"), {"id": document_id})
+        raise QueueUnavailableError("The broker is not reachable.")
+
+    monkeypatch.setattr(queue, "enqueue", deleted_while_the_broker_is_down)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        service.upload(user=owner, workspace_id=workspace.id, upload=_upload_file())
+
+    assert exc_info.value.code == "document_not_found"
 
 
 def test_the_quota_is_checked_again_with_the_real_size_once_the_row_is_in(

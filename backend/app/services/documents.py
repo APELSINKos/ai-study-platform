@@ -26,7 +26,12 @@ from app.documents.validation import (
     extension_for,
     sanitize_filename,
 )
-from app.models.document import Document, DocumentContentType, DocumentStatus
+from app.models.document import (
+    ACTIVE_DOCUMENT_STATUSES,
+    Document,
+    DocumentContentType,
+    DocumentStatus,
+)
 from app.models.document_chunk import DocumentChunk
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -44,6 +49,9 @@ WORKSPACE_FOREIGN_KEY: Final = "fk_documents_workspace_id_workspaces"
 
 _DOCUMENT_NOT_FOUND_MESSAGE: Final = "The document was not found."
 _DOCUMENT_FILE_MISSING_MESSAGE: Final = "The original file of the document is no longer stored."
+_DOCUMENT_NOT_RETRYABLE_MESSAGE: Final = (
+    "Only a failed document, or one whose processing has stalled, can be processed again."
+)
 _DUPLICATE_DOCUMENT_MESSAGE: Final = "This file has already been uploaded to the workspace."
 _TOO_MANY_ACTIVE_DOCUMENTS_MESSAGE: Final = (
     "Too many of your documents are still being processed. Try again in a minute."
@@ -79,6 +87,10 @@ def _duplicate_document() -> ConflictError:
     return ConflictError(_DUPLICATE_DOCUMENT_MESSAGE, code="duplicate_document")
 
 
+def _document_not_retryable() -> ConflictError:
+    return ConflictError(_DOCUMENT_NOT_RETRYABLE_MESSAGE, code="document_not_retryable")
+
+
 def _violated_constraint(error: IntegrityError) -> str | None:
     if isinstance(error.orig, psycopg.Error):
         return error.orig.diag.constraint_name
@@ -86,7 +98,7 @@ def _violated_constraint(error: IntegrityError) -> str | None:
 
 
 class DocumentService:
-    """A user's documents: upload, listing, viewing, chunks, download and deletion."""
+    """A user's documents: upload, listing, viewing, chunks, download, deletion and retry."""
 
     def __init__(
         self,
@@ -195,6 +207,28 @@ class DocumentService:
         except OSError:
             logger.warning("document_file_not_deleted", document_id=str(document.id), exc_info=True)
 
+    def retry(self, *, user: User, document_id: uuid.UUID) -> DocumentView:
+        """Queue a failed or stalled document for processing again.
+
+        Whether it may be retried is decided by one compare-and-set UPDATE, so two retries
+        at once queue it once. A failed document becomes active again and must fit under
+        the cap of active documents. A queue that cannot take it is handled as on upload.
+        """
+        document = self._get_owned(user, document_id)
+        now = self._clock()
+        # Checked first so that waiting for the cap is never suggested for a document that
+        # cannot be retried anyway; the UPDATE below has the final word.
+        if not is_retryable(document.status, document.updated_at, now):
+            raise _document_not_retryable()
+        # A stalled document is still counted as active, so retrying it adds none.
+        reactivated = 0 if document.status in ACTIVE_DOCUMENT_STATUSES else 1
+        self._check_active_documents(self._documents.owner_usage(user.id), reactivated)
+        if not self._documents.mark_for_retry(document.id, document.workspace_id, now):
+            raise _document_not_retryable()
+        self._session.commit()
+        self._enqueue(document)
+        return self._view(document, self._clock())
+
     def _get_owned(self, user: User, document_id: uuid.UUID) -> Document:
         # Another user's document is reported exactly like a missing one.
         document = self._documents.get_for_owner(document_id, user.id)
@@ -210,14 +244,17 @@ class DocumentService:
         return workspace
 
     def _check_caps(self, usage: OwnerUsage, *, new_documents: int = 0, new_bytes: int = 0) -> None:
+        self._check_active_documents(usage, new_documents)
+        if usage.storage_bytes + new_bytes > self._settings.max_storage_bytes_per_user:
+            raise ConflictError(_STORAGE_QUOTA_EXCEEDED_MESSAGE, code="storage_quota_exceeded")
+
+    def _check_active_documents(self, usage: OwnerUsage, new_documents: int) -> None:
         if usage.active_count + new_documents > self._settings.max_active_documents_per_user:
             raise RateLimitedError(
                 _TOO_MANY_ACTIVE_DOCUMENTS_MESSAGE,
                 code="too_many_active_documents",
                 headers={"Retry-After": str(ACTIVE_DOCUMENTS_RETRY_AFTER_SECONDS)},
             )
-        if usage.storage_bytes + new_bytes > self._settings.max_storage_bytes_per_user:
-            raise ConflictError(_STORAGE_QUOTA_EXCEEDED_MESSAGE, code="storage_quota_exceeded")
 
     def _new_document(
         self, workspace_id: uuid.UUID, filename: str, extension: str, inspected: InspectedUpload
@@ -273,11 +310,14 @@ class DocumentService:
             self._queue.enqueue(document.id)
         except QueueUnavailableError:
             logger.warning("document_not_queued", document_id=str(document.id), exc_info=True)
-            # Unlike the worker's writes, not checked against a run token: an upload is no run.
-            document.status = "failed"
-            document.error_code = "queue_unavailable"
-            document.error_message = _QUEUE_UNAVAILABLE_MESSAGE
-            document.updated_at = self._clock()
+            # Unlike the worker's writes, not checked against a run token: an upload or a
+            # retry is no run.
+            marked = self._documents.mark_queue_unavailable(
+                document.id, _QUEUE_UNAVAILABLE_MESSAGE, self._clock()
+            )
+            if not marked:
+                # The broker takes seconds to give up; the owner may delete it meanwhile.
+                raise document_not_found() from None
             self._session.commit()
 
     @staticmethod
