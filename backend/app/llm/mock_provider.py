@@ -18,6 +18,7 @@ from itertools import pairwise
 from typing import Final
 
 from app.documents.text import (
+    EXCERPT_SEPARATOR,
     STOPWORDS_EN,
     STOPWORDS_RU,
     has_cyrillic,
@@ -68,6 +69,7 @@ DEFAULT_DIFFICULTY: Final[Difficulty] = "medium"
 _MARKDOWN_MAX_INDENT: Final = 3
 _MARKDOWN_MAX_HEADING_LEVEL: Final = 6
 _CODE_FENCES: Final = ("```", "~~~")
+_EXCERPT_SEPARATOR_LINE: Final = EXCERPT_SEPARATOR.strip()
 _TITLE_LINE_ENDINGS: Final = (".", "!", "?", "…", ":", ";", ",")
 _SENTENCE_END_CHARS: Final = ".!?…"
 _LETTER_RE: Final = re.compile(r"[^\W\d_]")
@@ -195,6 +197,11 @@ def _read_sample(sample: str) -> _Sample:
     first_line: str | None = None
     in_code_block = False
     for line in sample.splitlines():
+        if line.strip() == _EXCERPT_SEPARATOR_LINE:
+            # Each excerpt is read on its own: one may end inside a code block it cut off.
+            in_code_block = False
+            _end_paragraph(paragraph, paragraphs)
+            continue
         if _is_code_fence(line):
             in_code_block = not in_code_block
             _end_paragraph(paragraph, paragraphs)
@@ -208,7 +215,7 @@ def _read_sample(sample: str) -> _Sample:
                 headings.append(text)
             continue
         text, is_list_item = _body_text(line)
-        # A line without letters or digits ("---", "[…]") separates rather than says anything.
+        # A line without letters or digits ("---", "* * *") separates rather than says anything.
         has_content = _ALNUM_RE.search(text) is not None
         if is_list_item or not has_content:
             _end_paragraph(paragraph, paragraphs)

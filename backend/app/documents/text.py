@@ -15,6 +15,8 @@ def _word_set(text: str) -> frozenset[str]:
 
 
 ELLIPSIS: Final = "…"
+# Stands on a line of its own between the excerpts of a long document in an analysis sample.
+EXCERPT_SEPARATOR: Final = f"\n[{ELLIPSIS}]\n"
 
 # Letters and digits of any script; a hyphen or an apostrophe counts only between two of
 # them ("из-за", "don't"), so dashes and quotes around a word stay outside it.

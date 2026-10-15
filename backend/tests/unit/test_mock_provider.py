@@ -8,7 +8,7 @@ from typing import Final
 
 import pytest
 
-from app.documents.text import ELLIPSIS
+from app.documents.text import ELLIPSIS, EXCERPT_SEPARATOR
 from app.llm.base import (
     EMBEDDING_DIMENSIONS,
     AnalysisRequest,
@@ -334,6 +334,25 @@ def test_list_items_become_finished_sentences_of_their_own(
     assert summary == (
         "Open the editor and create a new empty file for notes. "
         "Write down every new term together with a short example;"
+    )
+
+
+def test_a_code_block_that_an_excerpt_cuts_off_ends_with_that_excerpt(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "The first excerpt explains the setup in a few ordinary words.\n"
+        "```python\n"
+        "print('the excerpt ends inside this code block')"
+        + EXCERPT_SEPARATOR
+        + "The second excerpt goes on with another ordinary sentence here.\n"
+    )
+
+    summary = _analyze(llm, sample).analysis.summary
+
+    assert summary == (
+        "The first excerpt explains the setup in a few ordinary words. "
+        "The second excerpt goes on with another ordinary sentence here."
     )
 
 
