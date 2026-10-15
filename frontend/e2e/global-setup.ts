@@ -3,7 +3,7 @@ import { request } from "@playwright/test";
 import { baseURL } from "../playwright.config";
 
 const WARMUP_TIMEOUT_MS = 30_000;
-// Without this hint the proxy redirects /dashboard to /login and the page never compiles.
+// Without this hint the proxy redirects the signed-in pages to /login and they never compile.
 const SESSION_HINT_COOKIE = "recall_csrf=warm-up";
 
 // next dev compiles each page on first request; with several workers hitting a cold
@@ -16,5 +16,6 @@ export default async function globalSetup(): Promise<void> {
   await context.get("/login");
   await context.get("/register");
   await context.get("/dashboard", { headers: { cookie: SESSION_HINT_COOKIE } });
+  await context.get("/workspaces", { headers: { cookie: SESSION_HINT_COOKIE } });
   await context.dispose();
 }

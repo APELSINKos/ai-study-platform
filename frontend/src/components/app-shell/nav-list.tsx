@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 
 import { cn } from "@/lib/utils";
 
-import { NAV_ITEMS } from "./nav-items";
+import { isNavItemActive, NAV_ITEMS } from "./nav-items";
 
 /** The same destination list backs the desktop rail and the mobile drawer. */
 export function NavList({
@@ -21,8 +21,9 @@ export function NavList({
 
   return (
     <ul className={cn("flex flex-col gap-1", className)}>
-      {NAV_ITEMS.map(({ href, labelKey, Icon }) => {
-        const active = pathname === href || pathname.startsWith(`${href}/`);
+      {NAV_ITEMS.map((item) => {
+        const { href, labelKey, Icon } = item;
+        const active = isNavItemActive(item, pathname);
         return (
           <li key={href} className="relative">
             {active ? (
