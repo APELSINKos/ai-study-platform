@@ -695,6 +695,36 @@ def test_of_two_retries_at_once_only_one_queues_the_document(
 
 
 @pytest.mark.usefixtures("clock")
+def test_a_document_deleted_while_its_retry_was_starting_is_not_found(
+    user_client: TestClient,
+    db_session: Session,
+    storage: FileStorage,
+    document_queue: RecordingDocumentQueue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(
+        db_session, storage, workspace_id, "failed", updated_at=_START - timedelta(minutes=1)
+    )
+    load = DocumentRepository.get_for_owner
+
+    def load_then_lose_the_row(
+        repository: DocumentRepository, document_id: uuid.UUID, owner_id: uuid.UUID
+    ) -> Document | None:
+        loaded = load(repository, document_id, owner_id)
+        # The owner deletes the document in another tab between this load and the update.
+        db_session.execute(text("DELETE FROM documents WHERE id = :id"), {"id": document_id})
+        return loaded
+
+    monkeypatch.setattr(DocumentRepository, "get_for_owner", load_then_lose_the_row)
+
+    response = _retry(user_client, document.id)
+
+    _assert_error(response, HTTPStatus.NOT_FOUND, "document_not_found")
+    assert document_queue.enqueued == []
+
+
+@pytest.mark.usefixtures("clock")
 def test_a_retry_the_broker_cannot_take_leaves_the_document_failed_for_another_try(
     user_client: TestClient,
     db_session: Session,

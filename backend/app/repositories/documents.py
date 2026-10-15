@@ -31,6 +31,11 @@ class DocumentRepository:
     def get(self, document_id: uuid.UUID) -> Document | None:
         return self._session.get(Document, document_id)
 
+    def exists(self, document_id: uuid.UUID) -> bool:
+        """Whether the row is still in the database, even while the session holds a copy."""
+        statement = select(Document.id).where(Document.id == document_id)
+        return self._session.execute(statement).first() is not None
+
     def get_for_owner(self, document_id: uuid.UUID, owner_id: uuid.UUID) -> Document | None:
         statement = (
             select(Document)

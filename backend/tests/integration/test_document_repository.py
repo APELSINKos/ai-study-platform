@@ -208,6 +208,20 @@ def test_delete_reports_a_row_that_another_transaction_removed_first(
     assert repository.get(kept.id) is kept
 
 
+def test_exists_asks_the_database_even_while_the_session_holds_the_document(
+    db_session: Session,
+) -> None:
+    repository = DocumentRepository(db_session)
+    document = _document(db_session, _workspace(db_session, _user(db_session)))
+    assert repository.exists(document.id) is True
+
+    db_session.execute(text("DELETE FROM documents WHERE id = :id"), {"id": document.id})
+
+    # The session still holds the loaded copy; only a query sees that the row is gone.
+    assert repository.exists(document.id) is False
+    assert repository.exists(uuid.uuid4()) is False
+
+
 def test_mark_for_retry_sends_a_retryable_document_back_to_uploaded(db_session: Session) -> None:
     repository = DocumentRepository(db_session)
     workspace = _workspace(db_session, _user(db_session))

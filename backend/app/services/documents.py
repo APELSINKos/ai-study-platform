@@ -228,6 +228,9 @@ class DocumentService:
         reactivated = 0 if document.status in ACTIVE_DOCUMENT_STATUSES else 1
         self._check_active_documents(self._documents.owner_usage(user.id), reactivated)
         if not self._documents.mark_for_retry(document.id, document.workspace_id, now):
+            # Another request changed its status, or deleted it, after it was loaded.
+            if not self._documents.exists(document.id):
+                raise document_not_found()
             raise _document_not_retryable()
         self._session.commit()
         self._enqueue(document)
