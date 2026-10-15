@@ -28,7 +28,13 @@ PUBLISH_MAX_RETRIES: Final = 2
 
 
 def create_celery_app() -> Celery:
-    app = Celery("ai_study_platform", broker=get_settings().redis_url)
+    app = Celery(
+        "ai_study_platform",
+        broker=get_settings().redis_url,
+        # The worker imports these modules at startup; it discards a message for a task that
+        # no imported module defines.
+        include=["app.workers.tasks"],
+    )
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],
