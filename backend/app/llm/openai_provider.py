@@ -15,7 +15,7 @@ from typing import Final
 
 import openai
 from openai import OpenAI
-from openai.types import CreateEmbeddingResponse
+from openai.types import CreateEmbeddingResponse, Embedding
 
 from app.llm.base import (
     EMBEDDING_DIMENSIONS,
@@ -47,7 +47,7 @@ _VENDOR_CODE_MAX_CHARS: Final = 64
 _MILLISECONDS_PER_SECOND: Final = 1000.0
 _UNREACHABLE_MESSAGE: Final = "The AI provider could not be reached."
 _TIMED_OUT_MESSAGE: Final = "The AI provider did not answer in time."
-_NOT_JSON_MESSAGE: Final = "The AI provider sent a response that is not valid JSON."
+_UNREADABLE_MESSAGE: Final = "The AI provider sent a response that could not be read as JSON."
 _BLANK_TEXT_MESSAGE: Final = "Texts to embed must not be blank."
 _WRONG_VECTORS_MESSAGE: Final = "The embedding model did not return one vector per text."
 _INVALID_VECTOR_MESSAGE: Final = (
@@ -145,9 +145,10 @@ def _provider_errors() -> Iterator[None]:
         yield
     except openai.OpenAIError as error:
         raise classify_openai_error(error) from None
-    except json.JSONDecodeError:
-        # The SDK lets this through for a body that claims to be JSON but is not.
-        raise ProviderRequestError(_NOT_JSON_MESSAGE, code="ai_invalid_output") from None
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, OverflowError):
+        # The SDK lets these through for a body that claims to be JSON but cannot be read:
+        # malformed, not UTF-8, nested too deeply or with a number too large for a float.
+        raise ProviderRequestError(_UNREADABLE_MESSAGE, code="ai_invalid_output") from None
 
 
 def _vendor_code(error: openai.APIStatusError) -> str:
@@ -186,10 +187,17 @@ def _retry_after_seconds(headers: Mapping[str, str]) -> float | None:
 
 def _unit_vectors(response: CreateEmbeddingResponse, count: int, model: str) -> list[list[float]]:
     """The response's vectors in input order, each checked and scaled to unit length."""
-    # A body that is not JSON reaches here as a plain string.
+    # The SDK does not validate a response: a body that is not JSON reaches here as a plain
+    # string, and a part of another shape as the server sent it.
     data = response.data if isinstance(response, CreateEmbeddingResponse) else None
-    by_index = {item.index: item.embedding for item in data or []}
-    if data is None or len(data) != count or by_index.keys() != set(range(count)):
+    items = data if isinstance(data, list) else []
+    # An item of another shape is left out, and then the indices no longer cover every text.
+    by_index = {
+        item.index: item.embedding
+        for item in items
+        if isinstance(item, Embedding) and isinstance(item.index, int)
+    }
+    if len(items) != count or by_index.keys() != set(range(count)):
         raise ProviderRequestError(_WRONG_VECTORS_MESSAGE, code="ai_invalid_output")
     return [_unit_vector(by_index[index], model) for index in range(count)]
 
@@ -205,8 +213,8 @@ def _unit_vector(vector: list[float], model: str) -> list[float]:
         )
     if not all(isinstance(value, int | float) for value in vector):
         raise ProviderRequestError(_INVALID_VECTOR_MESSAGE, code="ai_invalid_output")
-    # A NaN or an infinity makes the norm NaN or infinite; hypot scales internally, so huge
-    # or tiny finite values neither overflow nor vanish.
+    # A NaN or an infinity makes the norm NaN or infinite, and so do finite values whose norm
+    # is beyond the float range. hypot scales internally, so tiny values do not vanish.
     norm = math.hypot(*vector)
     if not 0.0 < norm < math.inf:
         raise ProviderRequestError(_INVALID_VECTOR_MESSAGE, code="ai_invalid_output")

@@ -59,6 +59,8 @@ REQUEST: Final = AnalysisRequest(
     sample="Normalisation removes redundancy from a relational schema.",
 )
 TEXTS: Final = ("first chunk", "second chunk")
+# Nested deeper than the JSON decoder's recursion limit.
+DEEPLY_NESTED_JSON: Final = "[" * 100_000 + "]" * 100_000
 
 
 class FakeEndpoint:
@@ -162,10 +164,9 @@ def _embeddings(
     )
 
 
-def _raw_json(content: str) -> httpx2.Response:
-    return httpx2.Response(
-        200, content=content.encode(), headers={"content-type": "application/json"}
-    )
+def _raw_json(content: str | bytes) -> httpx2.Response:
+    body = content.encode() if isinstance(content, str) else content
+    return httpx2.Response(200, content=body, headers={"content-type": "application/json"})
 
 
 def _error(
@@ -241,8 +242,19 @@ INVALID_CHAT_ANSWERS: Final[list[Any]] = [
         lambda _: httpx2.Response(200, json={"choices": [{"index": 0, "finish_reason": "stop"}]}),
         id="no-message",
     ),
+    pytest.param(lambda _: httpx2.Response(200, json={"choices": ["x"]}), id="choice-not-object"),
+    pytest.param(
+        lambda _: httpx2.Response(200, json={"choices": {"0": {"message": {"content": "{}"}}}}),
+        id="choices-not-list",
+    ),
+    pytest.param(
+        lambda _: httpx2.Response(200, json={"choices": [{"index": 0, "message": "Hello."}]}),
+        id="message-not-object",
+    ),
     pytest.param(lambda _: httpx2.Response(200, text="<html>Welcome</html>"), id="html-page"),
     pytest.param(lambda _: _raw_json("{not json"), id="malformed-json"),
+    pytest.param(lambda _: _raw_json(b'{"choices": "\xff\xfe"}'), id="invalid-utf-8"),
+    pytest.param(lambda _: _raw_json(DEEPLY_NESTED_JSON), id="deeply-nested"),
 ]
 INVALID_EMBEDDING_ANSWERS: Final[list[Any]] = [
     pytest.param(lambda _: _embeddings([_vector(1.0)]), id="too-few"),
@@ -256,7 +268,19 @@ INVALID_EMBEDDING_ANSWERS: Final[list[Any]] = [
     pytest.param(
         lambda _: _embeddings([_vector(1.0), _vector(2.0)], indices=[0, None]), id="no-index"
     ),
+    pytest.param(
+        lambda _: _embeddings([_vector(1.0), _vector(2.0)], indices=[0, [1]]),
+        id="index-not-number",
+    ),
     pytest.param(lambda _: httpx2.Response(200, json={}), id="no-data"),
+    pytest.param(
+        lambda _: httpx2.Response(200, json={"data": {"0": _vector(1.0), "1": _vector(2.0)}}),
+        id="data-not-list",
+    ),
+    pytest.param(
+        lambda _: httpx2.Response(200, json={"data": [_vector(1.0), _vector(2.0)]}),
+        id="item-not-object",
+    ),
     pytest.param(lambda _: _embeddings([_vector(1.0), None]), id="null-vector"),
     pytest.param(lambda _: _embeddings([_vector(1.0), ["x", *_vector()[1:]]]), id="non-numeric"),
     pytest.param(lambda _: _embeddings([_vector(1.0), _vector()]), id="zero-vector"),
@@ -268,8 +292,21 @@ INVALID_EMBEDDING_ANSWERS: Final[list[Any]] = [
         lambda _: _raw_json(_embeddings([_vector(1.0), _vector(1.0)]).text.replace("1.0", "1e999")),
         id="infinity",
     ),
+    pytest.param(
+        lambda _: _raw_json(
+            _embeddings([_vector(1.0), _vector(1.0)]).text.replace("1.0", "1" + "0" * 400)
+        ),
+        id="integer-beyond-float-range",
+    ),
+    pytest.param(
+        # Every value is finite, but the norm is not.
+        lambda _: _embeddings([_vector(1.0), [1e308] * EMBEDDING_DIMENSIONS]),
+        id="norm-beyond-float-range",
+    ),
     pytest.param(lambda _: httpx2.Response(200, text="Embeddings are down"), id="text-page"),
     pytest.param(lambda _: _raw_json('{"data": ['), id="malformed-json"),
+    pytest.param(lambda _: _raw_json(b'{"data": "\xff\xfe"}'), id="invalid-utf-8"),
+    pytest.param(lambda _: _raw_json(DEEPLY_NESTED_JSON), id="deeply-nested"),
 ]
 
 
@@ -428,6 +465,31 @@ def test_an_answer_without_usage_counts_no_tokens(endpoint: FakeEndpoint) -> Non
     result = _llm(endpoint.client).analyze_document(REQUEST)
 
     assert (result.prompt_tokens, result.completion_tokens) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    ("usage", "tokens"),
+    [
+        pytest.param({}, (0, 0), id="empty"),
+        pytest.param(
+            {"prompt_tokens": 812, "completion_tokens": None, "total_tokens": 812},
+            (812, 0),
+            id="null-count",
+        ),
+        pytest.param({"prompt_tokens": 81.5, "completion_tokens": "30"}, (0, 0), id="not-integers"),
+        pytest.param("812 tokens", (0, 0), id="not-an-object"),
+    ],
+)
+def test_a_usage_report_of_another_shape_keeps_the_answer(
+    endpoint: FakeEndpoint, usage: object, tokens: tuple[int, int]
+) -> None:
+    body = _chat(json.dumps(VALID_ANSWER)).json() | {"usage": usage}
+    endpoint.answers.append(httpx2.Response(200, json=body))
+
+    result = _llm(endpoint.client).analyze_document(REQUEST)
+
+    assert result.analysis == DocumentAnalysis.model_validate(VALID_ANSWER)
+    assert (result.prompt_tokens, result.completion_tokens) == tokens
 
 
 @pytest.mark.parametrize("operation", OPERATIONS)

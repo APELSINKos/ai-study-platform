@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from typing import Final
 
 from openai import OpenAI
-from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types import CompletionUsage
+from openai.types.chat import ChatCompletion, ChatCompletionMessage, ChatCompletionMessageParam
+from openai.types.chat.chat_completion import Choice
 from openai.types.shared_params import ResponseFormatJSONObject, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 
@@ -84,9 +86,10 @@ def complete_structured[T: BaseModel](
             max_completion_tokens=options.max_output_tokens,
         )
         content = _answer_text(completion)
-        if completion.usage is not None:
-            prompt_tokens += completion.usage.prompt_tokens
-            completion_tokens += completion.usage.completion_tokens
+        usage = completion.usage
+        if isinstance(usage, CompletionUsage):
+            prompt_tokens += _token_count(usage.prompt_tokens)
+            completion_tokens += _token_count(usage.completion_tokens)
         try:
             value = schema.model_validate_json(content)
         except ValidationError as error:
@@ -105,17 +108,23 @@ def complete_structured[T: BaseModel](
 
 def _answer_text(completion: ChatCompletion) -> str:
     """The text of the first choice, or ProviderRequestError when there is nothing to use."""
-    # A body that is not JSON reaches here as a plain string.
+    # The SDK does not validate an answer: a body that is not JSON reaches here as a plain
+    # string, and a part of another shape as the server sent it.
     choices = completion.choices if isinstance(completion, ChatCompletion) else None
-    choice = choices[0] if choices else None
-    message = choice.message if choice is not None else None
-    if choice is None or message is None:
+    choice = choices[0] if isinstance(choices, list) and choices else None
+    if not isinstance(choice, Choice) or not isinstance(choice.message, ChatCompletionMessage):
         raise ProviderRequestError(_NO_ANSWER_MESSAGE, code="ai_invalid_output")
+    message = choice.message
     if message.refusal or choice.finish_reason == "content_filter":
         raise ProviderRequestError(_REFUSED_MESSAGE, code="ai_invalid_output")
     if choice.finish_reason == "length":
         raise ProviderRequestError(_CUT_OFF_MESSAGE, code="ai_invalid_output")
     return message.content if isinstance(message.content, str) else ""
+
+
+def _token_count(tokens: object) -> int:
+    """A count from the usage report, or 0 when the server left it out or sent another type."""
+    return tokens if isinstance(tokens, int) else 0
 
 
 def _problems(error: ValidationError) -> str:
