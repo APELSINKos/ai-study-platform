@@ -13,6 +13,17 @@ from app.core.request_context import request_id_ctx
 TASK_REQUEST_ID_KEY: Final = "request_id"
 TASK_SOFT_TIME_LIMIT_SECONDS: Final = 5 * 60
 TASK_TIME_LIMIT_SECONDS: Final = TASK_SOFT_TIME_LIMIT_SECONDS + 60
+DOCUMENT_TASK_SOFT_TIME_LIMIT_SECONDS: Final = 10 * 60
+DOCUMENT_TASK_TIME_LIMIT_SECONDS: Final = DOCUMENT_TASK_SOFT_TIME_LIMIT_SECONDS + 60
+MAX_RETRY_COUNTDOWN_SECONDS: Final = 5 * 60
+# Redis redelivers a message still unacknowledged after this long, so it must outlast the
+# longest run plus the longest retry countdown, or a document is processed twice.
+BROKER_VISIBILITY_TIMEOUT_SECONDS: Final = 30 * 60
+# Uploads publish inside the request: a dead broker must fail it before the web proxy's
+# 30 s timeout, so every connect, read and publish retry is bounded.
+BROKER_CONNECT_TIMEOUT_SECONDS: Final = 3
+BROKER_SOCKET_TIMEOUT_SECONDS: Final = 5
+PUBLISH_MAX_RETRIES: Final = 2
 
 
 def create_celery_app() -> Celery:
@@ -28,6 +39,20 @@ def create_celery_app() -> Celery:
         task_soft_time_limit=TASK_SOFT_TIME_LIMIT_SECONDS,
         task_time_limit=TASK_TIME_LIMIT_SECONDS,
         broker_connection_retry_on_startup=True,
+        broker_transport_options={
+            "visibility_timeout": BROKER_VISIBILITY_TIMEOUT_SECONDS,
+            "socket_connect_timeout": BROKER_CONNECT_TIMEOUT_SECONDS,
+            "socket_timeout": BROKER_SOCKET_TIMEOUT_SECONDS,
+        },
+        task_publish_retry_policy={
+            "max_retries": PUBLISH_MAX_RETRIES,
+            "interval_start": 0,
+            "interval_step": 0.2,
+            "interval_max": 1,
+        },
+        # Fresh child processes give back the memory that parsing large PDFs leaves behind.
+        worker_max_tasks_per_child=50,
+        worker_max_memory_per_child=512_000,  # KiB
         worker_hijack_root_logger=False,
     )
     return app

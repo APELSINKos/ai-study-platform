@@ -101,6 +101,38 @@ def test_uvicorn_loggers_follow_the_configured_level(capsys: pytest.CaptureFixtu
     assert line["event"] == "port busy"
 
 
+def test_http_client_request_lines_are_dropped(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging("INFO", "json")
+
+    logging.getLogger("httpx2").info('HTTP Request: POST https://llm.test/v1 "HTTP/1.1 200 OK"')
+    logging.getLogger("httpx2").warning("connection pool is full")
+
+    lines = _json_lines(capsys.readouterr().out)
+    assert [line["event"] for line in lines] == ["connection pool is full"]
+
+
+def test_pdf_parser_warnings_are_dropped_but_its_errors_are_kept(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+
+    logging.getLogger("pypdf._reader").warning("Ignoring wrong pointing object 6 0 (offset 0)")
+    logging.getLogger("pypdf._reader").error("Invalid stream length")
+
+    lines = _json_lines(capsys.readouterr().out)
+    assert [line["event"] for line in lines] == ["Invalid stream length"]
+
+
+def test_quieted_libraries_never_log_below_the_configured_level(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("ERROR", "json")
+
+    logging.getLogger("httpx2").warning("connection pool is full")
+
+    assert capsys.readouterr().out == ""
+
+
 def _raise_with_local_secret() -> None:
     password = "hunter2-local-secret"
     if password:

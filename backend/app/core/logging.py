@@ -1,5 +1,6 @@
 import logging
 import sys
+from typing import Final
 
 import structlog
 from structlog.typing import Processor
@@ -7,6 +8,8 @@ from structlog.typing import Processor
 from app.core.config import LogFormat, LogLevel
 
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error")
+# httpx2 logs every model request at INFO; pypdf warns about each defect it repairs in a file.
+_QUIET_LOGGER_LEVELS: Final = {"httpx2": logging.WARNING, "pypdf": logging.ERROR}
 
 
 def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
@@ -52,6 +55,10 @@ def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
         uvicorn_logger.setLevel(logging.NOTSET)
+
+    # Propagated records skip the root's level check, so never set these below it.
+    for name, quiet_level in _QUIET_LOGGER_LEVELS.items():
+        logging.getLogger(name).setLevel(max(quiet_level, root.level))
 
     # RequestContextMiddleware writes the access log with the request id attached.
     logging.getLogger("uvicorn.access").disabled = True
