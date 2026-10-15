@@ -12,7 +12,9 @@ from app.models.document import SUMMARY_MAX_LENGTH, TITLE_MAX_LENGTH, Difficulty
 MIN_TOPICS: Final = 1
 MAX_TOPICS: Final = 8
 TOPIC_MAX_LENGTH: Final = 60
-_INVISIBLE_CATEGORIES: Final = frozenset({"Cc", "Cf"})
+# Control and format characters, and lone surrogates: UTF-8 cannot encode those, and text
+# extracted from a PDF can contain them.
+_DROPPED_CATEGORIES: Final = frozenset({"Cc", "Cf", "Cs"})
 
 
 # What a model must return; it is also sent as the response schema. Strict structured
@@ -58,9 +60,9 @@ def normalize_analysis(analysis: DocumentAnalysis) -> NormalizedAnalysis:
 
 
 def _tidy(text: str) -> str:
-    """Collapse whitespace, drop control and format characters and compose to NFC."""
+    """Collapse whitespace, drop invisible and unencodable characters and compose to NFC."""
     tidy = " ".join(text.split())
     if not tidy.isprintable():
-        visible = (char for char in tidy if unicodedata.category(char) not in _INVISIBLE_CATEGORIES)
-        tidy = " ".join("".join(visible).split())
+        kept = (char for char in tidy if unicodedata.category(char) not in _DROPPED_CATEGORIES)
+        tidy = " ".join("".join(kept).split())
     return unicodedata.normalize("NFC", tidy)

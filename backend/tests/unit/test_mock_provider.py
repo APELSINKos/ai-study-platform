@@ -397,11 +397,21 @@ def test_the_analysis_is_deterministic_and_free(llm: MockLLMProvider) -> None:
     assert (first.prompt_tokens, first.completion_tokens) == (0, 0)
 
 
-@pytest.mark.parametrize("sample", [EN_NOTES, RU_LECTURE, SIMPLE_TEXT, "# " + "word " * 500])
+@pytest.mark.parametrize(
+    ("sample", "filename"),
+    [
+        (EN_NOTES, "notes.md"),
+        (RU_LECTURE, "notes.md"),
+        (SIMPLE_TEXT, "notes.md"),
+        ("# " + "word " * 500, "notes.md"),
+        ("12 34", "_" * 251 + ".txt"),
+    ],
+    ids=["english-notes", "russian-lecture", "simple-text", "long-heading", "long-file-name"],
+)
 def test_normalizing_the_offline_analysis_changes_nothing(
-    llm: MockLLMProvider, sample: str
+    llm: MockLLMProvider, sample: str, filename: str
 ) -> None:
-    analysis = _analyze(llm, sample).analysis
+    analysis = _analyze(llm, sample, filename=filename).analysis
 
     assert normalize_analysis(analysis) == NormalizedAnalysis(
         title=analysis.title,

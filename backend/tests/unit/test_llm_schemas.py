@@ -112,6 +112,16 @@ def test_control_and_format_characters_are_removed() -> None:
     assert normalized.topics == ["intervals"]
 
 
+def test_lone_surrogates_are_removed_so_the_text_can_be_stored() -> None:
+    normalized = normalize_analysis(
+        _analysis(title="Ti\ud800tle", summary="Short\udfff summary.", topics=["inter\udc80vals"])
+    )
+
+    assert normalized.title == "Title"
+    assert normalized.summary == "Short summary."
+    assert normalized.topics == ["intervals"]
+
+
 def test_text_is_composed_to_nfc() -> None:
     normalized = normalize_analysis(_analysis(title="\u0415\u0308\u043b\u043a\u0430"))
 

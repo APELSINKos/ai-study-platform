@@ -290,7 +290,7 @@ def _title(sample: _Sample, sentences: list[str], filename: str) -> str:
 def _title_from_filename(filename: str) -> str:
     stem = filename.rpartition(".")[0] or filename
     title = " ".join(stem.translate(_FILENAME_SEPARATORS).split())
-    return shorten(title[:1].upper() + title[1:], TITLE_MAX_LENGTH) if title else filename
+    return shorten(title[:1].upper() + title[1:] if title else filename, TITLE_MAX_LENGTH)
 
 
 def _summary(sentences: list[str]) -> str:
