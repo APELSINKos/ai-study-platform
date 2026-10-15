@@ -1,7 +1,7 @@
 import uuid
 from typing import NamedTuple
 
-from sqlalchemy import BigInteger, ColumnElement, cast, func, select
+from sqlalchemy import BigInteger, ColumnElement, cast, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.document import ACTIVE_DOCUMENT_STATUSES, Document, DocumentStatus
@@ -64,9 +64,14 @@ class DocumentRepository:
         total_statement = select(func.count()).select_from(Document).where(*criteria)
         return documents, self._session.execute(total_statement).scalar_one()
 
-    def delete(self, document: Document) -> None:
-        self._session.delete(document)
-        self._session.flush()
+    def delete(self, document: Document) -> bool:
+        """Delete the document, its chunks with it; False when its row was already gone.
+
+        A statement rather than Session.delete(): the unit of work only warns when the row
+        has disappeared, so a concurrent delete could not be told apart.
+        """
+        statement = delete(Document).where(Document.id == document.id).returning(Document.id)
+        return self._session.execute(statement).first() is not None
 
     def owner_usage(self, owner_id: uuid.UUID) -> OwnerUsage:
         statement = (

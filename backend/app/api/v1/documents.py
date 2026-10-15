@@ -1,23 +1,41 @@
 import uuid
 from http import HTTPStatus
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, File, Query, UploadFile
+from fastapi.responses import FileResponse
 
 from app.api.deps import CurrentUser, DocumentServiceDep, RedisClient, SettingsDep
 from app.api.errors import error_responses
 from app.api.pagination import PageParamsDep
 from app.core.rate_limit import RateLimit, enforce_rate_limit, rate_limit_key
-from app.models.document import DocumentStatus
-from app.schemas.documents import DocumentOut, DocumentPage
+from app.models.document import DOCUMENT_CONTENT_TYPES, DocumentStatus
+from app.models.document_chunk import DocumentChunk
+from app.schemas.documents import ChunkOut, ChunkPage, DocumentOut, DocumentPage
 from app.services.documents import DocumentView
 
 _HOUR_SECONDS: Final = 3600
 _UPLOAD_RATE_LIMIT_SCOPE: Final = "documents_upload_user"
+# A user's own file must never be rendered as another type or kept in a shared cache.
+_DOWNLOAD_HEADERS: Final = {
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+}
+_DOWNLOAD_RESPONSES: Final[dict[int | str, dict[str, Any]]] = {
+    HTTPStatus.OK: {
+        "description": "The file as it was uploaded, sent as an attachment.",
+        "content": {
+            content_type: {"schema": {"type": "string", "format": "binary"}}
+            for content_type in DOCUMENT_CONTENT_TYPES
+        },
+    },
+    **error_responses(HTTPStatus.UNAUTHORIZED, HTTPStatus.NOT_FOUND),
+}
 
 # A router of its own: FastAPI adds a router's tags to every route on it, so routes on the
 # workspaces router would be tagged as workspaces too.
 workspace_documents_router = APIRouter(prefix="/workspaces", tags=["documents"])
+router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 def _document_out(view: DocumentView) -> DocumentOut:
@@ -47,6 +65,19 @@ def _document_out(view: DocumentView) -> DocumentOut:
         created_at=document.created_at,
         updated_at=document.updated_at,
         can_retry=view.can_retry,
+    )
+
+
+def _chunk_out(chunk: DocumentChunk) -> ChunkOut:
+    # Field by field: the embedding and the search vector were never loaded.
+    return ChunkOut(
+        id=chunk.id,
+        chunk_index=chunk.chunk_index,
+        content=chunk.content,
+        heading=chunk.heading,
+        page_start=chunk.page_start,
+        page_end=chunk.page_end,
+        char_count=chunk.char_count,
     )
 
 
@@ -107,4 +138,69 @@ def list_documents(
         total=total,
         page=page.page,
         page_size=page.page_size,
+    )
+
+
+@router.get(
+    "/{document_id}",
+    summary="Get a document with its analysis and processing status",
+    responses=error_responses(HTTPStatus.UNAUTHORIZED, HTTPStatus.NOT_FOUND),
+)
+def get_document(
+    document_id: uuid.UUID, current_user: CurrentUser, service: DocumentServiceDep
+) -> DocumentOut:
+    return _document_out(service.get(user=current_user, document_id=document_id))
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=HTTPStatus.NO_CONTENT,
+    summary="Delete a document with its chunks and its file",
+    responses=error_responses(HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND),
+)
+def delete_document(
+    document_id: uuid.UUID, current_user: CurrentUser, service: DocumentServiceDep
+) -> None:
+    service.delete(user=current_user, document_id=document_id)
+
+
+@router.get(
+    "/{document_id}/chunks",
+    summary="List the chunks of a document in reading order",
+    responses=error_responses(HTTPStatus.UNAUTHORIZED, HTTPStatus.NOT_FOUND),
+)
+def list_document_chunks(
+    document_id: uuid.UUID,
+    current_user: CurrentUser,
+    service: DocumentServiceDep,
+    page: PageParamsDep,
+) -> ChunkPage:
+    chunks, total = service.list_chunks(
+        user=current_user, document_id=document_id, offset=page.offset, limit=page.limit
+    )
+    return ChunkPage(
+        items=[_chunk_out(chunk) for chunk in chunks],
+        total=total,
+        page=page.page,
+        page_size=page.page_size,
+    )
+
+
+@router.get(
+    "/{document_id}/file",
+    response_class=FileResponse,
+    summary="Download the original file of a document",
+    responses=_DOWNLOAD_RESPONSES,
+)
+def download_document_file(
+    document_id: uuid.UUID, current_user: CurrentUser, service: DocumentServiceDep
+) -> FileResponse:
+    """A file that is no longer in storage is a 404 with the error code document_file_missing."""
+    stored = service.get_file(user=current_user, document_id=document_id)
+    return FileResponse(
+        stored.path,
+        stat_result=stored.stat,
+        media_type=stored.content_type,
+        filename=stored.filename,
+        headers=_DOWNLOAD_HEADERS,
     )

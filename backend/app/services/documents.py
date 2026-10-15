@@ -1,3 +1,4 @@
+import os
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import utcnow
 from app.core.config import Settings
-from app.core.exceptions import ConflictError, RateLimitedError
+from app.core.exceptions import ConflictError, NotFoundError, RateLimitedError
 from app.documents.queue import DocumentQueue, QueueUnavailableError
 from app.documents.status import is_retryable
 from app.documents.storage import FileStorage
@@ -25,9 +26,11 @@ from app.documents.validation import (
     extension_for,
     sanitize_filename,
 )
-from app.models.document import Document, DocumentStatus
+from app.models.document import Document, DocumentContentType, DocumentStatus
+from app.models.document_chunk import DocumentChunk
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.repositories.document_chunks import DocumentChunkRepository
 from app.repositories.documents import DocumentRepository, OwnerUsage
 from app.repositories.workspaces import WorkspaceRepository
 from app.services.workspaces import workspace_not_found
@@ -39,6 +42,8 @@ ACTIVE_DOCUMENTS_RETRY_AFTER_SECONDS: Final = 60
 DUPLICATE_DOCUMENT_CONSTRAINT: Final = "uq_documents_workspace_id_sha256"
 WORKSPACE_FOREIGN_KEY: Final = "fk_documents_workspace_id_workspaces"
 
+_DOCUMENT_NOT_FOUND_MESSAGE: Final = "The document was not found."
+_DOCUMENT_FILE_MISSING_MESSAGE: Final = "The original file of the document is no longer stored."
 _DUPLICATE_DOCUMENT_MESSAGE: Final = "This file has already been uploaded to the workspace."
 _TOO_MANY_ACTIVE_DOCUMENTS_MESSAGE: Final = (
     "Too many of your documents are still being processed. Try again in a minute."
@@ -55,6 +60,21 @@ class DocumentView:
     can_retry: bool
 
 
+@dataclass(frozen=True, slots=True)
+class StoredFile:
+    """The original file of a document, as a download sends it."""
+
+    path: Path
+    stat: os.stat_result
+    content_type: DocumentContentType
+    filename: str
+
+
+def document_not_found() -> NotFoundError:
+    """The error for a document that does not exist or belongs to another user."""
+    return NotFoundError(_DOCUMENT_NOT_FOUND_MESSAGE, code="document_not_found")
+
+
 def _duplicate_document() -> ConflictError:
     return ConflictError(_DUPLICATE_DOCUMENT_MESSAGE, code="duplicate_document")
 
@@ -66,7 +86,7 @@ def _violated_constraint(error: IntegrityError) -> str | None:
 
 
 class DocumentService:
-    """Uploads documents into a user's workspaces and lists them."""
+    """A user's documents: upload, listing, viewing, chunks, download and deletion."""
 
     def __init__(
         self,
@@ -82,6 +102,7 @@ class DocumentService:
         self._settings = settings
         self._clock = clock
         self._documents = DocumentRepository(session)
+        self._chunks = DocumentChunkRepository(session)
         self._workspaces = WorkspaceRepository(session)
 
     def upload(self, *, user: User, workspace_id: uuid.UUID, upload: UploadFile) -> DocumentView:
@@ -128,6 +149,58 @@ class DocumentService:
         documents, total = self._documents.list_for_workspace(workspace_id, status, offset, limit)
         now = self._clock()
         return [self._view(document, now) for document in documents], total
+
+    def get(self, *, user: User, document_id: uuid.UUID) -> DocumentView:
+        return self._view(self._get_owned(user, document_id), self._clock())
+
+    def list_chunks(
+        self, *, user: User, document_id: uuid.UUID, offset: int, limit: int
+    ) -> tuple[list[DocumentChunk], int]:
+        """One page of the document's chunks in reading order, without their embeddings."""
+        document = self._get_owned(user, document_id)
+        return self._chunks.list_for_document(document.id, offset, limit)
+
+    def get_file(self, *, user: User, document_id: uuid.UUID) -> StoredFile:
+        document = self._get_owned(user, document_id)
+        path = self._storage.path_for(document.storage_key)
+        try:
+            stat = path.stat()
+        except FileNotFoundError as exc:
+            logger.warning("document_file_missing", document_id=str(document.id))
+            raise NotFoundError(
+                _DOCUMENT_FILE_MISSING_MESSAGE, code="document_file_missing"
+            ) from exc
+        return StoredFile(
+            path=path,
+            stat=stat,
+            content_type=document.content_type,
+            filename=document.original_filename,
+        )
+
+    def delete(self, *, user: User, document_id: uuid.UUID) -> None:
+        """Delete the document with its chunks, then its file.
+
+        The file goes only after the commit, so a failed delete never loses it. If removing
+        it fails, the document stays deleted: nothing can reach the file any more, so the
+        request succeeds and the leftover file is only logged.
+        """
+        document = self._get_owned(user, document_id)
+        if not self._documents.delete(document):
+            # Another request deleted it after it was loaded; that request owns the file.
+            raise document_not_found()
+        self._workspaces.touch(document.workspace_id, self._clock())
+        self._session.commit()
+        try:
+            self._storage.delete(document.storage_key)
+        except OSError:
+            logger.warning("document_file_not_deleted", document_id=str(document.id), exc_info=True)
+
+    def _get_owned(self, user: User, document_id: uuid.UUID) -> Document:
+        # Another user's document is reported exactly like a missing one.
+        document = self._documents.get_for_owner(document_id, user.id)
+        if document is None:
+            raise document_not_found()
+        return document
 
     def _get_owned_workspace(self, user: User, workspace_id: uuid.UUID) -> Workspace:
         # Another user's workspace is reported exactly like a missing one.

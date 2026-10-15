@@ -71,6 +71,13 @@ class _CommitFailedError(Exception):
     pass
 
 
+class _ReadOnlyStorage(FileStorage):
+    """Storage whose files cannot be removed, like a volume mounted read-only."""
+
+    def delete(self, key: str) -> bool:
+        raise PermissionError(f"Permission denied: {key}")
+
+
 # Setup rows are committed: a request that fails rolls back only its own work.
 def _user(session: Session) -> User:
     user = UserRepository(session).add(
@@ -128,6 +135,13 @@ def _files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*") if path.is_file())
 
 
+def _stored_file(storage: FileStorage, document: Document) -> Path:
+    with storage.temp_file() as temp:
+        temp.write_bytes(_MARKDOWN)
+        storage.commit_temp(temp, document.storage_key)
+    return storage.path_for(document.storage_key)
+
+
 def _json_lines(output: str) -> list[dict[str, Any]]:
     return [json.loads(line) for line in output.splitlines() if line.strip()]
 
@@ -147,6 +161,14 @@ def service(
     db_session: Session, integration_settings: Settings, queue: _Queue, clock: _FakeClock
 ) -> DocumentService:
     storage = FileStorage(integration_settings.storage_dir)
+    return DocumentService(db_session, storage, queue, integration_settings, clock)
+
+
+@pytest.fixture
+def read_only_service(
+    db_session: Session, integration_settings: Settings, queue: _Queue, clock: _FakeClock
+) -> DocumentService:
+    storage = _ReadOnlyStorage(integration_settings.storage_dir)
     return DocumentService(db_session, storage, queue, integration_settings, clock)
 
 
@@ -285,3 +307,65 @@ def test_whether_a_document_can_be_retried_follows_the_clock(
     assert can_retry() == {on_the_boundary.id: False, stalled.id: True, failed.id: True}
     clock.advance(timedelta(microseconds=1))
     assert can_retry() == {on_the_boundary.id: True, stalled.id: True, failed.id: True}
+
+
+def test_delete_touches_the_workspace_with_the_clock_time(
+    db_session: Session, service: DocumentService, owner: User, clock: _FakeClock
+) -> None:
+    workspace = _workspace(db_session, owner)
+    document = _document(db_session, workspace, "ready")
+    clock.advance(timedelta(minutes=5))
+
+    service.delete(user=owner, document_id=document.id)
+
+    db_session.expire_all()
+    assert DocumentRepository(db_session).get(document.id) is None
+    assert workspace.updated_at == _START + timedelta(minutes=5)
+
+
+def test_delete_keeps_the_file_when_the_commit_fails(
+    db_session: Session,
+    service: DocumentService,
+    owner: User,
+    integration_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+    document = _document(db_session, workspace, "ready")
+    path = _stored_file(FileStorage(integration_settings.storage_dir), document)
+
+    def fail_commit() -> None:
+        raise _CommitFailedError
+
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+
+    with pytest.raises(_CommitFailedError):
+        service.delete(user=owner, document_id=document.id)
+
+    assert path.exists()
+
+
+def test_delete_still_succeeds_and_logs_a_warning_when_the_file_cannot_be_removed(
+    db_session: Session,
+    read_only_service: DocumentService,
+    owner: User,
+    integration_settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+    workspace = _workspace(db_session, owner)
+    document = _document(db_session, workspace, "failed")
+    path = _stored_file(FileStorage(integration_settings.storage_dir), document)
+
+    read_only_service.delete(user=owner, document_id=document.id)
+
+    assert DocumentRepository(db_session).get(document.id) is None
+    assert path.exists()
+    [warning] = [
+        line
+        for line in _json_lines(capsys.readouterr().out)
+        if line["event"] == "document_file_not_deleted"
+    ]
+    assert warning["level"] == "warning"
+    assert warning["document_id"] == str(document.id)
+    assert warning["exception"][0]["exc_type"] == "PermissionError"

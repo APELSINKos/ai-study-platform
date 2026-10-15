@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 import pytest
-from sqlalchemy import event, inspect, select
+from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 
@@ -185,13 +185,27 @@ def test_delete_removes_the_document_and_its_chunks(db_session: Session) -> None
     )
     document_id = document.id
 
-    repository.delete(document)
+    assert repository.delete(document) is True
 
     assert repository.get(document_id) is None
     remaining = db_session.scalars(
         select(DocumentChunk.id).where(DocumentChunk.document_id == document_id)
     ).all()
     assert remaining == []
+
+
+def test_delete_reports_a_row_that_another_transaction_removed_first(
+    db_session: Session,
+) -> None:
+    repository = DocumentRepository(db_session)
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(db_session, workspace)
+    kept = _document(db_session, workspace)
+    db_session.execute(text("DELETE FROM documents WHERE id = :id"), {"id": document.id})
+
+    assert repository.delete(document) is False
+
+    assert repository.get(kept.id) is kept
 
 
 def test_owner_usage_counts_active_documents_and_every_stored_byte(db_session: Session) -> None:

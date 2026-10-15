@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.api.pagination import Page
+from app.documents.chunking import HEADING_SEPARATOR
 from app.models.document import (
     Difficulty,
     DocumentContentType,
@@ -46,4 +47,21 @@ class DocumentOut(BaseModel):
 
 
 class DocumentPage(Page[DocumentOut]):
+    pass
+
+
+class ChunkOut(BaseModel):
+    id: uuid.UUID
+    chunk_index: int = Field(description="Position of the chunk in the document, from 0.")
+    content: str
+    heading: str | None = Field(
+        description="The headings above the chunk, outermost first, joined with"
+        f" '{HEADING_SEPARATOR}'."
+    )
+    page_start: int | None = Field(description="First PDF page of the chunk; null for text files.")
+    page_end: int | None = Field(description="Last PDF page of the chunk; null for text files.")
+    char_count: int
+
+
+class ChunkPage(Page[ChunkOut]):
     pass
