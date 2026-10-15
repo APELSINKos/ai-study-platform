@@ -18,10 +18,11 @@ from app.llm.base import ProviderRequestError
 # The first answer and one repaired answer.
 STRUCTURED_OUTPUT_ATTEMPTS: Final = 2
 REPAIR_PROBLEMS_MAX_CHARS: Final = 1000
-REPAIR_PROMPT: Final = (
-    "Your previous reply did not match the required JSON schema. Problems: {problems}. "
-    "Reply again with only the corrected JSON object."
+REPAIR_NOTE: Final = (
+    "An earlier answer to this request did not match the required JSON schema. "
+    "Problems: {problems}. Reply with only a JSON object that fixes them."
 )
+_NOT_USER_TEXT_MESSAGE: Final = "The last message of a structured request must be the user's text."
 _NO_ANSWER_MESSAGE: Final = "The model returned no answer."
 _REFUSED_MESSAGE: Final = "The model refused to analyse the document."
 _CUT_OFF_MESSAGE: Final = "The model's answer was cut off by the output token limit."
@@ -71,17 +72,22 @@ def complete_structured[T: BaseModel](
 ) -> StructuredOutput[T]:
     """Ask for an answer that validates as schema; after a mismatch, ask once more.
 
-    The repair request lists what was wrong. A refusal, a cut-off answer or a second mismatch
-    raises ProviderRequestError (ai_invalid_output); errors of the API call itself propagate
-    as the SDK raises them.
+    The last message must be the user's text: the repeated request adds a note of what was
+    wrong to its end. A refusal, a cut-off answer or a second mismatch raises
+    ProviderRequestError (ai_invalid_output); errors of the API call itself propagate as the
+    SDK raises them.
     """
-    conversation = list(messages)
+    *earlier, last = messages
+    user_text = last.get("content")
+    if last["role"] != "user" or not isinstance(user_text, str):
+        raise ValueError(_NOT_USER_TEXT_MESSAGE)
+    request = list(messages)
     requested_format = response_format(schema, options.structured_output)
     prompt_tokens = completion_tokens = 0
     for _ in range(STRUCTURED_OUTPUT_ATTEMPTS):
         completion = client.chat.completions.create(
             model=options.model,
-            messages=conversation,
+            messages=request,
             response_format=requested_format,
             max_completion_tokens=options.max_output_tokens,
         )
@@ -94,11 +100,10 @@ def complete_structured[T: BaseModel](
             value = schema.model_validate_json(content)
         except ValidationError as error:
             # Only the problems go back, not the rejected answer, whose text the document may
-            # have steered.
-            problems = _problems(error)
-            conversation.append(
-                {"role": "user", "content": REPAIR_PROMPT.format(problems=problems)}
-            )
+            # have steered. They join the user's turn, as some chat templates refuse two user
+            # messages in a row.
+            note = REPAIR_NOTE.format(problems=_problems(error))
+            request = [*earlier, {"role": "user", "content": f"{user_text}\n\n{note}"}]
             continue
         return StructuredOutput(
             value=value, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens

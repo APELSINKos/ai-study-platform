@@ -8,8 +8,10 @@ import openai
 import pytest
 from openai import OpenAI
 from pgvector.sqlalchemy import Vector
+from pydantic import create_model
 
 from app.core.config import StructuredOutputMode
+from app.documents.text import ELLIPSIS
 from app.llm.base import (
     EMBEDDING_DIMENSIONS,
     AnalysisRequest,
@@ -27,12 +29,13 @@ from app.llm.openai_provider import (
     OpenAILLMProvider,
     classify_openai_error,
 )
-from app.llm.prompts import build_analysis_messages
+from app.llm.prompts import DOCUMENT_CLOSE, build_analysis_messages
 from app.llm.schemas import DocumentAnalysis
 from app.llm.structured import (
+    REPAIR_NOTE,
     REPAIR_PROBLEMS_MAX_CHARS,
-    REPAIR_PROMPT,
     ChatOptions,
+    complete_structured,
     response_format,
 )
 from app.models.document import DOCUMENT_ERROR_CODES
@@ -92,11 +95,14 @@ def endpoint() -> Iterator[FakeEndpoint]:
     fake.client.close()
 
 
-def _llm(client: OpenAI, mode: StructuredOutputMode = "json_schema") -> OpenAILLMProvider:
-    options = ChatOptions(
+def _options(mode: StructuredOutputMode = "json_schema") -> ChatOptions:
+    return ChatOptions(
         model=CHAT_MODEL, structured_output=mode, max_output_tokens=MAX_OUTPUT_TOKENS
     )
-    return OpenAILLMProvider(client=client, options=options)
+
+
+def _llm(client: OpenAI, mode: StructuredOutputMode = "json_schema") -> OpenAILLMProvider:
+    return OpenAILLMProvider(client=client, options=_options(mode))
 
 
 def _embedder(client: OpenAI) -> OpenAIEmbeddingProvider:
@@ -143,6 +149,25 @@ def _chat(
             "total_tokens": prompt_tokens + completion_tokens,
         }
     return httpx2.Response(200, json=body)
+
+
+def _repair_problems(first: dict[str, Any], repair: dict[str, Any]) -> str:
+    """The problems a repair request notes after the document; the rest is the first request.
+
+    The rejected answer is not sent back, so text the model wrote stays out of the request,
+    and the request keeps one user turn: some chat templates refuse two in a row.
+    """
+    system, user = first["messages"]
+    repaired_system, repaired_user = repair["messages"]
+    assert repaired_system == system
+    assert repaired_user["role"] == "user"
+    assert user["content"].endswith(DOCUMENT_CLOSE)
+    assert repaired_user["content"].startswith(f"{user['content']}\n\n")
+    note: str = repaired_user["content"][len(user["content"]) + 2 :]
+    prefix, suffix = REPAIR_NOTE.split("{problems}")
+    assert note.startswith(prefix)
+    assert note.endswith(suffix)
+    return note.removeprefix(prefix).removesuffix(suffix)
 
 
 def _vector(*leading: float) -> list[float]:
@@ -389,15 +414,10 @@ def test_an_answer_that_breaks_the_schema_is_repaired_once_with_the_problems_lis
 
     result = _llm(endpoint.client).analyze_document(REQUEST)
 
-    first, second = endpoint.bodies()
-    *conversation, repair = second["messages"]
-    # The rejected answer is not sent back: text the model wrote stays out of the user turn.
-    assert conversation == first["messages"]
-    assert repair["role"] == "user"
-    assert repair["content"].startswith(REPAIR_PROMPT.split("{problems}")[0])
-    assert "topics" in repair["content"]
-    assert "difficulty" in repair["content"]
-    assert INVALID_ANSWER["difficulty"] not in repair["content"]
+    problems = _repair_problems(*endpoint.bodies())
+    assert "topics" in problems
+    assert "difficulty" in problems
+    assert INVALID_ANSWER["difficulty"] not in problems
     assert result.analysis == DocumentAnalysis.model_validate(VALID_ANSWER)
     assert (result.prompt_tokens, result.completion_tokens) == (250, 45)
 
@@ -411,7 +431,7 @@ def test_an_answer_that_is_not_json_is_repaired_too(endpoint: FakeEndpoint) -> N
     result = _llm(endpoint.client).analyze_document(REQUEST)
 
     assert result.analysis == DocumentAnalysis.model_validate(VALID_ANSWER)
-    assert "Invalid JSON" in endpoint.bodies()[1]["messages"][-1]["content"]
+    assert "Invalid JSON" in _repair_problems(*endpoint.bodies())
 
 
 def test_a_second_invalid_answer_is_invalid_output(endpoint: FakeEndpoint) -> None:
@@ -431,19 +451,37 @@ def test_a_made_up_field_is_reported_without_its_name(endpoint: FakeEndpoint) ->
 
     _llm(endpoint.client).analyze_document(REQUEST)
 
-    repair = endpoint.bodies()[1]["messages"][-1]["content"]
-    assert "HACKED" not in repair
-    assert repair.count("Extra inputs are not permitted") == 1
+    problems = _repair_problems(*endpoint.bodies())
+    assert "HACKED" not in problems
+    assert problems.count("Extra inputs are not permitted") == 1
 
 
 def test_the_problems_sent_back_for_a_repair_are_capped(endpoint: FakeEndpoint) -> None:
-    flooded = VALID_ANSWER | {"topics": list(range(300))}
-    endpoint.answers += [_chat(json.dumps(flooded)), _chat(json.dumps(VALID_ANSWER))]
+    # Eighty missing fields: listed in full, the problems would be over twice the cap.
+    fields: dict[str, Any] = {f"field_{number:02}": (str, ...) for number in range(80)}
+    wide_answer = create_model("WideAnswer", **fields)
+    uncapped = "; ".join(f"{name}: Field required" for name in wide_answer.model_fields)
+    endpoint.answers += [
+        _chat("{}"),
+        _chat(json.dumps(dict.fromkeys(wide_answer.model_fields, "text"))),
+    ]
 
-    _llm(endpoint.client).analyze_document(REQUEST)
+    complete_structured(endpoint.client, _options(), build_analysis_messages(REQUEST), wide_answer)
 
-    repair = endpoint.bodies()[1]["messages"][-1]["content"]
-    assert len(repair) - len(REPAIR_PROMPT.format(problems="")) <= REPAIR_PROBLEMS_MAX_CHARS
+    problems = _repair_problems(*endpoint.bodies())
+    assert len(uncapped) > REPAIR_PROBLEMS_MAX_CHARS
+    assert len(problems) <= REPAIR_PROBLEMS_MAX_CHARS
+    assert problems.endswith(ELLIPSIS)
+    assert uncapped.startswith(problems.removesuffix(ELLIPSIS))
+
+
+def test_a_structured_request_must_end_with_the_users_text(endpoint: FakeEndpoint) -> None:
+    messages = build_analysis_messages(REQUEST)[:1]
+
+    with pytest.raises(ValueError, match="user"):
+        complete_structured(endpoint.client, _options(), messages, DocumentAnalysis)
+
+    assert endpoint.requests == []
 
 
 @pytest.mark.parametrize("answer", INVALID_CHAT_ANSWERS)
