@@ -12,14 +12,14 @@ import pytest
 from app.documents.cleaning import check_text, clean_pdf_pages, clean_text
 from app.documents.errors import DocumentProcessingError
 from app.documents.extraction import extract
-from tests.fixtures.pdf_builder import text_pdf
+from tests.fixtures.pdf_builder import mapped_text_pdf, text_pdf
 
 LECTURE_PDF: Final = Path(__file__).resolve().parents[1] / "fixtures" / "lecture-ru.pdf"
 LECTURE_HEADER: Final = "Базы данных — конспект лекций"
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
-# Runs that grow when decomposed: "é" before a combining acute, "क़" and the angstrom sign.
-# CPython composes a whole run like that in quadratic time.
+# Runs that grow when decomposed: U+00E9 before a combining acute accent, U+0958 DEVANAGARI
+# LETTER QA and U+212B ANGSTROM SIGN. CPython composes a whole run like that in quadratic time.
 EXPANDING_UNITS: Final = (
     "\xe9\N{COMBINING ACUTE ACCENT}",
     "\N{DEVANAGARI LETTER QA}",
@@ -83,6 +83,14 @@ def test_zero_width_characters_and_byte_order_marks_are_removed() -> None:
 
 def test_control_characters_are_removed_except_line_breaks_and_tabs() -> None:
     assert clean_text("a\x00b\x07c\td\x1be\x7ff\x9fg\nh") == "abc\tdefg\nh"
+
+
+def test_lone_surrogates_are_removed_and_other_characters_kept() -> None:
+    # UTF-8, and so the database, cannot encode a lone surrogate.
+    assert (
+        clean_text("a\ud800b\udfffc = \U0001d465\N{GRINNING FACE}")
+        == "abc = \U0001d465\N{GRINNING FACE}"
+    )
 
 
 def test_every_kind_of_line_break_becomes_a_newline() -> None:
@@ -157,10 +165,43 @@ def _built_pdf_pages(tmp_path: Path, pages: Sequence[Sequence[str]]) -> list[str
     return _pdf_pages(path)
 
 
+def test_a_lone_surrogate_from_the_font_map_of_a_pdf_is_removed(tmp_path: Path) -> None:
+    path = tmp_path / "mapped.pdf"
+    path.write_bytes(mapped_text_pdf(b"AAB AA", {0x41: "0041", 0x42: "D800"}))
+    pages = _pdf_pages(path)
+    # The PDF library hands the surrogate over as it is.
+    assert [page.strip() for page in pages] == ["AA\ud800 AA"]
+
+    cleaned = clean_pdf_pages(pages)
+
+    assert cleaned == ["AA AA"]
+
+
 def test_a_word_hyphenated_at_a_line_end_is_joined() -> None:
     page = "Это инфор-\nмация о нормали-\n  зации."
 
     assert clean_pdf_pages([page]) == ["Это информация о нормализации."]
+
+
+def test_a_word_broken_before_a_page_number_is_not_joined_to_it() -> None:
+    assert clean_pdf_pages(["Текст про инфор-\nстр. 2"]) == ["Текст про инфор-"]
+
+
+def test_a_word_broken_before_a_running_footer_is_not_joined_to_it() -> None:
+    # The footer goes from every page, the one after the broken word included.
+    pages = [
+        "Это важная инфор-\nwww.example.ru",
+        "Вторая страница.\nwww.example.ru",
+        "Третья страница.\nwww.example.ru",
+        "Четвёртая страница.\nwww.example.ru",
+    ]
+
+    assert clean_pdf_pages(pages) == [
+        "Это важная инфор-",
+        "Вторая страница.",
+        "Третья страница.",
+        "Четвёртая страница.",
+    ]
 
 
 @pytest.mark.parametrize(

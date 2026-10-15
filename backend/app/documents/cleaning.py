@@ -14,8 +14,9 @@ from typing import Final
 
 from app.documents.errors import TEXT_TOO_LONG_MESSAGE, DocumentProcessingError
 
-# CPython composes a run that grows when it is decomposed ("क़" or "Å" repeated) in time
-# quadratic in its length, so text is composed in pieces of at most this many characters.
+# CPython composes a run that grows when it is decomposed, such as U+0958 DEVANAGARI LETTER
+# QA or U+212B ANGSTROM SIGN repeated, in time quadratic in its length, so text is composed
+# in pieces of at most this many characters.
 NFC_PIECE_MAX_CHARS: Final = 4096
 # Page numbers are looked for among this many lines at the top and at the bottom of a page.
 PAGE_NUMBER_EDGE_LINES: Final = 3
@@ -36,10 +37,11 @@ _LIGATURES: Final = {
     chr(code): unicodedata.normalize("NFKC", chr(code)) for code in range(0xFB00, 0xFB07)
 }
 # Control characters other than "\n" and "\t", zero-width spaces and joiners, the word
-# joiner and the byte order mark.
+# joiner, the byte order mark and lone surrogates: a PDF font's map to Unicode can produce
+# those, and UTF-8 cannot encode them. In a str every surrogate is a lone one.
 _INVISIBLE_RE: Final = re.compile(
     r"[\x00-\x08\x0b-\x1f\x7f-\x9f\N{ZERO WIDTH SPACE}-\N{ZERO WIDTH JOINER}"
-    r"\N{WORD JOINER}\N{ZERO WIDTH NO-BREAK SPACE}]++"
+    r"\N{WORD JOINER}\N{ZERO WIDTH NO-BREAK SPACE}\ud800-\udfff]++"
 )
 # A soft hyphen shows only where a line breaks at it, and there it shows as a hyphen.
 _LINE_END_SOFT_HYPHEN_RE: Final = re.compile(r"\N{SOFT HYPHEN}(?=[^\S\n]*+(?:\n|\Z))")
@@ -107,18 +109,21 @@ def _piece_end(text: str, start: int) -> int:
 def clean_pdf_pages(pages: Sequence[str]) -> list[str]:
     """Clean each page and remove what the page layout added to its text.
 
-    Words hyphenated at line ends are joined; blank lines, page numbers at the top or the
-    bottom and running headers and footers repeated at the edges of the pages are dropped.
+    Blank lines, page numbers at the top or the bottom and running headers and footers
+    repeated at the edges of the pages are dropped; then words hyphenated at line ends are
+    joined, so a word broken at the end of the body never runs into a footer.
     """
     page_lines = [_drop_page_numbers(_page_lines(page)) for page in pages]
     _drop_running_lines(page_lines)
-    return ["\n".join(lines) for lines in page_lines]
+    return [
+        _LINE_END_HYPHEN_RE.sub(_join_lower_case_continuation, "\n".join(lines))
+        for lines in page_lines
+    ]
 
 
 def _page_lines(page: str) -> list[str]:
-    text = _LINE_END_HYPHEN_RE.sub(_join_lower_case_continuation, clean_text(page))
     # Cleaning left no trailing spaces, so a blank line is an empty one.
-    return [line for line in text.split("\n") if line]
+    return [line for line in clean_text(page).split("\n") if line]
 
 
 def _join_lower_case_continuation(match: re.Match[str]) -> str:

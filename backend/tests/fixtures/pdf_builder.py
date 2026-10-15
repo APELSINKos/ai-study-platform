@@ -85,6 +85,28 @@ def form_pdf(pages: Sequence[bytes], xobjects: Mapping[str, Form | Image]) -> by
     )
 
 
+def mapped_text_pdf(text: bytes, to_unicode: Mapping[int, str]) -> bytes:
+    """One page drawing text in a font whose ToUnicode map gives the text of each code.
+
+    The map takes one-byte codes to UTF-16 code units in hexadecimal, as a PDF writes them:
+    {0x42: "D800"} turns every "B" into a lone surrogate.
+    """
+    entries = b"".join(
+        b"<%02X> <%s>\n" % (code, units.encode()) for code, units in to_unicode.items()
+    )
+    cmap = (
+        b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        b"/CMapName /Mapped-UCS def\n/CMapType 2 def\n"
+        b"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n"
+        b"%d beginbfchar\n%sendbfchar\n"
+        b"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend"
+    ) % (len(to_unicode), entries)
+    # The page and its content are objects 4 and 5, so the map is object 6.
+    font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>"
+    content = b"BT /F1 12 Tf 72 700 Td (%s) Tj ET" % text
+    return _pdf([_stream(content)], font=font, more_objects=[_stream(cmap)])
+
+
 def _xobject(xobject: Form | Image, numbers: Mapping[str, int]) -> bytes:
     if isinstance(xobject, Image):
         pixels = zlib.compress(b"\x00" * xobject.size, level=9)
@@ -122,6 +144,7 @@ def _stream(data: bytes, *, entries: bytes = b"") -> bytes:
 def _pdf(
     contents: Sequence[bytes | None],
     *,
+    font: bytes = _FONT,
     resources: bytes | None = None,
     more_objects: Sequence[bytes] = (),
 ) -> bytes:
@@ -135,7 +158,7 @@ def _pdf(
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, len(contents)),
-        _FONT,
+        font,
     ]
     for number, content in zip(page_numbers, contents, strict=True):
         if content is None:
