@@ -14,12 +14,22 @@ x-backend: &backend
     METRICS_TOKEN: ${METRICS_TOKEN:-}
     SECRET_KEY: ${SECRET_KEY:-}
     COOKIE_SECURE: ${COOKIE_SECURE:-}
+    STORAGE_DIR: /data/uploads
+    LLM_PROVIDER: ${LLM_PROVIDER:-}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    LLM_BASE_URL: ${LLM_BASE_URL:-}
+    LLM_MODEL: ${LLM_MODEL:-}
+    EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+    EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+    EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+    EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
     TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-study}:${POSTGRES_PASSWORD:-study}@postgres:5432/study_test
     TEST_REDIS_URL: redis://redis:6379/15
     # Docker Desktop does not forward file events from Windows/macOS bind mounts.
     WATCHFILES_FORCE_POLLING: "true"
   volumes:
     - ./backend:/app
+    - uploads:/data/uploads
 
 services:
   migrate:
@@ -50,6 +60,8 @@ services:
   worker:
     <<: *backend
     command: ["watchfiles", "--filter", "python", "celery -A app.workers.celery_app worker --loglevel=INFO --concurrency=2", "app"]
+    # Parsing an uploaded PDF can balloon; the cap keeps one file from exhausting the host.
+    mem_limit: 2g
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -63,7 +75,7 @@ services:
       start_period: 30s
 
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:0.8.6-pg17
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-study}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-study}
@@ -113,3 +125,4 @@ services:
 
 volumes:
   postgres-data:
+  uploads:

@@ -23,5 +23,7 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
 RUN useradd --create-home --uid 10001 appuser
+# A new named volume takes this directory's owner, so appuser can write uploads.
+RUN mkdir -p /data/uploads && chown appuser:appuser /data/uploads
 USER appuser
 CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
