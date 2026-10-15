@@ -77,10 +77,12 @@ _VOWEL_GROUP_RE: Final = re.compile(r"[aeiouyаеёиоуыэюя]++", re.IGNORE
 # Markdown list markers and the bullets that text extracted from PDF slides starts lines with.
 # Dashes are left out: in wrapped text a line may start with a dash mid-sentence.
 _LIST_ITEM_RE: Final = re.compile(r"(?:[-*+•◦▪‣]|\d{1,9}[.)])[ \t]++")
-# Links and images keep their text; emphasis and code marks at the edges of words go, while
-# those inside words (snake_case, 2*3) stay.
+# Links and images keep their text; runs of emphasis and code marks at the edges of words go,
+# while those inside words (snake_case, 2*3, x**2) stay. A run of marks can match only from
+# its first mark: "_" is a word character, so without that anchor a run between two letters
+# would be scanned again from each of its marks.
 _INLINE_MARKUP_RE: Final = re.compile(
-    r"!?\[([^\[\]]*+)\]\([^()\s]*+\)|`++|(?<!\w)[*_~]++|[*_~]++(?!\w)"
+    r"!?\[([^\[\]]*+)\]\([^()\s]*+\)|`++|(?<![\w*~])[*_~]++|(?<![*_~])[*_~]++(?!\w)"
 )
 _FILENAME_SEPARATORS: Final = str.maketrans("_.-", "   ")
 

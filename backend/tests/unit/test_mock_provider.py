@@ -30,6 +30,7 @@ from app.llm.schemas import NormalizedAnalysis, normalize_analysis
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
+EMPHASIS_MARKS: Final = ("_", "*", "~")
 
 EN_NOTES: Final = (
     "# Spaced repetition: how *Recall* schedules reviews\n"
@@ -259,6 +260,7 @@ def test_simple_text_is_easy_and_titled_by_its_first_sentence(llm: MockLLMProvid
         ("####### Seven hashes\nBody text.", "####### Seven hashes"),
         ("Setup\n```bash\n# install the tools\n```\nRun the tests.", "Setup"),
         ("A [linked](https://example.com/x) `code` __title__\n\nBody.", "A linked code title"),
+        ("Square x**2 in snake_case or a~~b\n\nBody.", "Square x**2 in snake_case or a~~b"),
     ],
     ids=[
         "closing-hashes-after-a-space",
@@ -268,6 +270,7 @@ def test_simple_text_is_easy_and_titled_by_its_first_sentence(llm: MockLLMProvid
         "seven-hashes",
         "heading-inside-a-code-block",
         "inline-markup",
+        "marks-inside-words",
     ],
 )
 def test_the_title_comes_from_the_first_markdown_heading_with_letters(
@@ -420,3 +423,17 @@ def test_long_runs_of_punctuation_and_markup_are_processed_in_linear_time(
 
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
     assert analysis.title == "Hostile"
+
+
+@pytest.mark.parametrize("mark", EMPHASIS_MARKS)
+def test_a_long_run_of_emphasis_marks_inside_a_word_is_processed_in_linear_time(
+    llm: MockLLMProvider, embedder: HashingEmbeddingProvider, mark: str
+) -> None:
+    # A run between two letters, like the blank in "Name________Date", is not emphasis.
+    text = "a" + mark * (HOSTILE_TEXT_LENGTH - 2) + "b"
+
+    started = time.perf_counter()
+    _analyze(llm, text, filename="hostile.txt")
+    embedder.embed([text])
+
+    assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
