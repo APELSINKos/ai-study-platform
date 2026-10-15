@@ -250,18 +250,41 @@
     "metaTitle": "Workspaces",
     "title": "Workspaces",
     "marginNote": "One for each course or exam.",
+    "newWorkspace": "New workspace",
+    "emptyLead": "You have no workspaces yet. Start with the course you are studying now.",
     "list": {
       "label": "Your workspaces",
       "loading": "Loading workspaces…",
-      "empty": "You have no workspaces yet.",
       "showMore": "Show more",
       "retry": "Try again"
     },
+    "form": {
+      "title": "New workspace",
+      "name": "Name",
+      "description": "Description",
+      "descriptionHint": "Optional. What the course or the exam covers.",
+      "examDate": "Exam date",
+      "examDateHint": "Optional. Recall counts down the days to it.",
+      "submit": "Create workspace",
+      "cancel": "Cancel"
+    },
+    "validation": {
+      "nameRequired": "Enter a name.",
+      "nameTooLong": "Name must be at most {max, number} characters.",
+      "descriptionTooLong": "Description must be at most {max, number} characters.",
+      "examDateInvalid": "Enter a valid date.",
+      "examDateIncomplete": "Enter the whole date, or clear the field.",
+      "unsupportedCharacter": "This text contains a character that cannot be saved.",
+      "fieldRejected": "Check this field."
+    },
     "errors": {
       "networkError": "The API could not be reached. Check your connection and try again.",
+      "validationError": "Check the highlighted fields and try again.",
+      "csrfFailed": "Your session could not be confirmed. Reload the page and try again.",
       "sessionExpired": "Your session has ended. Sign in again to continue.",
       "loadFailed": "Your workspaces could not be loaded.",
-      "loadMoreFailed": "More workspaces could not be loaded."
+      "loadMoreFailed": "More workspaces could not be loaded.",
+      "createFailed": "The workspace could not be created. Try again."
     },
     "row": {
       "documents": "{count, plural, =0 {No documents yet} one {# document} other {# documents}}",

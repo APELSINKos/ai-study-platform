@@ -1,12 +1,14 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { IndexCard } from "@/components/ui/index-card";
 import type { WorkspaceOut } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 
+import { CreateWorkspaceForm } from "./create-workspace-form";
 import { workspaceErrorMessage } from "./error-message";
 import { useWorkspaceList } from "./hooks";
 import { WorkspaceRow } from "./workspace-row";
@@ -15,36 +17,73 @@ const SKELETON_ROWS = 3;
 
 type WorkspaceListQuery = ReturnType<typeof useWorkspaceList>;
 
-/** The workspaces page: every workspace of the user as ruled rows of one index card. */
-export function WorkspaceList() {
+/**
+ * The workspaces page: every workspace of the user as ruled rows of one index card. With none
+ * yet, the create form is the page; otherwise New workspace opens it above the list.
+ */
+export function WorkspaceList({ startWithForm = false }: { startWithForm?: boolean }) {
   const t = useTranslations("Workspaces");
   const list = useWorkspaceList();
+  const [isFormOpen, setIsFormOpen] = useState(startWithForm);
+  // Set by Cancel, so that New workspace takes the focus back when it reappears.
+  const returnFocusRef = useRef(false);
+
+  const isEmpty = list.data?.length === 0;
+  const showForm = isFormOpen || isEmpty;
+
+  function closeForm() {
+    returnFocusRef.current = true;
+    setIsFormOpen(false);
+  }
+
+  function takeReturningFocus(button: HTMLButtonElement | null) {
+    if (button && returnFocusRef.current) {
+      returnFocusRef.current = false;
+      button.focus();
+    }
+  }
 
   return (
     <div className="notebook-row">
       <p className="margin-note">{t("marginNote")}</p>
-      <div>
-        <h1 className="font-display text-title font-semibold">{t("title")}</h1>
-        <div className="mt-8">
-          <ListBody list={list} />
+      {/* The title row, the form and the list share one width, so their right edges line up. */}
+      <div className="max-w-3xl">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
+          <h1 className="font-display text-title font-semibold">{t("title")}</h1>
+          {showForm || list.isPending ? null : (
+            <Button ref={takeReturningFocus} variant="primary" onClick={() => setIsFormOpen(true)}>
+              {t("newWorkspace")}
+            </Button>
+          )}
         </div>
+        {isEmpty ? (
+          <p className="text-ink-soft mt-4 max-w-[58ch] text-lg leading-8">{t("emptyLead")}</p>
+        ) : null}
+        {showForm ? (
+          <CreateWorkspaceForm
+            className="mt-8"
+            autoFocus={isFormOpen}
+            onCancel={isEmpty ? undefined : closeForm}
+          />
+        ) : null}
+        <ListBody list={list} className="mt-8" />
       </div>
     </div>
   );
 }
 
-function ListBody({ list }: { list: WorkspaceListQuery }) {
+function ListBody({ list, className }: { list: WorkspaceListQuery; className?: string }) {
   const t = useTranslations("Workspaces.list");
   const tErrors = useTranslations("Workspaces.errors");
 
   if (list.isPending) {
-    return <ListSkeleton />;
+    return <ListSkeleton className={className} />;
   }
   // Rows already shown stay when a later request fails; only a list with nothing to show
   // turns into the error.
   if (list.data === undefined) {
     return (
-      <div className="flex flex-col items-start gap-4">
+      <div className={cn("flex flex-col items-start gap-4", className)}>
         <p role="alert" className="text-ink-soft text-sm">
           {workspaceErrorMessage(list.error, "load", tErrors)}
         </p>
@@ -55,10 +94,11 @@ function ListBody({ list }: { list: WorkspaceListQuery }) {
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-ink-soft max-w-[58ch] text-lg leading-8">{t("empty")}</p>;
+    return null;
   }
   return (
     <WorkspaceRows
+      className={className}
       workspaces={list.data}
       hasMore={list.hasNextPage}
       isLoadingMore={list.isFetchingNextPage}
@@ -76,6 +116,7 @@ interface WorkspaceRowsProps {
   isLoadingMore: boolean;
   loadMoreError: string | null;
   onLoadMore: () => void;
+  className?: string;
 }
 
 function WorkspaceRows({
@@ -84,6 +125,7 @@ function WorkspaceRows({
   isLoadingMore,
   loadMoreError,
   onLoadMore,
+  className,
 }: WorkspaceRowsProps) {
   const t = useTranslations("Workspaces.list");
   const listRef = useRef<HTMLUListElement>(null);
@@ -109,7 +151,7 @@ function WorkspaceRows({
   }
 
   return (
-    <IndexCard className="overflow-hidden">
+    <IndexCard className={cn("overflow-hidden", className)}>
       <ul ref={listRef} aria-label={t("label")} className="divide-rule divide-y">
         {workspaces.map((workspace) => (
           <WorkspaceRow key={workspace.id} workspace={workspace} />
@@ -131,10 +173,10 @@ function WorkspaceRows({
   );
 }
 
-function ListSkeleton() {
+function ListSkeleton({ className }: { className?: string }) {
   const t = useTranslations("Workspaces.list");
   return (
-    <IndexCard aria-busy="true">
+    <IndexCard aria-busy="true" className={className}>
       <span className="sr-only">{t("loading")}</span>
       <div aria-hidden className="divide-rule divide-y">
         {Array.from({ length: SKELETON_ROWS }, (_, index) => (

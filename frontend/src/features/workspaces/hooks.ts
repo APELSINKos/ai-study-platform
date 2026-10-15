@@ -1,9 +1,14 @@
-import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 
 import type { WorkspaceOut, WorkspacePage } from "@/lib/api/types";
 import { queryKeys, WORKSPACE_LIST_PAGE_SIZE } from "@/lib/query-keys";
 
-import { fetchWorkspacePage } from "./api";
+import { createWorkspace, fetchWorkspacePage } from "./api";
 
 const FIRST_PAGE = 1;
 
@@ -36,5 +41,16 @@ export function useWorkspaceList() {
     initialPageParam: FIRST_PAGE,
     getNextPageParam: nextPageAfter,
     select: uniqueWorkspaces,
+  });
+}
+
+export function useCreateWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createWorkspace,
+    onSuccess: () => {
+      // Not awaited: the new workspace opens at once while the lists refresh behind it.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
   });
 }

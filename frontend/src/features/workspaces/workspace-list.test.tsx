@@ -10,6 +10,7 @@ import { workspaceFixture, workspacePageFixture } from "./test-fixtures";
 import { WorkspaceList } from "./workspace-list";
 
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const apiFetchMock = vi.mocked(apiFetch);
 
@@ -25,6 +26,13 @@ function rowNames(): string[] {
   return within(list)
     .getAllByRole("link")
     .map((link) => link.textContent ?? "");
+}
+
+function primaryButtons(): string[] {
+  return screen
+    .queryAllByRole("button")
+    .filter((button) => button.dataset.variant === "primary")
+    .map((button) => button.textContent ?? "");
 }
 
 describe("WorkspaceList", () => {
@@ -105,12 +113,64 @@ describe("WorkspaceList", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("says so when there are no workspaces yet", async () => {
+  it("opens the create form when there are no workspaces yet", async () => {
     apiFetchMock.mockResolvedValueOnce(workspacePageFixture([]));
     renderWithIntl(<WorkspaceList />);
 
-    expect(await screen.findByText("You have no workspaces yet.")).toBeInTheDocument();
+    expect(await screen.findByRole("form", { name: "New workspace" })).toBeInTheDocument();
+    expect(
+      screen.getByText("You have no workspaces yet. Start with the course you are studying now."),
+    ).toBeInTheDocument();
+    expect(primaryButtons()).toEqual(["Create workspace"]);
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "Your workspaces" })).not.toBeInTheDocument();
+    // Arriving from the menu is not a request to type yet.
+    expect(screen.getByLabelText("Name")).not.toHaveFocus();
+  });
+
+  it("offers one primary action, New workspace, above the list", async () => {
+    apiFetchMock.mockResolvedValueOnce(workspacePageFixture([workspaceFixture(1)]));
+    renderWithIntl(<WorkspaceList />);
+
+    await screen.findByRole("link", { name: "Workspace 1" });
+
+    expect(primaryButtons()).toEqual(["New workspace"]);
+    expect(screen.queryByRole("form", { name: "New workspace" })).not.toBeInTheDocument();
+  });
+
+  it("opens the form in place of the button and returns focus to it on Cancel", async () => {
+    apiFetchMock.mockResolvedValueOnce(workspacePageFixture([workspaceFixture(1)]));
+    renderWithIntl(<WorkspaceList />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New workspace" }));
+
+    expect(screen.getByRole("form", { name: "New workspace" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+    expect(primaryButtons()).toEqual(["Create workspace"]);
+    expect(rowNames()).toEqual(["Workspace 1"]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("form", { name: "New workspace" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New workspace" })).toHaveFocus();
+  });
+
+  it("starts with the form open when the page is asked for it", async () => {
+    apiFetchMock.mockResolvedValueOnce(workspacePageFixture([workspaceFixture(1)]));
+    renderWithIntl(<WorkspaceList startWithForm />);
+
+    expect(screen.getByRole("form", { name: "New workspace" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+    await screen.findByRole("link", { name: "Workspace 1" });
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New workspace" })).not.toBeInTheDocument();
+  });
+
+  it("offers no action while the list is still loading", () => {
+    apiFetchMock.mockReturnValue(new Promise(() => {}));
+    renderWithIntl(<WorkspaceList />);
+
+    expect(primaryButtons()).toEqual([]);
   });
 
   it("reports a failure to load and loads again on request", async () => {
@@ -122,6 +182,8 @@ describe("WorkspaceList", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The API could not be reached. Check your connection and try again.",
     );
+    // A workspace can still be created while the list is unavailable.
+    expect(primaryButtons()).toEqual(["New workspace"]);
 
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
 
