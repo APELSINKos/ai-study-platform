@@ -22,6 +22,9 @@ HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
 # What the chunker's own patterns look for: blank lines, code fences and spaces.
 LINE_UNITS: Final = ("\n", " \n", "```\n", " ")
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
+SECTION_BODY: Final = (
+    "Every section under the long headings holds this one sentence and nothing else."
+)
 MIXED_TEXT: Final = (
     "Short one. "
     + "A much longer sentence that keeps on going " * 6
@@ -378,3 +381,20 @@ def test_long_runs_are_chunked_in_linear_time(unit: str) -> None:
     chunk_pdf_pages([text], size=SIZE, overlap=OVERLAP)
 
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
+
+
+@pytest.mark.parametrize("levels", [1, 5], ids=["one-long-heading", "five-long-headings"])
+def test_short_sections_under_long_headings_are_chunked_in_linear_time(levels: int) -> None:
+    # Half of the text is long headings, each one level below the one before; the rest is
+    # sections of about a hundred characters one level deeper still.
+    title_length = HOSTILE_TEXT_LENGTH // 2 // levels
+    title = ("word " * title_length)[:title_length]
+    headings = "".join(f"{'#' * level} {title}\n" for level in range(1, levels + 1))
+    section = f"{'#' * (levels + 1)} a\n{SECTION_BODY}\n"
+    text = headings + section * ((HOSTILE_TEXT_LENGTH - len(headings)) // len(section))
+
+    started = time.perf_counter()
+    chunks = chunk_markdown(text, size=SIZE, overlap=OVERLAP)
+
+    assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
+    assert {chunk.heading for chunk in chunks} == {"a"}

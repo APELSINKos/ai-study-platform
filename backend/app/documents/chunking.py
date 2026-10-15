@@ -246,7 +246,9 @@ def _heading(line: str) -> tuple[int, str] | None:
     without_closing = title.rstrip("#")
     if not without_closing or without_closing[-1] in " \t":
         title = without_closing
-    return level, " ".join(title.split())
+    # A title is cut one character over the limit: still too long for any heading path and
+    # all that shorten() reads, so each section under a long title copies only that much.
+    return level, " ".join(title.split())[: CHUNK_HEADING_MAX_LENGTH + 1]
 
 
 def _heading_path(titles: Sequence[str]) -> str | None:
