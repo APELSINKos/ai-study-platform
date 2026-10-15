@@ -6,6 +6,8 @@ import { emitSessionExpired } from "./session-events";
 export const API_BASE_PATH = "/api/v1";
 const HTTP_NO_CONTENT = 204;
 const HTTP_UNAUTHORIZED = 401;
+const JSON_MEDIA_TYPE = "application/json";
+const ANY_MEDIA_TYPE = "*/*";
 
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -37,13 +39,14 @@ function readCsrfToken(): string | null {
   return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
 }
 
-async function rawFetch<T>(path: string, init: ApiRequestInit): Promise<T> {
+/** One attempt. A failed response becomes an ApiError; a successful one comes back unread. */
+async function sendRequest(path: string, init: ApiRequestInit, accept: string): Promise<Response> {
   const { json, headers, body, ...rest } = init;
   const requestHeaders = new Headers(headers);
-  requestHeaders.set("Accept", "application/json");
+  requestHeaders.set("Accept", accept);
   let requestBody = body;
   if (json !== undefined) {
-    requestHeaders.set("Content-Type", "application/json");
+    requestHeaders.set("Content-Type", JSON_MEDIA_TYPE);
     requestBody = JSON.stringify(json);
   }
   const method = (rest.method ?? "GET").toUpperCase();
@@ -74,6 +77,10 @@ async function rawFetch<T>(path: string, init: ApiRequestInit): Promise<T> {
   if (!response.ok) {
     throw await toApiError(response);
   }
+  return response;
+}
+
+async function readJson<T>(response: Response): Promise<T> {
   if (response.status === HTTP_NO_CONTENT) {
     return undefined as T;
   }
@@ -87,7 +94,8 @@ async function rawFetch<T>(path: string, init: ApiRequestInit): Promise<T> {
 
 /** One in-flight refresh at a time; concurrent callers await the same attempt. */
 function refreshSession(): Promise<boolean> {
-  refreshPromise ??= rawFetch(REFRESH_PATH, { method: "POST" })
+  refreshPromise ??= sendRequest(REFRESH_PATH, { method: "POST" }, JSON_MEDIA_TYPE)
+    .then((response) => readJson<unknown>(response))
     .then(() => true)
     .catch(() => false)
     .finally(() => {
@@ -105,9 +113,14 @@ function needsRefresh(error: unknown, path: string): error is ApiError {
   );
 }
 
-export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
+/** Sends the request and, if the access token was rejected, once more after a session refresh. */
+async function sendWithSessionRefresh(
+  path: string,
+  init: ApiRequestInit,
+  accept: string,
+): Promise<Response> {
   try {
-    return await rawFetch<T>(path, init);
+    return await sendRequest(path, init, accept);
   } catch (error) {
     if (!needsRefresh(error, path)) {
       throw error;
@@ -117,6 +130,16 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
       emitSessionExpired();
       throw error;
     }
-    return rawFetch<T>(path, init);
+    return sendRequest(path, init, accept);
   }
+}
+
+export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
+  return readJson<T>(await sendWithSessionRefresh(path, init, JSON_MEDIA_TYPE));
+}
+
+/** For downloads: the request handling of `apiFetch`, with the body read as a Blob instead. */
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const response = await sendWithSessionRefresh(path, {}, ANY_MEDIA_TYPE);
+  return response.blob();
 }

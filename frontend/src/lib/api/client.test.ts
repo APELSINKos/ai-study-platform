@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchBlob } from "./client";
 import { ApiError, HTTP_ERROR_CODE, INVALID_RESPONSE_CODE, NETWORK_ERROR_CODE } from "./errors";
 import { onSessionExpired } from "./session-events";
 
@@ -268,6 +268,102 @@ describe("apiFetch", () => {
     const error = await captureError(apiFetch("/workspaces/a"));
 
     expect(error.code).toBe("not_authenticated");
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+});
+
+describe("apiFetchBlob", () => {
+  const FILE_PATH = "/documents/d1/file";
+
+  // jsdom's Blob has no text(), so the contents are read the way older browsers did.
+  function readText(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(blob);
+    });
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    fetchMock.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it("reads the body of the proxied API path as a Blob", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("# Lecture 1", { headers: { "Content-Type": "text/markdown" } }),
+    );
+
+    const blob = await apiFetchBlob(FILE_PATH);
+
+    expect(blob.type).toBe("text/markdown");
+    await expect(readText(blob)).resolves.toBe("# Lecture 1");
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("/api/v1/documents/d1/file");
+    expect(init?.credentials).toBe("same-origin");
+    expect(new Headers(init?.headers).get("Accept")).toBe("*/*");
+  });
+
+  it("turns the unified error body into an ApiError", async () => {
+    fetchMock.mockResolvedValue(errorResponse("document_file_missing", 404));
+
+    const error = await captureError(apiFetchBlob(FILE_PATH));
+
+    expect(error.status).toBe(404);
+    expect(error.code).toBe("document_file_missing");
+  });
+
+  it("reports network failures with status 0", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const error = await captureError(apiFetchBlob(FILE_PATH));
+
+    expect(error.status).toBe(0);
+    expect(error.code).toBe(NETWORK_ERROR_CODE);
+  });
+
+  it("refreshes the session on a 401 and downloads again", async () => {
+    let downloads = 0;
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith("/auth/refresh")) {
+        return jsonResponse({ status: "ok" });
+      }
+      downloads += 1;
+      if (downloads === 1) {
+        return errorResponse("token_expired", 401);
+      }
+      return new Response("%PDF-1.7", { headers: { "Content-Type": "application/pdf" } });
+    });
+
+    const blob = await apiFetchBlob(FILE_PATH);
+
+    await expect(readText(blob)).resolves.toBe("%PDF-1.7");
+    expect(downloads).toBe(2);
+    const refreshCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/auth/refresh"),
+    );
+    expect(refreshCalls).toHaveLength(1);
+  });
+
+  it("emits sessionExpired once and throws the original error when the refresh fails", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith("/auth/refresh")) {
+        return errorResponse("invalid_refresh_token", 401);
+      }
+      return errorResponse("token_expired", 401);
+    });
+    const listener = vi.fn();
+    const unsubscribe = onSessionExpired(listener);
+
+    const error = await captureError(apiFetchBlob(FILE_PATH));
+
+    expect(error.code).toBe("token_expired");
     expect(listener).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
