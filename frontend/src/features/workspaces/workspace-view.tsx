@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useId } from "react";
 
 import { Button } from "@/components/ui/button";
+import { DocumentList } from "@/features/documents/document-list";
 import { ApiError } from "@/lib/api/errors";
 import type { WorkspaceOut } from "@/lib/api/types";
 
@@ -92,9 +93,7 @@ function WorkspaceDocuments({
       <h2 id={headingId} className="font-display text-xl font-semibold">
         {t("documentsTitle")}
       </h2>
-      <p className="text-ink-soft mt-2 text-sm">
-        {t("documentCount", { count: workspace.stats.document_count })}
-      </p>
+      <DocumentList workspaceId={workspace.id} className="mt-2" />
     </section>
   );
 }

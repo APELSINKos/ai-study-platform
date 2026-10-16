@@ -5,6 +5,8 @@ export const HTTP_ERROR_CODE = "http_error";
 export const INVALID_RESPONSE_CODE = "invalid_response";
 const REQUEST_ID_HEADER = "X-Request-ID";
 const RETRY_AFTER_HEADER = "Retry-After";
+const FIRST_CLIENT_ERROR = 400;
+const FIRST_SERVER_ERROR = 500;
 
 const errorEnvelopeSchema = z.object({
   error: z.object({
@@ -58,6 +60,15 @@ export class ApiError extends Error {
     this.body = body;
     this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/** A 4xx answer: asking again unchanged would get the same answer. */
+export function isClientError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    error.status >= FIRST_CLIENT_ERROR &&
+    error.status < FIRST_SERVER_ERROR
+  );
 }
 
 function parseRetryAfterSeconds(response: Response): number | null {

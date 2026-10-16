@@ -3,9 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Locale } from "@/i18n/config";
+import { documentPageFixture, readyDocumentFixture } from "@/features/documents/test-fixtures";
 import { apiFetch } from "@/lib/api/client";
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
-import type { WorkspaceOut, WorkspaceUpdateRequest } from "@/lib/api/types";
+import type { DocumentOut, WorkspaceOut, WorkspaceUpdateRequest } from "@/lib/api/types";
 import { queryKeys } from "@/lib/query-keys";
 import { renderWithIntl } from "@/test/render";
 
@@ -18,6 +19,10 @@ const replace = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace }) }));
 
 const apiFetchMock = vi.mocked(apiFetch);
+
+function isDocumentsPath(path: string): boolean {
+  return path.includes("/documents");
+}
 
 const WORKSPACE = workspaceFixture(1, {
   name: "Organic chemistry",
@@ -35,9 +40,12 @@ function renderView(id = WORKSPACE.id, locale: Locale = "en") {
 }
 
 /** Answers like the API would, keeping the changes a PATCH makes. */
-function serve(workspace: WorkspaceOut) {
+function serve(workspace: WorkspaceOut, documents: DocumentOut[] = []) {
   let current = workspace;
-  apiFetchMock.mockImplementation(async (_path, init) => {
+  apiFetchMock.mockImplementation(async (path, init) => {
+    if (isDocumentsPath(path)) {
+      return documentPageFixture(documents);
+    }
     if (init?.method === "PATCH") {
       current = { ...current, ...(init.json as WorkspaceUpdateRequest) };
     }
@@ -115,13 +123,29 @@ describe("WorkspaceView", () => {
     expect(margin).toHaveTextContent("5 documents");
   });
 
-  it("keeps a region for the documents and offers no primary action of its own", async () => {
-    serve(WORKSPACE);
+  it("lists the workspace's documents in their region, with no primary action of its own", async () => {
+    serve(WORKSPACE, [readyDocumentFixture(1, { title: "Reaction mechanisms" })]);
     renderView();
 
     const region = await screen.findByRole("region", { name: "Documents" });
-    expect(within(region).getByText("5 documents")).toBeInTheDocument();
+    expect(
+      await within(region).findByRole("link", { name: "Reaction mechanisms" }),
+    ).toBeInTheDocument();
+    expect(within(region).getByRole("status")).toHaveTextContent("The file is ready.");
     expect(primaryActions()).toEqual([]);
+  });
+
+  it("asks for the documents by the id the API spells, whatever the address", async () => {
+    serve(LETTERED);
+    renderView(CAPITALISED_ID);
+
+    const region = await screen.findByRole("region", { name: "Documents" });
+    await waitFor(() =>
+      expect(within(region).getByRole("status")).toHaveTextContent("No documents yet."),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `/workspaces/${LETTERED.id}/documents?page=1&page_size=50`,
+    );
   });
 
   it("says a workspace that does not exist was not found", async () => {
@@ -157,9 +181,10 @@ describe("WorkspaceView", () => {
   });
 
   it("reports any other failure and loads again on request", async () => {
-    apiFetchMock
-      .mockRejectedValueOnce(new ApiError({ status: 0, code: NETWORK_ERROR_CODE, message: "x" }))
-      .mockResolvedValueOnce(WORKSPACE);
+    serve(WORKSPACE);
+    apiFetchMock.mockRejectedValueOnce(
+      new ApiError({ status: 0, code: NETWORK_ERROR_CODE, message: "x" }),
+    );
     renderView();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -204,7 +229,10 @@ describe("WorkspaceView", () => {
 
   it("shows the saved name at once on an address that spells the id in capitals", async () => {
     let loaded = false;
-    apiFetchMock.mockImplementation((_path, init) => {
+    apiFetchMock.mockImplementation((path, init) => {
+      if (isDocumentsPath(path)) {
+        return Promise.resolve(documentPageFixture([]));
+      }
       if (init?.method === "PATCH") {
         return Promise.resolve({ ...LETTERED, ...(init.json as WorkspaceUpdateRequest) });
       }
@@ -228,9 +256,12 @@ describe("WorkspaceView", () => {
   });
 
   it("forgets a workspace deleted on an address that spells its id in capitals", async () => {
-    apiFetchMock.mockImplementation((_path, init) =>
-      Promise.resolve(init?.method === "DELETE" ? undefined : LETTERED),
-    );
+    apiFetchMock.mockImplementation((path, init) => {
+      if (isDocumentsPath(path)) {
+        return Promise.resolve(documentPageFixture([]));
+      }
+      return Promise.resolve(init?.method === "DELETE" ? undefined : LETTERED);
+    });
     renderView(CAPITALISED_ID);
     await userEvent.click(await screen.findByRole("button", { name: "Delete workspace" }));
     const dialog = await screen.findByRole("alertdialog");
@@ -239,7 +270,8 @@ describe("WorkspaceView", () => {
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/workspaces"));
     // The load and the delete only: the page's copy is dropped, not fetched again to a 404.
-    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+    const workspaceRequests = apiFetchMock.mock.calls.filter(([path]) => !isDocumentsPath(path));
+    expect(workspaceRequests).toHaveLength(2);
   });
 
   it("turns into not found once the workspace is gone, though a copy is cached", async () => {
@@ -296,7 +328,10 @@ describe("WorkspaceView", () => {
     serve(WORKSPACE);
     renderView(WORKSPACE.id, "ru");
 
-    expect(await screen.findByRole("region", { name: "Документы" })).toBeInTheDocument();
+    const region = await screen.findByRole("region", { name: "Документы" });
+    await waitFor(() =>
+      expect(within(region).getByRole("status")).toHaveTextContent("Документов пока нет."),
+    );
     expect(screen.getByText("Экзамен через 12 дней")).toBeInTheDocument();
     expect(screen.getByText("28 октября 2026 г.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Изменить" })).toBeInTheDocument();

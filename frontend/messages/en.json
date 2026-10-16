@@ -323,6 +323,63 @@
       "submit": "Save changes"
     }
   },
+  "Documents": {
+    "list": {
+      "label": "Documents in this workspace",
+      "loading": "Loading documents…",
+      "showMore": "Show more",
+      "retry": "Try again",
+      "empty": "No documents yet."
+    },
+    "summary": {
+      "processing": "{total, plural, =1 {Processing the file.} other {Processing {active} of # files.}}",
+      "allReady": "{total, plural, =1 {The file is ready.} other {All # files are ready.}}",
+      "someReady": "{ready, plural, one {# of {total} files is ready.} other {# of {total} files are ready.}}",
+      "failed": "{failed, plural, one {# file failed.} other {# files failed.}}"
+    },
+    "stage": {
+      "uploaded": "In the queue",
+      "processing": "Reading and analysing",
+      "indexing": "Preparing for search",
+      "ready": "Ready",
+      "failed": "Failed",
+      "retryPending": "Retrying soon"
+    },
+    "row": {
+      "pages": "{count, plural, one {# page} other {# pages}}",
+      "words": "{count, plural, one {# word} other {# words}}",
+      "stalled": "This is taking longer than usual."
+    },
+    "processingErrors": {
+      "pdfUnreadable": "The PDF could not be read. The file may be damaged.",
+      "pdfEncrypted": "The PDF is protected with a password. Upload a copy without one.",
+      "noText": "No text was found in the file. A scanned PDF needs a text layer.",
+      "tooManyPages": "The PDF has too many pages. Split it into smaller files.",
+      "textTooLong": "The file holds too much text. Split it into smaller files.",
+      "fileMissing": "The uploaded file is no longer stored. Upload it again.",
+      "aiUnavailable": "The AI service did not answer. Try again later.",
+      "aiQuotaExceeded": "The AI service has reached its usage limit.",
+      "aiRejected": "The AI service refused to process this file.",
+      "aiInvalidOutput": "The AI service returned an answer that could not be used.",
+      "embeddingDimensionMismatch": "The search settings do not match the stored search index.",
+      "processingTimeout": "Processing took too long and was stopped.",
+      "queueUnavailable": "The file could not be queued for processing.",
+      "internalError": "Something went wrong while the file was processed."
+    },
+    "errors": {
+      "networkError": "The API could not be reached. Check your connection and try again.",
+      "csrfFailed": "Your session could not be confirmed. Reload the page and try again.",
+      "sessionExpired": "Your session has ended. Sign in again to continue.",
+      "workspaceNotFound": "This workspace no longer exists.",
+      "rateLimited": "Too many attempts. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+      "rateLimitedMinutes": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+      "rateLimitedGeneric": "Too many attempts. Try again in a moment.",
+      "tooManyActive": "Too many of your files are being processed right now. Try again once some of them are ready.",
+      "storageQuotaExceeded": "Your files have used up your storage space. Delete some documents, then try again.",
+      "loadFailed": "The documents could not be loaded.",
+      "loadMoreFailed": "More documents could not be loaded."
+    }
+  },
   "Dashboard": {
     "metaTitle": "Dashboard",
     "greeting": "Hello, {name}.",
