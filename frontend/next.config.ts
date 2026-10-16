@@ -16,6 +16,10 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  experimental: {
+    // The /api proxy cuts bodies beyond this; it must pass a 20 MiB upload plus multipart overhead.
+    proxyClientMaxBodySize: "21mb",
+  },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${BACKEND_URL}/api/:path*` }];
   },
