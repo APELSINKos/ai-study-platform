@@ -257,6 +257,24 @@ describe("WorkspaceView", () => {
     ).toBeInTheDocument();
   });
 
+  it("turns into not found when saving finds the workspace deleted elsewhere", async () => {
+    serve(WORKSPACE);
+    renderView();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    apiFetchMock.mockRejectedValue(
+      new ApiError({ status: 404, code: "workspace_not_found", message: "x" }),
+    );
+
+    await userEvent.clear(screen.getByLabelText("Name"));
+    await userEvent.type(screen.getByLabelText("Name"), "Organic chemistry II");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Workspace not found" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete workspace" })).not.toBeInTheDocument();
+  });
+
   it("keeps showing the workspace when a later refresh fails for another reason", async () => {
     serve(WORKSPACE);
     const { queryClient } = renderView();
