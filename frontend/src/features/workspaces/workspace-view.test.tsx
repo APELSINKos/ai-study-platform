@@ -135,6 +135,27 @@ describe("WorkspaceView", () => {
     expect(primaryActions()).toEqual([]);
   });
 
+  it("moves focus to the documents heading once a document is deleted", async () => {
+    let documents = [readyDocumentFixture(1, { title: "Reaction mechanisms" })];
+    apiFetchMock.mockImplementation(async (path, init) => {
+      if (init?.method === "DELETE") {
+        documents = [];
+        return undefined;
+      }
+      return isDocumentsPath(path) ? documentPageFixture(documents) : WORKSPACE;
+    });
+    renderView();
+    await userEvent.click(await screen.findByRole("button", { name: "Delete lecture-1.pdf" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete this document?" });
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete document" }));
+
+    const heading = screen.getByRole("heading", { level: 2, name: "Documents", hidden: true });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(heading).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("heading", { level: 1, name: "Organic chemistry" })).toBeVisible();
+  });
+
   it("asks for the documents by the id the API spells, whatever the address", async () => {
     serve(LETTERED);
     renderView(CAPITALISED_ID);

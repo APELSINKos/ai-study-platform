@@ -1,13 +1,18 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type * as MotionModule from "motion/react";
+import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Locale } from "@/i18n/config";
+import { apiFetch } from "@/lib/api/client";
 import type { DocumentOut } from "@/lib/api/types";
 import { renderWithIntl } from "@/test/render";
 
 import { DocumentRow } from "./document-row";
 import { documentFixture, readyDocumentFixture } from "./test-fixtures";
+
+vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
 
 const motionPreference = vi.hoisted(() => ({ reduce: false }));
 
@@ -16,10 +21,12 @@ vi.mock("motion/react", async (importOriginal) => ({
   useReducedMotion: () => motionPreference.reduce,
 }));
 
+const apiFetchMock = vi.mocked(apiFetch);
+
 function renderRow(document: DocumentOut, locale: Locale = "en"): HTMLElement {
   renderWithIntl(
     <ul>
-      <DocumentRow document={document} />
+      <DocumentRow document={document} focusAfterDelete={createRef<HTMLElement>()} />
     </ul>,
     { locale },
   );
@@ -37,6 +44,7 @@ function currentStage(row: HTMLElement): string | null {
 describe("DocumentRow", () => {
   beforeEach(() => {
     motionPreference.reduce = false;
+    apiFetchMock.mockReset();
   });
 
   it("links the document's title to its page and shows the whole title on hover", () => {
@@ -87,7 +95,10 @@ describe("DocumentRow", () => {
       (contentType, index) => {
         const { unmount } = renderWithIntl(
           <ul>
-            <DocumentRow document={readyDocumentFixture(index, { content_type: contentType })} />
+            <DocumentRow
+              document={readyDocumentFixture(index, { content_type: contentType })}
+              focusAfterDelete={createRef<HTMLElement>()}
+            />
           </ul>,
         );
         const icon = screen.getByRole("listitem").querySelector("svg");
@@ -199,5 +210,79 @@ describe("DocumentRow", () => {
         "В файле не найден текст. У отсканированного PDF должен быть текстовый слой.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("offers Retry beside the reason a document failed", () => {
+    const row = renderRow(
+      documentFixture(1, { status: "failed", error_code: "pdf_unreadable", can_retry: true }),
+    );
+
+    const retry = within(row).getByRole("button", { name: "Retry lecture-1.pdf" });
+    expect(retry).toHaveTextContent("Retry");
+    expect(retry).toHaveAttribute("data-variant", "secondary");
+  });
+
+  it("offers Retry beside the note that a document has stalled", () => {
+    const row = renderRow(documentFixture(1, { status: "indexing", can_retry: true }));
+
+    expect(within(row).getByText("This is taking longer than usual.")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Retry lecture-1.pdf" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["moves on", documentFixture(1, { status: "processing" })],
+    ["waits for its automatic retry", documentFixture(1, { error_code: "ai_unavailable" })],
+    ["is ready", readyDocumentFixture(1)],
+  ])("offers no Retry while a document %s", (_, document) => {
+    const row = renderRow(document);
+
+    expect(within(row).queryByRole("button", { name: /Retry/ })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    readyDocumentFixture(1, { original_filename: "lecture-1.pdf" }),
+    documentFixture(1, { status: "processing" }),
+    documentFixture(1, { status: "failed", error_code: "no_text", can_retry: true }),
+  ])("offers deleting as a quiet icon button named after the file", (document) => {
+    const row = renderRow(document);
+
+    const remove = within(row).getByRole("button", { name: "Delete lecture-1.pdf" });
+    expect(remove).toHaveAttribute("data-variant", "ghost");
+    expect(remove).toHaveTextContent("");
+    expect(row.querySelector('[data-variant="primary"]')).toBeNull();
+  });
+
+  it("asks before deleting and names the file", async () => {
+    const row = renderRow(readyDocumentFixture(1, { title: "Reaction mechanisms" }));
+
+    await userEvent.click(within(row).getByRole("button", { name: "Delete lecture-1.pdf" }));
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete this document?" });
+    expect(dialog).toHaveAccessibleDescription(
+      "“lecture-1.pdf” will be deleted. This cannot be undone.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Delete document" })).toHaveAttribute(
+      "data-variant",
+      "danger",
+    );
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("offers Retry and deleting in Russian", async () => {
+    const row = renderRow(
+      documentFixture(1, { status: "failed", error_code: "no_text", can_retry: true }),
+      "ru",
+    );
+
+    expect(
+      within(row).getByRole("button", { name: "Повторить обработку lecture-1.pdf" }),
+    ).toHaveTextContent("Повторить");
+    await userEvent.click(within(row).getByRole("button", { name: "Удалить lecture-1.pdf" }));
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Удалить этот документ?" });
+    expect(dialog).toHaveAccessibleDescription(
+      "Файл «lecture-1.pdf» будет удалён. Это нельзя отменить.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Удалить документ" })).toBeInTheDocument();
   });
 });

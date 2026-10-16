@@ -9,6 +9,9 @@ type ProcessingErrorsTranslator = ReturnType<typeof useTranslations<"Documents.p
 
 const SECONDS_PER_MINUTE = 60;
 
+/** The answer for a document that does not exist or belongs to someone else. */
+export const DOCUMENT_NOT_FOUND_CODE = "document_not_found";
+
 /** The sentence for each reason processing can fail; a code the API adds breaks the build here. */
 export const DOCUMENT_ERROR_MESSAGES = {
   pdf_unreadable: "pdfUnreadable",
@@ -36,11 +39,13 @@ export function processingErrorMessage(
 }
 
 /** What the user was doing; it words the message when the failure has no wording of its own. */
-export type DocumentAction = "load" | "loadMore";
+export type DocumentAction = "load" | "loadMore" | "retry" | "delete";
 
 const FAILED_ACTION_KEYS = {
   load: "loadFailed",
   loadMore: "loadMoreFailed",
+  retry: "retryFailed",
+  delete: "deleteFailed",
 } as const satisfies Record<DocumentAction, string>;
 
 function rateLimitedMessage(t: DocumentErrorsTranslator, retryAfterSeconds: number | null): string {
@@ -71,6 +76,10 @@ export function documentErrorMessage(
         return t("sessionExpired");
       case WORKSPACE_NOT_FOUND_CODE:
         return t("workspaceNotFound");
+      case DOCUMENT_NOT_FOUND_CODE:
+        return t("documentNotFound");
+      case "document_not_retryable":
+        return t("notRetryable");
       case "rate_limited":
         return rateLimitedMessage(t, error.retryAfterSeconds);
       case "too_many_active_documents":

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useId } from "react";
+import { useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { DocumentList } from "@/features/documents/document-list";
@@ -87,13 +87,20 @@ function WorkspaceDocuments({
 }) {
   const t = useTranslations("Workspaces.detail");
   const headingId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   return (
     <section aria-labelledby={headingId} className={className}>
-      <h2 id={headingId} className="font-display text-xl font-semibold">
+      {/* Focusable from code only: it takes the focus when a deleted document's row goes. */}
+      <h2
+        ref={headingRef}
+        id={headingId}
+        tabIndex={-1}
+        className="font-display w-fit text-xl font-semibold"
+      >
         {t("documentsTitle")}
       </h2>
-      <DocumentList workspaceId={workspace.id} className="mt-2" />
+      <DocumentList workspaceId={workspace.id} headingRef={headingRef} className="mt-2" />
     </section>
   );
 }

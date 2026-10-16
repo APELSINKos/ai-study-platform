@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as MotionModule from "motion/react";
+import { useRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Locale } from "@/i18n/config";
@@ -43,8 +44,58 @@ function withStatuses(...statuses: DocumentStatus[]): DocumentOut[] {
   );
 }
 
+/** The list under its heading, as the workspace page shows it. */
+function ListUnderHeading() {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  return (
+    <>
+      <h2 ref={headingRef} tabIndex={-1}>
+        Documents
+      </h2>
+      <DocumentList workspaceId={WORKSPACE_ID} headingRef={headingRef} />
+    </>
+  );
+}
+
 function renderList(locale: Locale = "en") {
-  return renderWithIntl(<DocumentList workspaceId={WORKSPACE_ID} />, { locale });
+  return renderWithIntl(<ListUnderHeading />, { locale });
+}
+
+/**
+ * Answers like the API would, keeping what a retry or a delete changes; `answer` can stand in
+ * for those two, for example to fail them.
+ */
+function serve(
+  initial: DocumentOut[],
+  answer: { retry?: () => Promise<unknown>; delete?: () => Promise<unknown> } = {},
+) {
+  let documents = initial;
+  apiFetchMock.mockImplementation(async (path, init) => {
+    const id = /^\/documents\/([^/]+)/.exec(path)?.[1];
+    if (init?.method === "POST" && id !== undefined) {
+      if (answer.retry) {
+        return answer.retry();
+      }
+      documents = documents.map((document) =>
+        document.id === id
+          ? { ...document, status: "uploaded", error_code: null, can_retry: false }
+          : document,
+      );
+      return documents.find((document) => document.id === id);
+    }
+    if (init?.method === "DELETE" && id !== undefined) {
+      if (answer.delete) {
+        return answer.delete();
+      }
+      documents = documents.filter((document) => document.id !== id);
+      return undefined;
+    }
+    return documentPageFixture(documents);
+  });
+}
+
+function sent(method: string): unknown[][] {
+  return apiFetchMock.mock.calls.filter(([, init]) => init?.method === method);
 }
 
 function rowNames(): string[] {
@@ -289,5 +340,189 @@ describe("DocumentList", () => {
 
     expect(await screen.findByRole("button", { name: "Показать ещё" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Документы пространства" })).toBeInTheDocument();
+  });
+});
+
+describe("DocumentList retry and delete", () => {
+  const failed = documentFixture(1, {
+    status: "failed",
+    error_code: "pdf_unreadable",
+    can_retry: true,
+  });
+  const ready = readyDocumentFixture(2, { title: "Reaction mechanisms" });
+
+  function rowOf(name: string): HTMLElement {
+    const row = screen.getByRole("link", { name }).closest("li");
+    if (!row) {
+      throw new Error(`No row for ${name}.`);
+    }
+    return row;
+  }
+
+  async function confirmDelete(filename: string): Promise<HTMLElement> {
+    await userEvent.click(await screen.findByRole("button", { name: `Delete ${filename}` }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete this document?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete document" }));
+    return dialog;
+  }
+
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+  });
+
+  it("retries a failed document: its row moves on and focus goes to its title", async () => {
+    serve([failed, ready]);
+    renderList();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Retry lecture-1.pdf" }));
+
+    expect(await within(rowOf("lecture-1.pdf")).findByText("In the queue")).toBeInTheDocument();
+    expect(apiFetchMock).toHaveBeenCalledWith(`/documents/${failed.id}/retry`, {
+      method: "POST",
+    });
+    expect(screen.queryByRole("button", { name: "Retry lecture-1.pdf" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("The PDF could not be read. The file may be damaged."),
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("link", { name: "lecture-1.pdf" })).toHaveFocus());
+    await expectSummary("Processing 1 of 2 files.");
+  });
+
+  it("shows Retry busy while the request runs and sends it once", async () => {
+    serve([failed], { retry: () => new Promise(() => {}) });
+    renderList();
+    const retry = await screen.findByRole("button", { name: "Retry lecture-1.pdf" });
+
+    await userEvent.click(retry);
+    await userEvent.click(retry);
+
+    expect(retry).toHaveAttribute("aria-busy", "true");
+    expect(sent("POST")).toHaveLength(1);
+  });
+
+  it("says why a retry was refused and keeps Retry on offer", async () => {
+    serve([failed], {
+      retry: () =>
+        Promise.reject(
+          new ApiError({ status: 429, code: "rate_limited", message: "x", retryAfterSeconds: 120 }),
+        ),
+    });
+    renderList();
+    const retry = await screen.findByRole("button", { name: "Retry lecture-1.pdf" });
+
+    await userEvent.click(retry);
+
+    expect(await within(rowOf("lecture-1.pdf")).findByRole("alert")).toHaveTextContent(
+      "Too many attempts. Try again in 2 minutes.",
+    );
+    expect(retry).toBeInTheDocument();
+    expect(retry).toHaveFocus();
+  });
+
+  it("retries a stalled document", async () => {
+    serve([documentFixture(1, { status: "processing", can_retry: true })]);
+    renderList();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Retry lecture-1.pdf" }));
+
+    expect(await screen.findByText("In the queue")).toBeInTheDocument();
+    expect(screen.queryByText("This is taking longer than usual.")).not.toBeInTheDocument();
+  });
+
+  it("refreshes the workspace and the document's own data after a retry", async () => {
+    serve([failed]);
+    const { queryClient } = renderList();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Retry lecture-1.pdf" }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspaces"] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["documents", failed.id] });
+  });
+
+  it("deletes a document after asking, then moves focus to the list heading", async () => {
+    serve([failed, ready]);
+    renderList();
+
+    await confirmDelete("lecture-2.pdf");
+
+    // Hidden ones count too: the open dialog hides the page from assistive technology.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("link", { name: "Reaction mechanisms", hidden: true }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(`/documents/${ready.id}`, { method: "DELETE" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Documents" })).toHaveFocus());
+    expect(rowNames()).toEqual(["lecture-1.pdf"]);
+    await expectSummary("1 file failed.");
+  });
+
+  it("returns focus to the delete button when the question is dismissed", async () => {
+    serve([ready]);
+    renderList();
+    const remove = await screen.findByRole("button", { name: "Delete lecture-2.pdf" });
+    await userEvent.click(remove);
+    await screen.findByRole("alertdialog");
+
+    await userEvent.keyboard("{Escape}");
+
+    await waitFor(() => expect(remove).toHaveFocus());
+    expect(sent("DELETE")).toHaveLength(0);
+  });
+
+  it("keeps the question open with a translated error when the delete fails", async () => {
+    serve([ready], {
+      delete: () =>
+        Promise.reject(
+          new ApiError({ status: 500, code: "internal_error", message: "Internal server error." }),
+        ),
+    });
+    renderList();
+
+    const dialog = await confirmDelete("lecture-2.pdf");
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "The document could not be deleted. Try again.",
+    );
+    expect(screen.queryByText("Internal server error.")).not.toBeInTheDocument();
+    // The open dialog hides the page from assistive technology, so the row counts as hidden.
+    expect(
+      screen.getByRole("link", { name: "Reaction mechanisms", hidden: true }),
+    ).toBeInTheDocument();
+  });
+
+  it("treats a document deleted elsewhere as deleted", async () => {
+    let deleted = false;
+    apiFetchMock.mockImplementation(async (_path, init) => {
+      if (init?.method === "DELETE") {
+        deleted = true;
+        throw new ApiError({ status: 404, code: "document_not_found", message: "x" });
+      }
+      return documentPageFixture(deleted ? [] : [ready]);
+    });
+    renderList();
+
+    await confirmDelete("lecture-2.pdf");
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Documents" })).toHaveFocus());
+    await expectSummary("No documents yet.");
+  });
+
+  it("forgets the deleted document's own data and refreshes the workspace", async () => {
+    serve([ready]);
+    const { queryClient } = renderList();
+    queryClient.setQueryData(queryKeys.document(ready.id), ready);
+    queryClient.setQueryData(queryKeys.documentChunks(ready.id), { pages: [], pageParams: [] });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    await confirmDelete("lecture-2.pdf");
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(queryKeys.document(ready.id))).toBeUndefined(),
+    );
+    expect(queryClient.getQueryData(queryKeys.documentChunks(ready.id))).toBeUndefined();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspaces"] });
   });
 });

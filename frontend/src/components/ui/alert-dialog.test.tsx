@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Locale } from "@/i18n/config";
@@ -177,5 +178,79 @@ describe("AlertDialog", () => {
     await openWithKeyboard(user);
 
     expect(screen.getByRole("button", { name: "Отмена" })).toHaveFocus();
+  });
+});
+
+/** A list heading and one row whose delete removes the row, trigger and all. */
+function RowWithDelete({ onConfirm }: { onConfirm: () => Promise<unknown> }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [isRowShown, setIsRowShown] = useState(true);
+
+  async function deleteRow() {
+    await onConfirm();
+    setIsRowShown(false);
+  }
+
+  return (
+    <>
+      <h2 ref={headingRef} tabIndex={-1}>
+        Documents
+      </h2>
+      {isRowShown ? (
+        <AlertDialog
+          trigger={<Button variant="ghost">Delete lecture.pdf</Button>}
+          title="Delete this document?"
+          description="It cannot be brought back."
+          confirmLabel="Delete"
+          onConfirm={deleteRow}
+          errorMessage={() => FAILURE_MESSAGE}
+          focusAfterConfirm={headingRef}
+        />
+      ) : null}
+    </>
+  );
+}
+
+describe("AlertDialog with a focus target after the action", () => {
+  async function confirmWithKeyboard(user: User): Promise<void> {
+    await user.tab();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("alertdialog", { name: "Delete this document?" });
+    await user.tab();
+    await user.keyboard("{Enter}");
+  }
+
+  it("moves focus there once the action succeeds, though the trigger is gone with it", async () => {
+    const user = userEvent.setup();
+    renderWithIntl(<RowWithDelete onConfirm={async () => undefined} />);
+
+    await confirmWithKeyboard(user);
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Delete lecture.pdf" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Documents" })).toHaveFocus());
+  });
+
+  it("still returns focus to the trigger when the question is dismissed", async () => {
+    const user = userEvent.setup();
+    renderWithIntl(<RowWithDelete onConfirm={async () => undefined} />);
+    await user.tab();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("alertdialog");
+
+    await user.keyboard("{Escape}");
+
+    await expectClosedWithFocusOn(screen.getByRole("button", { name: "Delete lecture.pdf" }));
+  });
+
+  it("returns focus to the trigger when the question is dismissed after a failure", async () => {
+    const user = userEvent.setup();
+    renderWithIntl(<RowWithDelete onConfirm={() => Promise.reject(new Error("offline"))} />);
+    await confirmWithKeyboard(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(FAILURE_MESSAGE);
+
+    await user.keyboard("{Escape}");
+
+    await expectClosedWithFocusOn(screen.getByRole("button", { name: "Delete lecture.pdf" }));
   });
 });

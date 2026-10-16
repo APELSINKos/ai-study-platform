@@ -1,9 +1,17 @@
-import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
 
+import { ApiError } from "@/lib/api/errors";
 import type { DocumentOut, DocumentPage } from "@/lib/api/types";
 import { queryKeys, WORKSPACE_DOCUMENTS_PAGE_SIZE } from "@/lib/query-keys";
 
-import { fetchDocumentPage } from "./api";
+import { deleteDocument, fetchDocumentPage, retryDocument } from "./api";
+import { DOCUMENT_NOT_FOUND_CODE } from "./error-message";
 import { pollInterval } from "./status";
 
 const FIRST_PAGE = 1;
@@ -56,5 +64,84 @@ export function useWorkspaceDocuments(workspaceId: string) {
     getNextPageParam: nextPageAfter,
     select: loadedDocuments,
     refetchInterval: (query) => pollInterval(allDocuments(query.state.data), query.state.error),
+  });
+}
+
+function includes(data: DocumentPages, id: string): boolean {
+  return data.pages.some((page) => page.items.some((document) => document.id === id));
+}
+
+/** Puts a document's new state into the cached list of its workspace. */
+function replaceCachedDocument(queryClient: QueryClient, updated: DocumentOut): void {
+  queryClient.setQueryData<DocumentPages>(
+    queryKeys.workspaceDocuments(updated.workspace_id),
+    (data) =>
+      data && {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          items: page.items.map((document) => (document.id === updated.id ? updated : document)),
+        })),
+      },
+  );
+}
+
+/** Takes a document out of the cached list of its workspace, so its row goes at once. */
+function removeCachedDocument(queryClient: QueryClient, removed: DocumentOut): void {
+  queryClient.setQueryData<DocumentPages>(
+    queryKeys.workspaceDocuments(removed.workspace_id),
+    (data) => {
+      if (data === undefined || !includes(data, removed.id)) {
+        return data;
+      }
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          items: page.items.filter((document) => document.id !== removed.id),
+          total: page.total - 1,
+        })),
+      };
+    },
+  );
+}
+
+/** Starts processing a failed or stalled document again. */
+export function useRetryDocument(document: DocumentOut) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => retryDocument(document.id),
+    onSuccess: (updated) => {
+      // The row shows the new status at once, and the list starts asking for news again.
+      replaceCachedDocument(queryClient, updated);
+    },
+    onSettled: () => {
+      // Also after a failure: a document retried or deleted elsewhere then shows as it is.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.document(document.id) });
+    },
+  });
+}
+
+export function useDeleteDocument(document: DocumentOut) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      try {
+        await deleteDocument(document.id);
+      } catch (error) {
+        // Already deleted, from another tab for example: what the user asked for is done.
+        if (!(error instanceof ApiError && error.code === DOCUMENT_NOT_FOUND_CODE)) {
+          throw error;
+        }
+      }
+    },
+    onSuccess: () => {
+      removeCachedDocument(queryClient, document);
+      // Removed, not invalidated: a refetch could only find the document gone. The key also
+      // holds its fragments.
+      queryClient.removeQueries({ queryKey: queryKeys.document(document.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
   });
 }

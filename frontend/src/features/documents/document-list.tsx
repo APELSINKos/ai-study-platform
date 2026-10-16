@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { IndexCard } from "@/components/ui/index-card";
@@ -19,17 +19,18 @@ const SKELETON_ROWS = 3;
 type DocumentListQuery = ReturnType<typeof useWorkspaceDocuments>;
 type DocumentsTranslator = ReturnType<typeof useTranslations<"Documents">>;
 
+interface DocumentListProps {
+  workspaceId: string;
+  /** The list's heading, which takes the focus when a deleted document's row goes. */
+  headingRef: RefObject<HTMLElement | null>;
+  className?: string;
+}
+
 /**
  * The documents of a workspace as ruled rows of one index card, under a line that sums up their
  * processing. The list asks for fresh statuses while any document is on its way.
  */
-export function DocumentList({
-  workspaceId,
-  className,
-}: {
-  workspaceId: string;
-  className?: string;
-}) {
+export function DocumentList({ workspaceId, headingRef, className }: DocumentListProps) {
   const list = useWorkspaceDocuments(workspaceId);
   // Checked before the data: after a refused request the cached rows are no longer refreshed,
   // so a document shown as processing would never move on.
@@ -38,7 +39,12 @@ export function DocumentList({
   return (
     <div className={className}>
       <ListSummary loaded={loaded} />
-      <ListBody list={list} documents={loaded?.documents} className="mt-6" />
+      <ListBody
+        list={list}
+        documents={loaded?.documents}
+        headingRef={headingRef}
+        className="mt-6"
+      />
     </div>
   );
 }
@@ -76,10 +82,11 @@ function summaryText({ documents, total }: LoadedDocuments, t: DocumentsTranslat
 interface ListBodyProps {
   list: DocumentListQuery;
   documents: DocumentOut[] | undefined;
+  headingRef: RefObject<HTMLElement | null>;
   className?: string;
 }
 
-function ListBody({ list, documents, className }: ListBodyProps) {
+function ListBody({ list, documents, headingRef, className }: ListBodyProps) {
   const t = useTranslations("Documents.list");
   const tErrors = useTranslations("Documents.errors");
 
@@ -91,6 +98,7 @@ function ListBody({ list, documents, className }: ListBodyProps) {
       <DocumentRows
         className={className}
         documents={documents}
+        headingRef={headingRef}
         hasMore={list.hasNextPage}
         isLoadingMore={list.isFetchingNextPage}
         loadMoreError={
@@ -117,6 +125,7 @@ function ListBody({ list, documents, className }: ListBodyProps) {
 
 interface DocumentRowsProps {
   documents: DocumentOut[];
+  headingRef: RefObject<HTMLElement | null>;
   hasMore: boolean;
   isLoadingMore: boolean;
   loadMoreError: string | null;
@@ -126,6 +135,7 @@ interface DocumentRowsProps {
 
 function DocumentRows({
   documents,
+  headingRef,
   hasMore,
   isLoadingMore,
   loadMoreError,
@@ -159,7 +169,7 @@ function DocumentRows({
     <IndexCard className={cn("overflow-hidden", className)}>
       <ul ref={listRef} aria-label={t("label")} className="divide-rule divide-y">
         {documents.map((document) => (
-          <DocumentRow key={document.id} document={document} />
+          <DocumentRow key={document.id} document={document} focusAfterDelete={headingRef} />
         ))}
       </ul>
       {hasMore ? (

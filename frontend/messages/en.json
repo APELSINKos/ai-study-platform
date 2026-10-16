@@ -348,7 +348,15 @@
     "row": {
       "pages": "{count, plural, one {# page} other {# pages}}",
       "words": "{count, plural, one {# word} other {# words}}",
-      "stalled": "This is taking longer than usual."
+      "stalled": "This is taking longer than usual.",
+      "retry": "Retry",
+      "retryLabel": "Retry {filename}",
+      "delete": "Delete {filename}"
+    },
+    "deleteDialog": {
+      "title": "Delete this document?",
+      "description": "“{filename}” will be deleted. This cannot be undone.",
+      "confirm": "Delete document"
     },
     "processingErrors": {
       "pdfUnreadable": "The PDF could not be read. The file may be damaged.",
@@ -371,13 +379,17 @@
       "csrfFailed": "Your session could not be confirmed. Reload the page and try again.",
       "sessionExpired": "Your session has ended. Sign in again to continue.",
       "workspaceNotFound": "This workspace no longer exists.",
+      "documentNotFound": "This document no longer exists.",
+      "notRetryable": "This document is already being processed.",
       "rateLimited": "Too many attempts. Try again in {seconds, plural, one {# second} other {# seconds}}.",
       "rateLimitedMinutes": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
       "rateLimitedGeneric": "Too many attempts. Try again in a moment.",
       "tooManyActive": "Too many of your files are being processed right now. Try again once some of them are ready.",
       "storageQuotaExceeded": "Your files have used up your storage space. Delete some documents, then try again.",
       "loadFailed": "The documents could not be loaded.",
-      "loadMoreFailed": "More documents could not be loaded."
+      "loadMoreFailed": "More documents could not be loaded.",
+      "retryFailed": "Processing could not be started again. Try again.",
+      "deleteFailed": "The document could not be deleted. Try again."
     }
   },
   "Dashboard": {

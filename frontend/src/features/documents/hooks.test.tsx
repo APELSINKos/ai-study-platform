@@ -13,7 +13,7 @@ import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 import type { DocumentOut } from "@/lib/api/types";
 import { queryKeys } from "@/lib/query-keys";
 
-import { useWorkspaceDocuments } from "./hooks";
+import { useRetryDocument, useWorkspaceDocuments } from "./hooks";
 import {
   WORKSPACE_ID,
   documentFixture,
@@ -34,15 +34,16 @@ function page(...items: DocumentOut[]) {
   return documentPageFixture(items);
 }
 
-function renderDocuments() {
+function renderWithClient<Result>(hook: () => Result) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
-  return {
-    ...renderHook(() => useWorkspaceDocuments(WORKSPACE_ID), { wrapper: Wrapper }),
-    queryClient,
-  };
+  return { ...renderHook(hook, { wrapper: Wrapper }), queryClient };
+}
+
+function renderDocuments() {
+  return renderWithClient(() => useWorkspaceDocuments(WORKSPACE_ID));
 }
 
 /** Lets the time pass, with every request and update it brings. */
@@ -232,5 +233,41 @@ describe("useWorkspaceDocuments", () => {
     await pass(2000);
 
     expect(requests()).toBe(2);
+  });
+
+  it("asks every two seconds again once a failed document is retried", async () => {
+    const failed = documentFixture(1, { status: "failed", error_code: "no_text", can_retry: true });
+    const queued: DocumentOut = {
+      ...failed,
+      status: "uploaded",
+      error_code: null,
+      can_retry: false,
+    };
+    let retried = false;
+    apiFetchMock.mockImplementation(async (_path, init) => {
+      if (init?.method === "POST") {
+        retried = true;
+        return queued;
+      }
+      return page(retried ? queued : failed);
+    });
+    const { result } = renderWithClient(() => ({
+      list: useWorkspaceDocuments(WORKSPACE_ID),
+      retry: useRetryDocument(failed),
+    }));
+    const listRequests = () =>
+      apiFetchMock.mock.calls.filter(([, init]) => init?.method !== "POST").length;
+    await pass(0);
+    await pass(10_000);
+    expect(listRequests()).toBe(1);
+
+    await act(() => result.current.retry.mutateAsync());
+    await pass(0);
+    expect(result.current.list.data?.documents[0]?.status).toBe("uploaded");
+    const afterRetry = listRequests();
+
+    await pass(2000);
+
+    expect(listRequests()).toBe(afterRetry + 1);
   });
 });

@@ -153,6 +153,18 @@ describe("documentErrorMessage", () => {
     );
   });
 
+  it("says the document is gone", () => {
+    expect(messageFor(apiError(404, "document_not_found"), "retry")).toBe(
+      "This document no longer exists.",
+    );
+  });
+
+  it("says a document already on its way cannot be retried", () => {
+    expect(messageFor(apiError(409, "document_not_retryable"), "retry")).toBe(
+      "This document is already being processed.",
+    );
+  });
+
   it.each([
     ["bad_request", 400],
     ["validation_error", 422],
@@ -164,6 +176,12 @@ describe("documentErrorMessage", () => {
     expect(messageFor(apiError(status, code), "load")).toBe("The documents could not be loaded.");
     expect(messageFor(apiError(status, code), "loadMore")).toBe(
       "More documents could not be loaded.",
+    );
+    expect(messageFor(apiError(status, code), "retry")).toBe(
+      "Processing could not be started again. Try again.",
+    );
+    expect(messageFor(apiError(status, code), "delete")).toBe(
+      "The document could not be deleted. Try again.",
     );
   });
 
@@ -193,6 +211,12 @@ describe("documentErrorMessage", () => {
     );
     expect(messageFor(apiError(500, "internal_error"), "loadMore", "ru")).toBe(
       "Не удалось загрузить остальные документы.",
+    );
+    expect(messageFor(apiError(409, "document_not_retryable"), "retry", "ru")).toBe(
+      "Этот документ уже обрабатывается.",
+    );
+    expect(messageFor(apiError(500, "internal_error"), "delete", "ru")).toBe(
+      "Не удалось удалить документ. Попробуйте ещё раз.",
     );
   });
 });
