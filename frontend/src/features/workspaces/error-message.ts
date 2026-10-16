@@ -4,13 +4,19 @@ import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 
 type WorkspaceErrorsTranslator = ReturnType<typeof useTranslations<"Workspaces.errors">>;
 
+/** The answer for a workspace that does not exist or belongs to someone else. */
+export const WORKSPACE_NOT_FOUND_CODE = "workspace_not_found";
+
 /** What the user was doing; it words the message when the failure has no wording of its own. */
-export type WorkspaceAction = "load" | "loadMore" | "create";
+export type WorkspaceAction = "load" | "loadMore" | "create" | "open" | "update" | "delete";
 
 const FAILED_ACTION_KEYS = {
   load: "loadFailed",
   loadMore: "loadMoreFailed",
   create: "createFailed",
+  open: "openFailed",
+  update: "updateFailed",
+  delete: "deleteFailed",
 } as const satisfies Record<WorkspaceAction, string>;
 
 /** A translated sentence for a failed workspace request; the backend's English never shows. */
@@ -31,6 +37,8 @@ export function workspaceErrorMessage(
       case "token_expired":
       case "invalid_token":
         return t("sessionExpired");
+      case WORKSPACE_NOT_FOUND_CODE:
+        return t("notFound");
     }
   }
   return t(FAILED_ACTION_KEYS[action]);

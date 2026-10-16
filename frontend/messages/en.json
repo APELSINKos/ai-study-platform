@@ -284,7 +284,11 @@
       "sessionExpired": "Your session has ended. Sign in again to continue.",
       "loadFailed": "Your workspaces could not be loaded.",
       "loadMoreFailed": "More workspaces could not be loaded.",
-      "createFailed": "The workspace could not be created. Try again."
+      "createFailed": "The workspace could not be created. Try again.",
+      "openFailed": "This workspace could not be loaded.",
+      "updateFailed": "Your changes could not be saved. Try again.",
+      "deleteFailed": "The workspace could not be deleted. Try again.",
+      "notFound": "This workspace no longer exists."
     },
     "row": {
       "documents": "{count, plural, =0 {No documents yet} one {# document} other {# documents}}",
@@ -294,6 +298,29 @@
     "countdown": {
       "upcoming": "{days, plural, =0 {Exam today} =1 {Exam tomorrow} other {Exam in # days}}",
       "past": "{days, plural, =1 {Exam was yesterday} other {Exam was # days ago}}"
+    },
+    "detail": {
+      "metaTitle": "Workspace",
+      "loading": "Loading the workspace…",
+      "retry": "Try again",
+      "edit": "Edit",
+      "delete": "Delete workspace",
+      "documentCount": "{count, plural, =0 {No documents yet} one {# document} other {# documents}}",
+      "documentsTitle": "Documents",
+      "deleteDialog": {
+        "title": "Delete this workspace?",
+        "description": "{count, plural, =0 {“{name}” will be deleted.} one {“{name}” and its document will be deleted.} other {“{name}” and its # documents will be deleted.}} This cannot be undone.",
+        "confirm": "Delete workspace"
+      },
+      "notFound": {
+        "title": "Workspace not found",
+        "lead": "It may have been deleted, or the link is incomplete.",
+        "back": "All workspaces"
+      }
+    },
+    "edit": {
+      "title": "Edit workspace",
+      "submit": "Save changes"
     }
   },
   "Dashboard": {

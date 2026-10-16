@@ -4,7 +4,14 @@ import { describe, expect, it } from "vitest";
 
 import { renderWithIntl } from "@/test/render";
 
-import { toCreateRequest, workspaceFormSchema, type WorkspaceFormValues } from "./schemas";
+import {
+  toCreateRequest,
+  toFormValues,
+  toUpdateRequest,
+  workspaceFormSchema,
+  type WorkspaceFormValues,
+} from "./schemas";
+import { workspaceFixture } from "./test-fixtures";
 
 const VALID: WorkspaceFormValues = { name: "Organic chemistry", description: "", examDate: "" };
 
@@ -63,5 +70,53 @@ describe("toCreateRequest", () => {
     expect(
       toCreateRequest({ name: "Statistics", description: " Week 1 ", examDate: "2026-10-28" }),
     ).toEqual({ name: "Statistics", description: "Week 1", exam_date: "2026-10-28" });
+  });
+});
+
+describe("toFormValues", () => {
+  it("fills the form with the workspace, leaving out what it does not have", () => {
+    expect(toFormValues(workspaceFixture(1, { name: "Statistics" }))).toEqual({
+      name: "Statistics",
+      description: "",
+      examDate: "",
+    });
+    expect(
+      toFormValues(
+        workspaceFixture(1, { description: "Chapters 1 to 6", exam_date: "2026-10-28" }),
+      ),
+    ).toEqual({ name: "Workspace 1", description: "Chapters 1 to 6", examDate: "2026-10-28" });
+  });
+});
+
+describe("toUpdateRequest", () => {
+  const OPENED: WorkspaceFormValues = {
+    name: "Statistics",
+    description: "Hypothesis testing",
+    examDate: "2026-10-28",
+  };
+
+  it("sends only the fields that changed since the form opened", () => {
+    expect(toUpdateRequest({ ...OPENED, name: " Applied statistics " }, OPENED)).toEqual({
+      name: "Applied statistics",
+    });
+    expect(toUpdateRequest({ ...OPENED, examDate: "2026-11-02" }, OPENED)).toEqual({
+      exam_date: "2026-11-02",
+    });
+  });
+
+  it("clears an emptied description or exam date with null", () => {
+    expect(toUpdateRequest({ ...OPENED, description: "  ", examDate: "" }, OPENED)).toEqual({
+      description: null,
+      exam_date: null,
+    });
+  });
+
+  it("finds nothing to send when only surrounding spaces were added", () => {
+    expect(
+      toUpdateRequest(
+        { ...OPENED, name: "Statistics  ", description: " Hypothesis testing" },
+        OPENED,
+      ),
+    ).toBeNull();
   });
 });

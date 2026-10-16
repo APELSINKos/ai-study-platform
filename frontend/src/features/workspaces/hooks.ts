@@ -6,10 +6,18 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 
-import type { WorkspaceOut, WorkspacePage } from "@/lib/api/types";
+import { ApiError } from "@/lib/api/errors";
+import type { WorkspaceOut, WorkspacePage, WorkspaceUpdateRequest } from "@/lib/api/types";
 import { queryKeys, RECENT_WORKSPACES_COUNT, WORKSPACE_LIST_PAGE_SIZE } from "@/lib/query-keys";
 
-import { createWorkspace, fetchWorkspacePage } from "./api";
+import {
+  createWorkspace,
+  deleteWorkspace,
+  fetchWorkspace,
+  fetchWorkspacePage,
+  updateWorkspace,
+} from "./api";
+import { WORKSPACE_NOT_FOUND_CODE } from "./error-message";
 
 const FIRST_PAGE = 1;
 
@@ -59,6 +67,55 @@ export function useCreateWorkspace() {
     mutationFn: createWorkspace,
     onSuccess: () => {
       // Not awaited: the new workspace opens at once while the lists refresh behind it.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
+  });
+}
+
+/** One workspace with the statistics of its documents, for its own page. */
+export function useWorkspace(id: string) {
+  return useQuery({
+    queryKey: queryKeys.workspace(id),
+    queryFn: () => fetchWorkspace(id),
+  });
+}
+
+export function useUpdateWorkspace(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (changes: WorkspaceUpdateRequest) => updateWorkspace(id, changes),
+    onSuccess: (workspace) => {
+      // The page shows the saved values at once rather than after the refetch below.
+      queryClient.setQueryData(queryKeys.workspace(id), workspace);
+    },
+    onSettled: () => {
+      // Also after a failure: a workspace deleted meanwhile then shows as not found.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
+  });
+}
+
+export function useDeleteWorkspace(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      try {
+        await deleteWorkspace(id);
+      } catch (error) {
+        // Already deleted, from another tab for example: what the user asked for is done.
+        if (!(error instanceof ApiError && error.code === WORKSPACE_NOT_FOUND_CODE)) {
+          throw error;
+        }
+      }
+    },
+    onSuccess: () => {
+      // Removed, not invalidated: a refetch could only find the workspace gone. The key also
+      // holds the workspace's document list.
+      queryClient.removeQueries({ queryKey: queryKeys.workspace(id) });
+      // An invalidated list still shows its cached rows until the refetch lands, so the list the
+      // user returns to would show the deleted workspace for a moment; it loads afresh instead.
+      queryClient.removeQueries({ queryKey: queryKeys.workspaceList });
+      queryClient.removeQueries({ queryKey: queryKeys.recentWorkspaces });
       void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
     },
   });

@@ -1,7 +1,7 @@
 import type { useTranslations } from "next-intl";
 import { z } from "zod";
 
-import type { WorkspaceCreateRequest } from "@/lib/api/types";
+import type { WorkspaceCreateRequest, WorkspaceOut, WorkspaceUpdateRequest } from "@/lib/api/types";
 
 import { parseExamDate } from "./exam-countdown";
 
@@ -61,4 +61,36 @@ export function toCreateRequest(values: WorkspaceFormValues): WorkspaceCreateReq
     description: values.description.trim() || null,
     exam_date: values.examDate || null,
   };
+}
+
+/** The form filled in with what the workspace has now. */
+export function toFormValues(workspace: WorkspaceOut): WorkspaceFormValues {
+  return {
+    name: workspace.name,
+    description: workspace.description ?? "",
+    examDate: workspace.exam_date ?? "",
+  };
+}
+
+/**
+ * Only the fields changed since the form opened, so saving cannot undo a change made elsewhere
+ * meanwhile; null when there is nothing to save.
+ */
+export function toUpdateRequest(
+  values: WorkspaceFormValues,
+  opened: WorkspaceFormValues,
+): WorkspaceUpdateRequest | null {
+  const next = toCreateRequest(values);
+  const before = toCreateRequest(opened);
+  const changes: WorkspaceUpdateRequest = {};
+  if (next.name !== before.name) {
+    changes.name = next.name;
+  }
+  if (next.description !== before.description) {
+    changes.description = next.description;
+  }
+  if (next.exam_date !== before.exam_date) {
+    changes.exam_date = next.exam_date;
+  }
+  return Object.keys(changes).length > 0 ? changes : null;
 }

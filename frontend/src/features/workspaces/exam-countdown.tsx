@@ -37,24 +37,48 @@ export function daysUntilExam(examDate: string, today: Date): number {
   return (exam.getTime() - todayAtMidnight) / MS_PER_DAY;
 }
 
-export function ExamCountdown({ examDate, className }: { examDate: string; className?: string }) {
+export interface ExamCountdownText {
+  /** "Exam in 12 days", "Exam was yesterday" and the like. */
+  countdown: string;
+  /** The exam day in the reader's language. */
+  date: string;
+  /** The exam day as `YYYY-MM-DD`, for a `<time>` element. */
+  dateTime: string;
+  isPast: boolean;
+}
+
+/** The words for a countdown to `examDate`, or null without an exam day that exists. */
+export function useExamCountdown(examDate: string | null): ExamCountdownText | null {
   const t = useTranslations("Workspaces.countdown");
   const format = useFormatter();
-  const exam = parseExamDate(examDate);
-  if (!exam) {
+  const exam = examDate === null ? null : parseExamDate(examDate);
+  if (examDate === null || exam === null) {
     return null;
   }
   const days = daysUntilExam(examDate, new Date());
   const isPast = days < 0;
+  return {
+    countdown: isPast ? t("past", { days: -days }) : t("upcoming", { days }),
+    // The exam is a calendar day, not a moment: formatting it in UTC keeps that day.
+    date: format.dateTime(exam, { timeZone: "UTC", dateStyle: "long" }),
+    dateTime: examDate,
+    isPast,
+  };
+}
+
+export function ExamCountdown({ examDate, className }: { examDate: string; className?: string }) {
+  const text = useExamCountdown(examDate);
+  if (!text) {
+    return null;
+  }
 
   return (
     <p className={cn("flex flex-col gap-0.5 text-sm", className)}>
-      <span className={isPast ? "text-ink-soft" : "text-ink font-medium"}>
-        {isPast ? t("past", { days: -days }) : t("upcoming", { days })}
+      <span className={text.isPast ? "text-ink-soft" : "text-ink font-medium"}>
+        {text.countdown}
       </span>
-      {/* The exam is a calendar day, not a moment: formatting it in UTC keeps that day. */}
-      <time dateTime={examDate} className="text-ink-soft">
-        {format.dateTime(exam, { timeZone: "UTC", dateStyle: "long" })}
+      <time dateTime={text.dateTime} className="text-ink-soft">
+        {text.date}
       </time>
     </p>
   );
