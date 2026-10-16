@@ -114,10 +114,12 @@ export function useDeleteWorkspace(id: string) {
       // Removed, not invalidated: a refetch could only find the workspace gone. The key also
       // holds the workspace's document list.
       queryClient.removeQueries({ queryKey: queryKeys.workspace(id) });
-      // An invalidated list still shows its cached rows until the refetch lands, so the list the
-      // user returns to would show the deleted workspace for a moment; it loads afresh instead.
-      queryClient.removeQueries({ queryKey: queryKeys.workspaceList });
-      queryClient.removeQueries({ queryKey: queryKeys.recentWorkspaces });
+      // An invalidated list still shows its cached rows until the refetch lands, so a list off
+      // screen would show the deleted workspace for a moment when the user returns to it; it
+      // loads afresh instead. A list on screen (the user went back while waiting) is only
+      // invalidated: removed, it would keep its rows and never refetch.
+      queryClient.removeQueries({ queryKey: queryKeys.workspaceList, type: "inactive" });
+      queryClient.removeQueries({ queryKey: queryKeys.recentWorkspaces, type: "inactive" });
       void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
     },
   });

@@ -140,6 +140,22 @@ describe("CreateWorkspaceForm", () => {
     );
   });
 
+  it("leaves a user who has moved on where they went once the workspace exists", async () => {
+    const creation = Promise.withResolvers<typeof CREATED>();
+    apiFetchMock.mockReturnValue(creation.promise);
+    const { queryClient, unmount } = renderWithIntl(<CreateWorkspaceForm />);
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    await userEvent.type(screen.getByLabelText("Name"), "Organic chemistry");
+    await submit();
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
+
+    unmount();
+    creation.resolve(CREATED);
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspaces"] }));
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it("refreshes every workspace list once the workspace exists", async () => {
     apiFetchMock.mockResolvedValue(CREATED);
     const { queryClient } = renderWithIntl(<CreateWorkspaceForm />);

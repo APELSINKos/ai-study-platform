@@ -29,9 +29,12 @@ export function CreateWorkspaceForm({
   // second click in between must not create a second workspace.
   const isBusy = create.isPending || create.isSuccess;
 
-  async function createAndOpen(values: WorkspaceFormValues) {
-    const workspace = await create.mutateAsync(toCreateRequest(values));
-    router.push(`/workspaces/${workspace.id}`);
+  function createAndOpen(values: WorkspaceFormValues) {
+    return create.mutateAsync(toCreateRequest(values), {
+      // A callback passed here runs only while the form is still mounted, so a user who has
+      // moved on before the answer arrives stays where they went.
+      onSuccess: (workspace) => router.push(`/workspaces/${workspace.id}`),
+    });
   }
 
   return (

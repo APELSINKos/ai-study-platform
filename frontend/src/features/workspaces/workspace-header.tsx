@@ -93,10 +93,13 @@ function DeleteWorkspaceButton({ workspace }: { workspace: WorkspaceOut }) {
   const router = useRouter();
   const deletion = useDeleteWorkspace(workspace.id);
 
-  async function deleteAndLeave() {
-    await deletion.mutateAsync();
-    // Replaced, so that Back does not return to the page of a workspace that is gone.
-    router.replace("/workspaces");
+  function deleteAndLeave() {
+    return deletion.mutateAsync(undefined, {
+      // A callback passed here runs only while the page is still mounted, so a user who has left
+      // meanwhile stays where they went. Replaced, so that Back does not return to the page of a
+      // workspace that is gone.
+      onSuccess: () => router.replace("/workspaces"),
+    });
   }
 
   return (

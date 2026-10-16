@@ -9,6 +9,7 @@ import type { WorkspaceOut } from "@/lib/api/types";
 import { queryKeys } from "@/lib/query-keys";
 import { renderWithIntl } from "@/test/render";
 
+import { useRecentWorkspaces } from "./hooks";
 import { workspaceFixture, workspacePageFixture } from "./test-fixtures";
 import { WorkspaceHeader } from "./workspace-header";
 
@@ -42,6 +43,18 @@ function renderHeader(workspace: WorkspaceOut = WORKSPACE, locale: Locale = "en"
   queryClient.setQueryData(queryKeys.recentWorkspaces, workspacePageFixture([workspace, OTHER]));
   queryClient.setQueryData(queryKeys.workspace(OTHER.id), OTHER);
   return view;
+}
+
+/** The dashboard's recent workspaces, as a page on screen shows them. */
+function RecentWorkspaceNames() {
+  const recent = useRecentWorkspaces();
+  return (
+    <ul aria-label="Recent">
+      {recent.data?.items.map((workspace) => (
+        <li key={workspace.id}>{workspace.name}</li>
+      ))}
+    </ul>
+  );
 }
 
 function variantOf(name: string): string | undefined {
@@ -207,6 +220,49 @@ describe("WorkspaceHeader", () => {
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/workspaces"));
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a user who has moved on where they went once the workspace is deleted", async () => {
+    const deletion = Promise.withResolvers<undefined>();
+    apiFetchMock.mockReturnValue(deletion.promise);
+    const { queryClient, unmount } = renderHeader();
+    await confirmDelete(await openDeleteDialog());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
+
+    unmount();
+    deletion.resolve(undefined);
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(queryKeys.workspace(WORKSPACE.id))).toBeUndefined(),
+    );
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a list of workspaces that is on screen rather than dropping it", async () => {
+    // The user went back to the dashboard while the workspace was being deleted.
+    let deleted = false;
+    apiFetchMock.mockImplementation((_path, init) => {
+      if (init?.method === "DELETE") {
+        deleted = true;
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(workspacePageFixture(deleted ? [OTHER] : [WORKSPACE, OTHER]));
+    });
+    renderWithIntl(
+      <>
+        <WorkspaceHeader workspace={WORKSPACE} />
+        <RecentWorkspaceNames />
+      </>,
+    );
+    const recent = screen.getByRole("list", { name: "Recent" });
+    expect(await within(recent).findByText("Organic chemistry")).toBeInTheDocument();
+
+    await confirmDelete(await openDeleteDialog());
+
+    await waitFor(() =>
+      expect(within(recent).queryByText("Organic chemistry")).not.toBeInTheDocument(),
+    );
+    expect(within(recent).getByText("Linear algebra")).toBeInTheDocument();
   });
 
   it("says why the workspace could not be deleted and stays on the page", async () => {
