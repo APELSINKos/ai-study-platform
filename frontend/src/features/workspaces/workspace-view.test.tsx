@@ -13,7 +13,9 @@ import { workspaceFixture } from "./test-fixtures";
 import { WorkspaceView } from "./workspace-view";
 
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
+
+const replace = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace }) }));
 
 const apiFetchMock = vi.mocked(apiFetch);
 
@@ -23,6 +25,10 @@ const WORKSPACE = workspaceFixture(1, {
   exam_date: "2026-10-28",
   stats: { document_count: 5, ready_count: 5 },
 });
+
+// The API spells ids in lowercase; an address typed by hand may not.
+const LETTERED = { ...WORKSPACE, id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d" };
+const CAPITALISED_ID = LETTERED.id.toUpperCase();
 
 function renderView(id = WORKSPACE.id, locale: Locale = "en") {
   return renderWithIntl(<WorkspaceView id={id} />, { locale });
@@ -48,6 +54,7 @@ function primaryActions(): string[] {
 describe("WorkspaceView", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
+    replace.mockClear();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 9, 16, 12, 0));
   });
@@ -193,6 +200,46 @@ describe("WorkspaceView", () => {
       await screen.findByRole("heading", { level: 1, name: "Organic chemistry II" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Edit workspace" })).not.toBeInTheDocument();
+  });
+
+  it("shows the saved name at once on an address that spells the id in capitals", async () => {
+    let loaded = false;
+    apiFetchMock.mockImplementation((_path, init) => {
+      if (init?.method === "PATCH") {
+        return Promise.resolve({ ...LETTERED, ...(init.json as WorkspaceUpdateRequest) });
+      }
+      if (loaded) {
+        // The refresh after saving never lands, so only the saved workspace can change the page.
+        return new Promise(() => {});
+      }
+      loaded = true;
+      return Promise.resolve(LETTERED);
+    });
+    renderView(CAPITALISED_ID);
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+
+    await userEvent.clear(screen.getByLabelText("Name"));
+    await userEvent.type(screen.getByLabelText("Name"), "Organic chemistry II");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Organic chemistry II" }),
+    ).toBeInTheDocument();
+  });
+
+  it("forgets a workspace deleted on an address that spells its id in capitals", async () => {
+    apiFetchMock.mockImplementation((_path, init) =>
+      Promise.resolve(init?.method === "DELETE" ? undefined : LETTERED),
+    );
+    renderView(CAPITALISED_ID);
+    await userEvent.click(await screen.findByRole("button", { name: "Delete workspace" }));
+    const dialog = await screen.findByRole("alertdialog");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete workspace" }));
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/workspaces"));
+    // The load and the delete only: the page's copy is dropped, not fetched again to a 404.
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("turns into not found once the workspace is gone, though a copy is cached", async () => {

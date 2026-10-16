@@ -75,7 +75,9 @@ export function useCreateWorkspace() {
 /** One workspace with the statistics of its documents, for its own page. */
 export function useWorkspace(id: string) {
   return useQuery({
-    queryKey: queryKeys.workspace(id),
+    // An address may spell the id in capitals; the edits and the delete use the API's lowercase
+    // spelling, and all of them must reach the same cache entry.
+    queryKey: queryKeys.workspace(id.toLowerCase()),
     queryFn: () => fetchWorkspace(id),
   });
 }
