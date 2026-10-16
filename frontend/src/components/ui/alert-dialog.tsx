@@ -70,7 +70,7 @@ export function AlertDialog({
             </AlertDialogPrimitive.Title>
           </IndexCardHeader>
           <IndexCardBody className="flex flex-col gap-4">
-            <AlertDialogPrimitive.Description className="text-ink-soft text-sm">
+            <AlertDialogPrimitive.Description className="text-ink-soft text-sm break-words">
               {description}
             </AlertDialogPrimitive.Description>
             {error ? (

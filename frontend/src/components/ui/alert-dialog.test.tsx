@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -57,6 +57,21 @@ describe("AlertDialog", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toHaveAttribute(
       "data-variant",
       "danger",
+    );
+  });
+
+  it("wraps a word too long for a line in the title and the question", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    const dialog = await openWithKeyboard(user);
+
+    // jsdom lays nothing out, so the rule that lets such a word break is checked instead.
+    expect(within(dialog).getByRole("heading", { name: "Delete this workspace?" })).toHaveClass(
+      "break-words",
+    );
+    expect(within(dialog).getByText("Its documents are deleted with it.")).toHaveClass(
+      "break-words",
     );
   });
 
