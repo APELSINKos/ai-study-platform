@@ -1,12 +1,16 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Locale } from "@/i18n/config";
-import { documentPageFixture, readyDocumentFixture } from "@/features/documents/test-fixtures";
+import {
+  documentFixture,
+  documentPageFixture,
+  readyDocumentFixture,
+} from "@/features/documents/test-fixtures";
 import { apiFetch } from "@/lib/api/client";
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
-import type { DocumentOut, WorkspaceOut, WorkspaceUpdateRequest } from "@/lib/api/types";
+import type { DocumentOut, MetaOut, WorkspaceOut, WorkspaceUpdateRequest } from "@/lib/api/types";
 import { queryKeys } from "@/lib/query-keys";
 import { renderWithIntl } from "@/test/render";
 
@@ -20,8 +24,23 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace }
 
 const apiFetchMock = vi.mocked(apiFetch);
 
+const META_PATH = "/meta";
+const META: MetaOut = {
+  max_upload_bytes: 20_971_520,
+  allowed_extensions: [".pdf", ".md", ".txt"],
+  max_pdf_pages: 500,
+  max_active_documents_per_user: 10,
+  max_storage_bytes_per_user: 1_073_741_824,
+  ai: { mode: "offline", chat_model: "mock-heuristic-v1", embedding_model: "mock-hashing-v1" },
+};
+
 function isDocumentsPath(path: string): boolean {
   return path.includes("/documents");
+}
+
+/** A request for the workspace itself, not for its documents or the upload limits. */
+function isWorkspacePath(path: string): boolean {
+  return !isDocumentsPath(path) && path !== META_PATH;
 }
 
 const WORKSPACE = workspaceFixture(1, {
@@ -39,12 +58,25 @@ function renderView(id = WORKSPACE.id, locale: Locale = "en") {
   return renderWithIntl(<WorkspaceView id={id} />, { locale });
 }
 
-/** Answers like the API would, keeping the changes a PATCH makes. */
+/** Answers like the API would, keeping the changes a PATCH makes and the files uploaded. */
 function serve(workspace: WorkspaceOut, documents: DocumentOut[] = []) {
   let current = workspace;
+  let stored = documents;
   apiFetchMock.mockImplementation(async (path, init) => {
+    if (path === META_PATH) {
+      return META;
+    }
+    if (isDocumentsPath(path) && init?.method === "POST") {
+      const file = init.body instanceof FormData ? init.body.get("file") : null;
+      const uploaded = documentFixture(stored.length + 1, {
+        workspace_id: current.id,
+        original_filename: file instanceof File ? file.name : "",
+      });
+      stored = [uploaded, ...stored];
+      return uploaded;
+    }
     if (isDocumentsPath(path)) {
-      return documentPageFixture(documents);
+      return documentPageFixture(stored);
     }
     if (init?.method === "PATCH") {
       current = { ...current, ...(init.json as WorkspaceUpdateRequest) };
@@ -123,7 +155,7 @@ describe("WorkspaceView", () => {
     expect(margin).toHaveTextContent("5 documents");
   });
 
-  it("lists the workspace's documents in their region, with no primary action of its own", async () => {
+  it("lists the workspace's documents under the upload zone, whose Upload files is the page's one primary action", async () => {
     serve(WORKSPACE, [readyDocumentFixture(1, { title: "Reaction mechanisms" })]);
     renderView();
 
@@ -131,13 +163,44 @@ describe("WorkspaceView", () => {
     expect(
       await within(region).findByRole("link", { name: "Reaction mechanisms" }),
     ).toBeInTheDocument();
-    expect(within(region).getByRole("status")).toHaveTextContent("The file is ready.");
-    expect(primaryActions()).toEqual([]);
+    const list = within(region).getByRole("list", { name: "Documents in this workspace" });
+    const upload = within(region).getByRole("button", { name: "Upload files" });
+    // The zone comes first, so the list keeps its place under it as files are added.
+    expect(upload.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("The file is ready.")).toHaveAttribute("role", "status");
+    await waitFor(() => expect(upload).not.toHaveAttribute("aria-busy"));
+    expect(primaryActions()).toEqual(["Upload files"]);
+  });
+
+  it("uploads a dropped file into this workspace and lists it at once", async () => {
+    serve(WORKSPACE, [readyDocumentFixture(1, { title: "Reaction mechanisms" })]);
+    renderView();
+    const region = await screen.findByRole("region", { name: "Documents" });
+    const upload = within(region).getByRole("button", { name: "Upload files" });
+    await waitFor(() => expect(upload).not.toHaveAttribute("aria-busy"));
+    const zone = upload.closest("[data-dragging]");
+    if (!zone) {
+      throw new Error("The drop zone is not on the page.");
+    }
+
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(["# Alkenes"], "alkenes.md")], types: ["Files"] },
+    });
+
+    expect(await within(region).findByRole("link", { name: "alkenes.md" })).toBeInTheDocument();
+    expect(apiFetchMock).toHaveBeenCalledWith(`/workspaces/${WORKSPACE.id}/documents`, {
+      method: "POST",
+      body: expect.any(FormData),
+    });
+    expect(screen.getByText("1 file uploaded.")).toHaveAttribute("role", "status");
   });
 
   it("moves focus to the documents heading once a document is deleted", async () => {
     let documents = [readyDocumentFixture(1, { title: "Reaction mechanisms" })];
     apiFetchMock.mockImplementation(async (path, init) => {
+      if (path === META_PATH) {
+        return META;
+      }
       if (init?.method === "DELETE") {
         documents = [];
         return undefined;
@@ -161,12 +224,31 @@ describe("WorkspaceView", () => {
     renderView(CAPITALISED_ID);
 
     const region = await screen.findByRole("region", { name: "Documents" });
-    await waitFor(() =>
-      expect(within(region).getByRole("status")).toHaveTextContent("No documents yet."),
-    );
+    expect(await within(region).findByText("No documents yet.")).toHaveAttribute("role", "status");
     expect(apiFetchMock).toHaveBeenCalledWith(
       `/workspaces/${LETTERED.id}/documents?page=1&page_size=50`,
     );
+  });
+
+  it("uploads into the workspace by the id the API spells, whatever the address", async () => {
+    serve(LETTERED);
+    renderView(CAPITALISED_ID);
+    const upload = await screen.findByRole("button", { name: "Upload files" });
+    await waitFor(() => expect(upload).not.toHaveAttribute("aria-busy"));
+    const zone = upload.closest("[data-dragging]");
+    if (!zone) {
+      throw new Error("The drop zone is not on the page.");
+    }
+
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(["# Alkenes"], "alkenes.md")], types: ["Files"] },
+    });
+
+    expect(await screen.findByRole("link", { name: "alkenes.md" })).toBeInTheDocument();
+    expect(apiFetchMock).toHaveBeenCalledWith(`/workspaces/${LETTERED.id}/documents`, {
+      method: "POST",
+      body: expect.any(FormData),
+    });
   });
 
   it("says a workspace that does not exist was not found", async () => {
@@ -251,6 +333,9 @@ describe("WorkspaceView", () => {
   it("shows the saved name at once on an address that spells the id in capitals", async () => {
     let loaded = false;
     apiFetchMock.mockImplementation((path, init) => {
+      if (path === META_PATH) {
+        return Promise.resolve(META);
+      }
       if (isDocumentsPath(path)) {
         return Promise.resolve(documentPageFixture([]));
       }
@@ -278,6 +363,9 @@ describe("WorkspaceView", () => {
 
   it("forgets a workspace deleted on an address that spells its id in capitals", async () => {
     apiFetchMock.mockImplementation((path, init) => {
+      if (path === META_PATH) {
+        return Promise.resolve(META);
+      }
       if (isDocumentsPath(path)) {
         return Promise.resolve(documentPageFixture([]));
       }
@@ -291,7 +379,7 @@ describe("WorkspaceView", () => {
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/workspaces"));
     // The load and the delete only: the page's copy is dropped, not fetched again to a 404.
-    const workspaceRequests = apiFetchMock.mock.calls.filter(([path]) => !isDocumentsPath(path));
+    const workspaceRequests = apiFetchMock.mock.calls.filter(([path]) => isWorkspacePath(path));
     expect(workspaceRequests).toHaveLength(2);
   });
 
@@ -350,13 +438,15 @@ describe("WorkspaceView", () => {
     renderView(WORKSPACE.id, "ru");
 
     const region = await screen.findByRole("region", { name: "Документы" });
-    await waitFor(() =>
-      expect(within(region).getByRole("status")).toHaveTextContent("Документов пока нет."),
+    expect(await within(region).findByText("Документов пока нет.")).toHaveAttribute(
+      "role",
+      "status",
     );
     expect(screen.getByText("Экзамен через 12 дней")).toBeInTheDocument();
     expect(screen.getByText("28 октября 2026 г.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Изменить" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить пространство" })).toBeInTheDocument();
+    expect(within(region).getByRole("button", { name: "Загрузить файлы" })).toBeInTheDocument();
   });
 
   it("counts documents in the margin in Russian", async () => {

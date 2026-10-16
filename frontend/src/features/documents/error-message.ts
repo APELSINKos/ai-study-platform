@@ -39,23 +39,36 @@ export function processingErrorMessage(
 }
 
 /** What the user was doing; it words the message when the failure has no wording of its own. */
-export type DocumentAction = "load" | "loadMore" | "retry" | "delete";
+export type DocumentAction = "load" | "loadMore" | "retry" | "delete" | "upload" | "loadLimits";
 
 const FAILED_ACTION_KEYS = {
   load: "loadFailed",
   loadMore: "loadMoreFailed",
   retry: "retryFailed",
   delete: "deleteFailed",
+  upload: "uploadFailed",
+  loadLimits: "limitsFailed",
 } as const satisfies Record<DocumentAction, string>;
 
-function rateLimitedMessage(t: DocumentErrorsTranslator, retryAfterSeconds: number | null): string {
+/** A wait the API asked for, in whole minutes from a minute on; null when it named none. */
+export type Wait = { minutes: number } | { seconds: number } | null;
+
+export function waitOf(retryAfterSeconds: number | null): Wait {
   if (retryAfterSeconds === null) {
-    return t("rateLimitedGeneric");
+    return null;
   }
   if (retryAfterSeconds >= SECONDS_PER_MINUTE) {
-    return t("rateLimitedMinutes", { minutes: Math.ceil(retryAfterSeconds / SECONDS_PER_MINUTE) });
+    return { minutes: Math.ceil(retryAfterSeconds / SECONDS_PER_MINUTE) };
   }
-  return t("rateLimited", { seconds: retryAfterSeconds });
+  return { seconds: retryAfterSeconds };
+}
+
+function rateLimitedMessage(t: DocumentErrorsTranslator, retryAfterSeconds: number | null): string {
+  const wait = waitOf(retryAfterSeconds);
+  if (wait === null) {
+    return t("rateLimitedGeneric");
+  }
+  return "minutes" in wait ? t("rateLimitedMinutes", wait) : t("rateLimited", wait);
 }
 
 /** A translated sentence for a failed request about documents; the backend's English never shows. */
@@ -86,6 +99,17 @@ export function documentErrorMessage(
         return t("tooManyActive");
       case "storage_quota_exceeded":
         return t("storageQuotaExceeded");
+      // Only an upload is refused for these.
+      case "duplicate_document":
+        return t("duplicate");
+      case "payload_too_large":
+        return t("tooLarge");
+      case "unsupported_file_type":
+        return t("unsupportedType");
+      case "invalid_text_encoding":
+        return t("invalidEncoding");
+      case "empty_file":
+        return t("emptyFile");
     }
   }
   return t(FAILED_ACTION_KEYS[action]);

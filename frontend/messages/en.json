@@ -358,6 +358,38 @@
       "description": "“{filename}” will be deleted. This cannot be undone.",
       "confirm": "Delete document"
     },
+    "upload": {
+      "button": "Upload files",
+      "dragHint": "or drag them here",
+      "dropHint": "Drop the files to upload them",
+      "rules": "You can upload {types} files up to {size} each.",
+      "retry": "Try again",
+      "results": {
+        "label": "Upload results",
+        "clear": "Clear",
+        "clearLabel": "Clear upload results",
+        "state": {
+          "waiting": "Waiting",
+          "uploading": "Uploading…",
+          "uploaded": "Uploaded"
+        },
+        "rejected": {
+          "type": "Only {types} files can be uploaded.",
+          "tooLarge": "The file is larger than {size}.",
+          "empty": "The file is empty."
+        },
+        "notSent": {
+          "minutes": "Not sent. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+          "seconds": "Not sent. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+          "generic": "Not sent. Try again in a moment."
+        },
+        "summary": {
+          "uploading": "{total, plural, =1 {Uploading the file…} other {Uploading file {position} of #…}}",
+          "uploaded": "{count, plural, one {# file uploaded.} other {# files uploaded.}}",
+          "notUploaded": "{count, plural, one {# file was not uploaded.} other {# files were not uploaded.}}"
+        }
+      }
+    },
     "processingErrors": {
       "pdfUnreadable": "The PDF could not be read. The file may be damaged.",
       "pdfEncrypted": "The PDF is protected with a password. Upload a copy without one.",
@@ -386,10 +418,17 @@
       "rateLimitedGeneric": "Too many attempts. Try again in a moment.",
       "tooManyActive": "Too many of your files are being processed right now. Try again once some of them are ready.",
       "storageQuotaExceeded": "Your files have used up your storage space. Delete some documents, then try again.",
+      "duplicate": "This file is already in the workspace.",
+      "tooLarge": "The file is larger than the upload limit.",
+      "unsupportedType": "The file could not be recognised as a PDF, Markdown or text file.",
+      "invalidEncoding": "Markdown and text files must be saved in UTF-8.",
+      "emptyFile": "The file is empty.",
       "loadFailed": "The documents could not be loaded.",
       "loadMoreFailed": "More documents could not be loaded.",
       "retryFailed": "Processing could not be started again. Try again.",
-      "deleteFailed": "The document could not be deleted. Try again."
+      "deleteFailed": "The document could not be deleted. Try again.",
+      "uploadFailed": "The file could not be uploaded. Try again.",
+      "limitsFailed": "The upload limits could not be loaded."
     }
   },
   "Dashboard": {

@@ -16,6 +16,7 @@ import {
   DOCUMENT_ERROR_MESSAGES,
   documentErrorMessage,
   processingErrorMessage,
+  waitOf,
   type DocumentAction,
 } from "./error-message";
 
@@ -166,6 +167,20 @@ describe("documentErrorMessage", () => {
   });
 
   it.each([
+    ["duplicate_document", 409, "This file is already in the workspace."],
+    ["payload_too_large", 413, "The file is larger than the upload limit."],
+    [
+      "unsupported_file_type",
+      415,
+      "The file could not be recognised as a PDF, Markdown or text file.",
+    ],
+    ["invalid_text_encoding", 422, "Markdown and text files must be saved in UTF-8."],
+    ["empty_file", 422, "The file is empty."],
+  ] as const)("says why an upload was refused with %s", (code, status, expected) => {
+    expect(messageFor(apiError(status, code), "upload")).toBe(expected);
+  });
+
+  it.each([
     ["bad_request", 400],
     ["validation_error", 422],
     ["internal_error", 500],
@@ -182,6 +197,12 @@ describe("documentErrorMessage", () => {
     );
     expect(messageFor(apiError(status, code), "delete")).toBe(
       "The document could not be deleted. Try again.",
+    );
+    expect(messageFor(apiError(status, code), "upload")).toBe(
+      "The file could not be uploaded. Try again.",
+    );
+    expect(messageFor(apiError(status, code), "loadLimits")).toBe(
+      "The upload limits could not be loaded.",
     );
   });
 
@@ -218,5 +239,30 @@ describe("documentErrorMessage", () => {
     expect(messageFor(apiError(500, "internal_error"), "delete", "ru")).toBe(
       "Не удалось удалить документ. Попробуйте ещё раз.",
     );
+    expect(messageFor(apiError(409, "duplicate_document"), "upload", "ru")).toBe(
+      "Этот файл уже есть в пространстве.",
+    );
+    expect(messageFor(apiError(422, "invalid_text_encoding"), "upload", "ru")).toBe(
+      "Файлы Markdown и текстовые файлы должны быть сохранены в UTF-8.",
+    );
+    expect(messageFor(apiError(500, "internal_error"), "upload", "ru")).toBe(
+      "Не удалось загрузить файл. Попробуйте ещё раз.",
+    );
+    expect(messageFor(apiError(503, "http_error"), "loadLimits", "ru")).toBe(
+      "Не удалось получить ограничения на загрузку файлов.",
+    );
+  });
+});
+
+describe("waitOf", () => {
+  it.each([
+    [null, null],
+    [1, { seconds: 1 }],
+    [59, { seconds: 59 }],
+    [60, { minutes: 1 }],
+    [61, { minutes: 2 }],
+    [3600, { minutes: 60 }],
+  ] as const)("reads a wait of %s seconds as %j", (seconds, expected) => {
+    expect(waitOf(seconds)).toEqual(expected);
   });
 });

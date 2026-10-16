@@ -6,6 +6,7 @@ import { useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { DocumentList } from "@/features/documents/document-list";
+import { UploadDropzone } from "@/features/documents/upload-dropzone";
 import { ApiError } from "@/lib/api/errors";
 import type { WorkspaceOut } from "@/lib/api/types";
 
@@ -100,7 +101,8 @@ function WorkspaceDocuments({
       >
         {t("documentsTitle")}
       </h2>
-      <DocumentList workspaceId={workspace.id} headingRef={headingRef} className="mt-2" />
+      <UploadDropzone workspaceId={workspace.id} className="mt-4" />
+      <DocumentList workspaceId={workspace.id} headingRef={headingRef} className="mt-8" />
     </section>
   );
 }
