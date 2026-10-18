@@ -365,6 +365,8 @@
       "breadcrumb": "Breadcrumb",
       "workspace": "Workspace",
       "retryProcessing": "Retry processing",
+      "download": "Download original",
+      "delete": "Delete document",
       "topicsTitle": "Topics",
       "notFound": {
         "title": "Document not found",
@@ -474,7 +476,9 @@
       "limitsFailed": "The upload limits could not be loaded.",
       "openFailed": "This document could not be loaded.",
       "fragmentsFailed": "The fragments could not be loaded.",
-      "moreFragmentsFailed": "More fragments could not be loaded."
+      "moreFragmentsFailed": "More fragments could not be loaded.",
+      "downloadFailed": "The file could not be downloaded. Try again.",
+      "fileNotStored": "The original file is no longer stored."
     }
   },
   "Dashboard": {

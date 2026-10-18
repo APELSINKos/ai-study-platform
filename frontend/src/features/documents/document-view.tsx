@@ -1,9 +1,12 @@
 "use client";
 
+import { ArrowClockwiseIcon, TrashIcon } from "@phosphor-icons/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useId, useRef, type RefObject } from "react";
 
+import { AlertDialog } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { ApiError, isClientError } from "@/lib/api/errors";
@@ -14,12 +17,13 @@ import { cn } from "@/lib/utils";
 import { ChunkList } from "./chunk-list";
 import { DocumentFacts } from "./document-facts";
 import { StageLine } from "./document-row";
+import { DownloadButton } from "./download-button";
 import {
   DOCUMENT_NOT_FOUND_CODE,
   documentErrorMessage,
   processingErrorMessage,
 } from "./error-message";
-import { useDocument, useRetryDocument } from "./hooks";
+import { useDeleteDocument, useDocument, useRetryDocument } from "./hooks";
 import { documentProgress } from "./status";
 
 // A malformed id fails validation before the backend looks for a document.
@@ -157,14 +161,16 @@ interface DocumentActionsProps {
   className?: string;
 }
 
-/** What can be done with the document; a failure shows under the buttons. */
+/**
+ * What can be done with the document, none of it the page's main action. A failure shows under
+ * the buttons, apart from that of a delete, which the dialog shows.
+ */
 function DocumentActions({ document, onRetried, className }: DocumentActionsProps) {
-  if (!document.can_retry) {
-    return null;
-  }
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
-      <RetryButton document={document} onRetried={onRetried} />
+      {document.can_retry ? <RetryButton document={document} onRetried={onRetried} /> : null}
+      <DownloadButton document={document} />
+      <DeleteDocumentButton document={document} />
     </div>
   );
 }
@@ -187,6 +193,7 @@ function RetryButton({ document, onRetried }: { document: DocumentOut; onRetried
   return (
     <>
       <Button variant="secondary" size="sm" isLoading={retry.isPending} onClick={retryProcessing}>
+        {retry.isPending ? null : <ArrowClockwiseIcon aria-hidden />}
         {t("retryProcessing")}
       </Button>
       {retry.isError ? (
@@ -196,6 +203,38 @@ function RetryButton({ document, onRetried }: { document: DocumentOut; onRetried
         </p>
       ) : null}
     </>
+  );
+}
+
+function DeleteDocumentButton({ document }: { document: DocumentOut }) {
+  const t = useTranslations("Documents");
+  const tErrors = useTranslations("Documents.errors");
+  const router = useRouter();
+  const deletion = useDeleteDocument(document);
+
+  function deleteAndLeave() {
+    return deletion.mutateAsync(undefined, {
+      // A callback passed here runs only while the page is still mounted, so a user who has left
+      // meanwhile stays where they went. Replaced, so that Back does not return to the page of a
+      // document that is gone.
+      onSuccess: () => router.replace(`/workspaces/${document.workspace_id}`),
+    });
+  }
+
+  return (
+    <AlertDialog
+      trigger={
+        <Button variant="danger" size="sm">
+          <TrashIcon aria-hidden />
+          {t("detail.delete")}
+        </Button>
+      }
+      title={t("deleteDialog.title")}
+      description={t("deleteDialog.description", { filename: document.original_filename })}
+      confirmLabel={t("deleteDialog.confirm")}
+      onConfirm={deleteAndLeave}
+      errorMessage={(error) => documentErrorMessage(error, "delete", tErrors)}
+    />
   );
 }
 

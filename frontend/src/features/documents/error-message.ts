@@ -48,7 +48,8 @@ export type DocumentAction =
   | "loadLimits"
   | "open"
   | "loadFragments"
-  | "loadMoreFragments";
+  | "loadMoreFragments"
+  | "download";
 
 const FAILED_ACTION_KEYS = {
   load: "loadFailed",
@@ -60,6 +61,7 @@ const FAILED_ACTION_KEYS = {
   open: "openFailed",
   loadFragments: "fragmentsFailed",
   loadMoreFragments: "moreFragmentsFailed",
+  download: "downloadFailed",
 } as const satisfies Record<DocumentAction, string>;
 
 /** A wait the API asked for, in whole minutes from a minute on; null when it named none. */
@@ -122,6 +124,9 @@ export function documentErrorMessage(
         return t("invalidEncoding");
       case "empty_file":
         return t("emptyFile");
+      // Only a download finds the stored file gone.
+      case "document_file_missing":
+        return t("fileNotStored");
     }
   }
   return t(FAILED_ACTION_KEYS[action]);

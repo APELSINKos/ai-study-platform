@@ -21,7 +21,10 @@ import {
   readyDocumentFixture,
 } from "./test-fixtures";
 
-vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
+vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), apiFetchBlob: vi.fn() }));
+
+const replace = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace }) }));
 
 // The rails stay still, so no animation outlives a test.
 vi.mock("motion/react", async (importOriginal) => ({
@@ -63,14 +66,19 @@ function renderView(id = READY.id, locale: Locale = "en") {
   return renderWithIntl(<DocumentView id={id} />, { locale });
 }
 
-/** Answers like the API would; a retry queues the document again unless `retry` answers instead. */
+interface Answers {
+  chunks?: ChunkOut[];
+  workspace?: WorkspaceOut;
+  /** Stands in for the API's answer to a retry, for example to fail it. */
+  retry?: () => Promise<unknown>;
+  /** Stands in for the API's answer to a delete. */
+  remove?: () => Promise<unknown>;
+}
+
+/** Answers like the API would: a retry queues the document again, a delete succeeds. */
 function serve(
   initial: DocumentOut,
-  {
-    chunks = [chunkFixture(0)],
-    workspace = WORKSPACE,
-    retry,
-  }: { chunks?: ChunkOut[]; workspace?: WorkspaceOut; retry?: () => Promise<unknown> } = {},
+  { chunks = [chunkFixture(0)], workspace = WORKSPACE, retry, remove }: Answers = {},
 ) {
   let current = initial;
   apiFetchMock.mockImplementation(async (path, init) => {
@@ -88,6 +96,9 @@ function serve(
         return retry();
       }
       current = { ...current, status: "uploaded", error_code: null, can_retry: false };
+    }
+    if (init?.method === "DELETE") {
+      return remove ? remove() : undefined;
     }
     return current;
   });
@@ -531,6 +542,122 @@ describe("DocumentView", () => {
       await screen.findByRole("heading", { level: 1, name: "Документ не найден" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Все пространства" })).toBeInTheDocument();
+  });
+});
+
+describe("DocumentView download and delete", () => {
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+    replace.mockClear();
+  });
+
+  async function confirmDelete(): Promise<HTMLElement> {
+    await userEvent.click(await screen.findByRole("button", { name: "Delete document" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete this document?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete document" }));
+    return dialog;
+  }
+
+  it.each([
+    ["ready", READY],
+    ["on its way", documentFixture(1, { status: "processing" })],
+    ["failed", FAILED],
+  ])(
+    "offers to download or delete a document that is %s, with no primary action",
+    async (_, document) => {
+      serve(document);
+      renderView();
+
+      expect(await screen.findByRole("button", { name: "Download original" })).toHaveAttribute(
+        "data-variant",
+        "secondary",
+      );
+      expect(screen.getByRole("button", { name: "Delete document" })).toHaveAttribute(
+        "data-variant",
+        "danger",
+      );
+      expect(primaryActions()).toEqual([]);
+    },
+  );
+
+  it("asks before deleting and names the file", async () => {
+    serve(READY);
+    renderView();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Delete document" }));
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete this document?" });
+    expect(dialog).toHaveAccessibleDescription(
+      "“lecture-1.pdf” will be deleted. This cannot be undone.",
+    );
+    expect(requestsFor((path) => path === DOCUMENT_PATH)).toBe(1);
+  });
+
+  it("deletes the document after asking, then goes back to its workspace", async () => {
+    serve(READY);
+    renderView();
+
+    await confirmDelete();
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(`/workspaces/${WORKSPACE_ID}`));
+    expect(apiFetchMock).toHaveBeenCalledWith(DOCUMENT_PATH, { method: "DELETE" });
+    // The load and the delete only: the page's copy is dropped, not fetched again to a 404.
+    expect(requestsFor((path) => path === DOCUMENT_PATH)).toBe(2);
+  });
+
+  it("forgets the deleted document with its fragments", async () => {
+    serve(READY);
+    const { queryClient } = renderView();
+    await screen.findByText("Passage 0 of the lecture.");
+
+    await confirmDelete();
+
+    await waitFor(() => expect(replace).toHaveBeenCalled());
+    expect(queryClient.getQueryData(queryKeys.document(READY.id))).toBeUndefined();
+    expect(queryClient.getQueryData(queryKeys.documentChunks(READY.id))).toBeUndefined();
+  });
+
+  it("keeps the question open with a translated error when the delete fails", async () => {
+    serve(READY, {
+      remove: () =>
+        Promise.reject(
+          new ApiError({ status: 500, code: "internal_error", message: "Internal server error." }),
+        ),
+    });
+    renderView();
+
+    const dialog = await confirmDelete();
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "The document could not be deleted. Try again.",
+    );
+    expect(screen.queryByText("Internal server error.")).not.toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("treats a document deleted elsewhere as deleted", async () => {
+    serve(READY, {
+      remove: () =>
+        Promise.reject(new ApiError({ status: 404, code: "document_not_found", message: "x" })),
+    });
+    renderView();
+
+    await confirmDelete();
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(`/workspaces/${WORKSPACE_ID}`));
+  });
+
+  it("offers to download and delete in Russian", async () => {
+    serve(READY);
+    renderView(READY.id, "ru");
+
+    expect(await screen.findByRole("button", { name: "Скачать оригинал" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Удалить документ" }));
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Удалить этот документ?" });
+    expect(dialog).toHaveAccessibleDescription(
+      "Файл «lecture-1.pdf» будет удалён. Это нельзя отменить.",
+    );
   });
 });
 

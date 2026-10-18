@@ -166,6 +166,12 @@ describe("documentErrorMessage", () => {
     );
   });
 
+  it("says the stored file of a document is gone", () => {
+    expect(messageFor(apiError(404, "document_file_missing"), "download")).toBe(
+      "The original file is no longer stored.",
+    );
+  });
+
   it.each([
     ["duplicate_document", 409, "This file is already in the workspace."],
     ["payload_too_large", 413, "The file is larger than the upload limit."],
@@ -210,6 +216,9 @@ describe("documentErrorMessage", () => {
     );
     expect(messageFor(apiError(status, code), "loadMoreFragments")).toBe(
       "More fragments could not be loaded.",
+    );
+    expect(messageFor(apiError(status, code), "download")).toBe(
+      "The file could not be downloaded. Try again.",
     );
   });
 
@@ -266,6 +275,12 @@ describe("documentErrorMessage", () => {
     );
     expect(messageFor(apiError(500, "internal_error"), "loadMoreFragments", "ru")).toBe(
       "Не удалось загрузить остальные фрагменты.",
+    );
+    expect(messageFor(apiError(500, "internal_error"), "download", "ru")).toBe(
+      "Не удалось скачать файл. Попробуйте ещё раз.",
+    );
+    expect(messageFor(apiError(404, "document_file_missing"), "download", "ru")).toBe(
+      "Исходный файл больше не хранится.",
     );
   });
 });

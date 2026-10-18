@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, apiFetchBlob } from "@/lib/api/client";
 import type { ChunkPage, DocumentOut, DocumentPage } from "@/lib/api/types";
 
 /** The id may come from the address bar, so it is encoded to stay a single path segment. */
@@ -36,6 +36,11 @@ export function fetchDocument(id: string): Promise<DocumentOut> {
 export function fetchChunkPage(id: string, page: number, pageSize: number): Promise<ChunkPage> {
   const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
   return apiFetch<ChunkPage>(`${documentPath(id)}/chunks?${query.toString()}`);
+}
+
+/** The file exactly as it was uploaded. */
+export function fetchDocumentFile(id: string): Promise<Blob> {
+  return apiFetchBlob(`${documentPath(id)}/file`);
 }
 
 /** Queues a failed or stalled document for processing again; answers with its new state. */
