@@ -276,8 +276,12 @@ describe("apiFetch", () => {
 describe("apiFetchBlob", () => {
   const FILE_PATH = "/documents/d1/file";
 
-  // jsdom's Blob has no text(), so the contents are read the way older browsers did.
+  // Depending on the Node version, fetch builds the Blob from Node's class, which has text(),
+  // or from jsdom's global one, which only FileReader can read.
   function readText(blob: Blob): Promise<string> {
+    if ("text" in blob) {
+      return blob.text();
+    }
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
