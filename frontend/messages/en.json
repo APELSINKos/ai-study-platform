@@ -358,6 +358,49 @@
       "description": "“{filename}” will be deleted. This cannot be undone.",
       "confirm": "Delete document"
     },
+    "detail": {
+      "metaTitle": "Document",
+      "loading": "Loading the document…",
+      "retry": "Try again",
+      "breadcrumb": "Breadcrumb",
+      "workspace": "Workspace",
+      "retryProcessing": "Retry processing",
+      "topicsTitle": "Topics",
+      "notFound": {
+        "title": "Document not found",
+        "lead": "It may have been deleted, or the link is incomplete.",
+        "back": "All workspaces"
+      }
+    },
+    "facts": {
+      "title": "Details",
+      "difficulty": "Difficulty",
+      "levels": {
+        "easy": "Easy",
+        "medium": "Medium",
+        "hard": "Hard"
+      },
+      "studyTime": "Estimated study time",
+      "minutes": "{minutes, plural, one {# minute} other {# minutes}}",
+      "hours": "{hours, plural, one {# hour} other {# hours}}",
+      "hoursMinutes": "{hours, plural, one {# hour} other {# hours}} {minutes, plural, one {# minute} other {# minutes}}",
+      "pages": "Pages",
+      "words": "Words",
+      "fragments": "Fragments",
+      "processingTime": "Processing time",
+      "analysis": "Analysed with",
+      "offlineAnalysis": "Offline analysis",
+      "basicAnalysis": "Basic analysis (the AI model could not analyse this file)"
+    },
+    "chunks": {
+      "title": "Fragments",
+      "pending": "Fragments appear once the file is processed.",
+      "loading": "Loading fragments…",
+      "showMore": "Show more",
+      "retry": "Try again",
+      "page": "Page {page}",
+      "pages": "Pages {start}–{end}"
+    },
     "upload": {
       "button": "Upload files",
       "dragHint": "or drag them here",
@@ -428,7 +471,10 @@
       "retryFailed": "Processing could not be started again. Try again.",
       "deleteFailed": "The document could not be deleted. Try again.",
       "uploadFailed": "The file could not be uploaded. Try again.",
-      "limitsFailed": "The upload limits could not be loaded."
+      "limitsFailed": "The upload limits could not be loaded.",
+      "openFailed": "This document could not be loaded.",
+      "fragmentsFailed": "The fragments could not be loaded.",
+      "moreFragmentsFailed": "More fragments could not be loaded."
     }
   },
   "Dashboard": {

@@ -1,4 +1,4 @@
-import type { DocumentOut, DocumentPage } from "@/lib/api/types";
+import type { ChunkOut, ChunkPage, DocumentOut, DocumentPage } from "@/lib/api/types";
 
 export const WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -57,5 +57,27 @@ export function documentPageFixture(
   items: DocumentOut[],
   { page = 1, pageSize = 50, total = items.length } = {},
 ): DocumentPage {
+  return { items, total, page, page_size: pageSize };
+}
+
+/** A fragment of a PDF as the API returns it; `index` is its place in the document. */
+export function chunkFixture(index: number, overrides: Partial<ChunkOut> = {}): ChunkOut {
+  const content = `Passage ${index} of the lecture.`;
+  return {
+    id: `00000000-0000-4000-a000-${String(index).padStart(12, "0")}`,
+    chunk_index: index,
+    content,
+    heading: null,
+    page_start: index + 1,
+    page_end: index + 1,
+    char_count: content.length,
+    ...overrides,
+  };
+}
+
+export function chunkPageFixture(
+  items: ChunkOut[],
+  { page = 1, pageSize = 50, total = items.length } = {},
+): ChunkPage {
   return { items, total, page, page_size: pageSize };
 }

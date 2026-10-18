@@ -90,7 +90,7 @@ interface StageLineProps {
 }
 
 /** The stage in words, next to the rail; a ready document rests with a single dot. */
-function StageLine({ status, progress, className }: StageLineProps) {
+export function StageLine({ status, progress, className }: StageLineProps) {
   const t = useTranslations("Documents.stage");
 
   if (progress.kind === "ready") {

@@ -204,6 +204,13 @@ describe("documentErrorMessage", () => {
     expect(messageFor(apiError(status, code), "loadLimits")).toBe(
       "The upload limits could not be loaded.",
     );
+    expect(messageFor(apiError(status, code), "open")).toBe("This document could not be loaded.");
+    expect(messageFor(apiError(status, code), "loadFragments")).toBe(
+      "The fragments could not be loaded.",
+    );
+    expect(messageFor(apiError(status, code), "loadMoreFragments")).toBe(
+      "More fragments could not be loaded.",
+    );
   });
 
   it("words a failure that is no API error by what the user was doing", () => {
@@ -250,6 +257,15 @@ describe("documentErrorMessage", () => {
     );
     expect(messageFor(apiError(503, "http_error"), "loadLimits", "ru")).toBe(
       "Не удалось получить ограничения на загрузку файлов.",
+    );
+    expect(messageFor(apiError(500, "internal_error"), "open", "ru")).toBe(
+      "Не удалось загрузить документ.",
+    );
+    expect(messageFor(apiError(500, "internal_error"), "loadFragments", "ru")).toBe(
+      "Не удалось загрузить фрагменты.",
+    );
+    expect(messageFor(apiError(500, "internal_error"), "loadMoreFragments", "ru")).toBe(
+      "Не удалось загрузить остальные фрагменты.",
     );
   });
 });

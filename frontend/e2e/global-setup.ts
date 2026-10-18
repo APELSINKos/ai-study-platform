@@ -5,8 +5,9 @@ import { baseURL } from "../playwright.config";
 const WARMUP_TIMEOUT_MS = 30_000;
 // Without this hint the proxy redirects the signed-in pages to /login and they never compile.
 const SESSION_HINT_COOKIE = "recall_csrf=warm-up";
-// Any id compiles the workspace page; the browser fetches the workspace itself.
+// Any id compiles the workspace and document pages; the browser fetches their data itself.
 const ANY_WORKSPACE_PATH = "/workspaces/00000000-0000-4000-8000-000000000000";
+const ANY_DOCUMENT_PATH = "/documents/00000000-0000-4000-8000-000000000000";
 
 // next dev compiles each page on first request; with several workers hitting a cold
 // server in parallel, the slowest compile can exceed a test's timeout. Requesting every
@@ -20,5 +21,6 @@ export default async function globalSetup(): Promise<void> {
   await context.get("/dashboard", { headers: { cookie: SESSION_HINT_COOKIE } });
   await context.get("/workspaces", { headers: { cookie: SESSION_HINT_COOKIE } });
   await context.get(ANY_WORKSPACE_PATH, { headers: { cookie: SESSION_HINT_COOKIE } });
+  await context.get(ANY_DOCUMENT_PATH, { headers: { cookie: SESSION_HINT_COOKIE } });
   await context.dispose();
 }

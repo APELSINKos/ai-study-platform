@@ -39,7 +39,16 @@ export function processingErrorMessage(
 }
 
 /** What the user was doing; it words the message when the failure has no wording of its own. */
-export type DocumentAction = "load" | "loadMore" | "retry" | "delete" | "upload" | "loadLimits";
+export type DocumentAction =
+  | "load"
+  | "loadMore"
+  | "retry"
+  | "delete"
+  | "upload"
+  | "loadLimits"
+  | "open"
+  | "loadFragments"
+  | "loadMoreFragments";
 
 const FAILED_ACTION_KEYS = {
   load: "loadFailed",
@@ -48,6 +57,9 @@ const FAILED_ACTION_KEYS = {
   delete: "deleteFailed",
   upload: "uploadFailed",
   loadLimits: "limitsFailed",
+  open: "openFailed",
+  loadFragments: "fragmentsFailed",
+  loadMoreFragments: "moreFragmentsFailed",
 } as const satisfies Record<DocumentAction, string>;
 
 /** A wait the API asked for, in whole minutes from a minute on; null when it named none. */

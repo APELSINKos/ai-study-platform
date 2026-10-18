@@ -14,7 +14,7 @@ export const queryKeys = {
   /** Infinite, `WORKSPACE_DOCUMENTS_PAGE_SIZE` per page. */
   workspaceDocuments: (id: string) => ["workspaces", "detail", id, "documents"] as const,
   document: (id: string) => ["documents", id] as const,
-  /** Infinite. */
+  /** Infinite, `DOCUMENT_CHUNKS_PAGE_SIZE` per page. */
   documentChunks: (id: string) => ["documents", id, "chunks"] as const,
   meta: ["meta"] as const,
 };
@@ -22,3 +22,4 @@ export const queryKeys = {
 export const WORKSPACE_LIST_PAGE_SIZE = 20;
 export const RECENT_WORKSPACES_COUNT = 3;
 export const WORKSPACE_DOCUMENTS_PAGE_SIZE = 50;
+export const DOCUMENT_CHUNKS_PAGE_SIZE = 50;

@@ -1,16 +1,27 @@
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
 
 import { ApiError } from "@/lib/api/errors";
-import type { DocumentOut, DocumentPage } from "@/lib/api/types";
-import { queryKeys, WORKSPACE_DOCUMENTS_PAGE_SIZE } from "@/lib/query-keys";
+import type { ChunkOut, ChunkPage, DocumentOut, DocumentPage } from "@/lib/api/types";
+import {
+  DOCUMENT_CHUNKS_PAGE_SIZE,
+  queryKeys,
+  WORKSPACE_DOCUMENTS_PAGE_SIZE,
+} from "@/lib/query-keys";
 
-import { deleteDocument, fetchDocumentPage, retryDocument } from "./api";
+import {
+  deleteDocument,
+  fetchChunkPage,
+  fetchDocument,
+  fetchDocumentPage,
+  retryDocument,
+} from "./api";
 import { DOCUMENT_NOT_FOUND_CODE } from "./error-message";
 import { pollInterval } from "./status";
 
@@ -24,7 +35,9 @@ export interface LoadedDocuments {
   total: number;
 }
 
-function nextPageAfter(lastPage: DocumentPage): number | undefined {
+function nextPageAfter(
+  lastPage: Pick<DocumentPage | ChunkPage, "page" | "page_size" | "total">,
+): number | undefined {
   return lastPage.page * lastPage.page_size < lastPage.total ? lastPage.page + 1 : undefined;
 }
 
@@ -64,6 +77,37 @@ export function useWorkspaceDocuments(workspaceId: string) {
     getNextPageParam: nextPageAfter,
     select: loadedDocuments,
     refetchInterval: (query) => pollInterval(allDocuments(query.state.data), query.state.error),
+  });
+}
+
+/** One document for its own page, asked for again on the same rule as the lists. */
+export function useDocument(id: string) {
+  return useQuery({
+    // An address may spell the id in capitals; the list, the retry and the delete use the API's
+    // lowercase spelling, and all of them must reach the same cache entry.
+    queryKey: queryKeys.document(id.toLowerCase()),
+    queryFn: () => fetchDocument(id),
+    refetchInterval: (query) => {
+      const document = query.state.data;
+      return pollInterval(document === undefined ? [] : [document], query.state.error);
+    },
+  });
+}
+
+function allChunks(data: InfiniteData<ChunkPage, number>): ChunkOut[] {
+  return data.pages.flatMap((page) => page.items);
+}
+
+/** A document's fragments in reading order, a page at a time, asked for once it is ready. */
+export function useDocumentChunks(document: DocumentOut) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.documentChunks(document.id),
+    queryFn: ({ pageParam }) => fetchChunkPage(document.id, pageParam, DOCUMENT_CHUNKS_PAGE_SIZE),
+    initialPageParam: FIRST_PAGE,
+    getNextPageParam: nextPageAfter,
+    // The fragments are stored in the last step of processing, all at once.
+    enabled: document.status === "ready",
+    select: allChunks,
   });
 }
 
@@ -112,8 +156,10 @@ export function useRetryDocument(document: DocumentOut) {
   return useMutation({
     mutationFn: () => retryDocument(document.id),
     onSuccess: (updated) => {
-      // The row shows the new status at once, and the list starts asking for news again.
+      // The row and the document's own page show the new status at once, and both start
+      // asking for news again.
       replaceCachedDocument(queryClient, updated);
+      queryClient.setQueryData(queryKeys.document(updated.id), updated);
     },
     onSettled: () => {
       // Also after a failure: a document retried or deleted elsewhere then shows as it is.
