@@ -108,6 +108,8 @@ def upload_document(  # noqa: PLR0913, PLR0917 -- FastAPI dependency injection, 
 ) -> DocumentOut:
     """The document starts as uploaded. When the queue cannot take it, it comes back failed
     with the error code queue_unavailable, and processing can be retried."""
+    # Counted before the workspace is checked: the whole file has been received by now, so
+    # an upload to a workspace that is not the caller's must use up the caller's limit too.
     rule = RateLimit(_UPLOAD_RATE_LIMIT_SCOPE, settings.uploads_per_hour, _HOUR_SECONDS)
     enforce_rate_limit(redis, rule, rate_limit_key(str(current_user.id)))
     return _document_out(service.upload(user=current_user, workspace_id=workspace_id, upload=file))

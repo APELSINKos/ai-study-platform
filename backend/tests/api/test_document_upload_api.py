@@ -545,6 +545,25 @@ def test_uploads_past_the_hourly_limit_of_a_user_are_rate_limited(
     assert other_user.status_code == HTTPStatus.ACCEPTED
 
 
+def test_an_upload_to_another_users_workspace_still_counts_against_the_limit(
+    user_client: TestClient,
+    other_user_client: TestClient,
+    integration_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(integration_settings, "uploads_per_hour", 1)
+    workspace_id = _create_workspace(user_client)
+    other_workspace_id = _create_workspace(other_user_client)
+
+    # Its whole body was received before the workspace could be checked.
+    not_found = _upload(user_client, other_workspace_id)
+    limited = _upload(user_client, workspace_id)
+
+    _assert_error(not_found, HTTPStatus.NOT_FOUND, "workspace_not_found")
+    _assert_error(limited, HTTPStatus.TOO_MANY_REQUESTS, "rate_limited")
+    assert _list(other_user_client, other_workspace_id)["total"] == 0
+
+
 # --- broker failure -------------------------------------------------------------
 
 
