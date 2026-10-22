@@ -256,6 +256,8 @@ PERMANENT_ERRORS: Final[list[Any]] = [
     pytest.param(lambda _: _error(404, code="model_not_found"), "ai_rejected", id="404"),
     pytest.param(lambda _: _error(413), "ai_rejected", id="413"),
     pytest.param(lambda _: _error(422), "ai_rejected", id="422"),
+    # A server that does not implement the request, such as embeddings or a response format.
+    pytest.param(lambda _: _error(501), "ai_rejected", id="501"),
 ]
 INVALID_CHAT_ANSWERS: Final[list[Any]] = [
     pytest.param(lambda _: _chat(None, refusal="I can't help with that."), id="refusal"),

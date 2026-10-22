@@ -43,6 +43,9 @@ BILLING_ERROR_CODES: Final = frozenset(
 _TRANSIENT_STATUSES: Final = frozenset(
     {HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.CONFLICT, HTTPStatus.TOO_MANY_REQUESTS}
 )
+# Statuses from 500 up that no later attempt gets past: the server does not support the
+# request at all, as a compatible server may answer for embeddings or a response format.
+_PERMANENT_SERVER_STATUSES: Final = frozenset({HTTPStatus.NOT_IMPLEMENTED})
 _VENDOR_CODE_MAX_CHARS: Final = 64
 _MILLISECONDS_PER_SECOND: Final = 1000.0
 _UNREACHABLE_MESSAGE: Final = "The AI provider could not be reached."
@@ -128,7 +131,9 @@ def classify_openai_error(error: openai.OpenAIError) -> ProviderError:
         return ProviderRequestError(
             f"The AI provider's quota or credit is used up: {answer}.", code="ai_quota_exceeded"
         )
-    if status in _TRANSIENT_STATUSES or status >= HTTPStatus.INTERNAL_SERVER_ERROR:
+    if status in _TRANSIENT_STATUSES or (
+        status >= HTTPStatus.INTERNAL_SERVER_ERROR and status not in _PERMANENT_SERVER_STATUSES
+    ):
         return ProviderUnavailableError(
             f"The AI provider is busy or failing: {answer}.",
             retry_after_seconds=_retry_after_seconds(error.response.headers),
