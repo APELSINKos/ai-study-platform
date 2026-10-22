@@ -469,6 +469,65 @@ def test_table_rows_stay_out_of_the_summary(llm: MockLLMProvider) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "gap", ["\n", "\n\n"], ids=["straight-into-the-text", "before-a-blank-line"]
+)
+def test_a_title_line_names_the_document_and_stays_out_of_the_summary(
+    llm: MockLLMProvider, gap: str
+) -> None:
+    # Text taken from a PDF has no blank line under its title.
+    sample = (
+        "Лекция 4. Нормализация реляционных баз данных"
+        + gap
+        + "Нормализация — это последовательное преобразование схемы базы данных. Цель "
+        "такого преобразования — избавиться от повторов и противоречий в данных.\n"
+    )
+
+    analysis = _analyze(llm, sample, filename="lecture.pdf").analysis
+
+    assert analysis.title == "Лекция 4. Нормализация реляционных баз данных"
+    assert analysis.summary == (
+        "Нормализация — это последовательное преобразование схемы базы данных. Цель такого "
+        "преобразования — избавиться от повторов и противоречий в данных."
+    )
+
+
+def test_a_line_under_the_title_heading_that_stands_alone_stays_out_of_the_summary(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "# Spaced repetition\n"
+        "Lecture notes for the second week\n"
+        "Every review moves the next one further into the future. Forgotten cards come "
+        "back the next day.\n"
+    )
+
+    analysis = _analyze(llm, sample).analysis
+
+    assert analysis.title == "Spaced repetition"
+    assert analysis.summary == (
+        "Every review moves the next one further into the future. Forgotten cards come back "
+        "the next day."
+    )
+
+
+def test_a_first_line_that_the_next_one_goes_on_from_is_no_title(llm: MockLLMProvider) -> None:
+    sample = (
+        "A vector is an ordered list of numbers that describes a point in space. Two\n"
+        "vectors of the same length can be added component by component.\n"
+    )
+
+    analysis = _analyze(llm, sample, filename="vectors.md").analysis
+
+    assert (
+        analysis.title == "A vector is an ordered list of numbers that describes a point in space"
+    )
+    assert analysis.summary == (
+        "A vector is an ordered list of numbers that describes a point in space. Two vectors "
+        "of the same length can be added component by component."
+    )
+
+
 def test_a_wrapped_line_starting_with_a_dash_continues_its_sentence(
     llm: MockLLMProvider,
 ) -> None:
