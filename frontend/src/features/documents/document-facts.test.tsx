@@ -15,6 +15,11 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
 const apiFetchMock = vi.mocked(apiFetch);
 
 const ANALYSED = readyDocumentFixture(1, { difficulty: "medium", estimated_study_minutes: 25 });
+/**
+ * A file the live model could not analyse: the built-in analysis stood in, and a real model
+ * embedded its passages.
+ */
+const FELL_BACK: DocumentOut = { ...ANALYSED, embedding_model: "text-embedding-3-small" };
 
 function metaIn(mode: AiMode): MetaOut {
   return {
@@ -159,11 +164,36 @@ describe("DocumentFacts", () => {
   });
 
   it("says a model that could not analyse the file was replaced by the basic analysis", async () => {
-    renderFacts(ANALYSED, { mode: "live" });
+    renderFacts(FELL_BACK, { mode: "live" });
 
     expect(
       await screen.findByText("Basic analysis (the AI model could not analyse this file)"),
     ).toBeInTheDocument();
+  });
+
+  it("names the basic analysis while the file is still being prepared for search", async () => {
+    renderFacts(
+      {
+        ...FELL_BACK,
+        status: "indexing",
+        chunk_count: null,
+        embedding_model: null,
+        processing_ms: null,
+        processed_at: null,
+      },
+      { mode: "live" },
+    );
+
+    expect(
+      await screen.findByText("Basic analysis (the AI model could not analyse this file)"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps an offline analysis offline once a model is in use", async () => {
+    renderFacts(ANALYSED, { mode: "live" });
+
+    await screen.findByText("Offline analysis");
+    expect(valueOf("Analysed with")).toBe("Offline analysis");
   });
 
   it("names the model that analysed the file", async () => {
@@ -213,10 +243,17 @@ describe("DocumentFacts", () => {
   });
 
   it("explains the basic analysis in Russian", async () => {
-    renderFacts(ANALYSED, { locale: "ru", mode: "live" });
+    renderFacts(FELL_BACK, { locale: "ru", mode: "live" });
 
     expect(
       await screen.findByText("Базовый анализ (модель ИИ не смогла проанализировать этот файл)"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps an offline analysis offline in Russian once a model is in use", async () => {
+    renderFacts(ANALYSED, { locale: "ru", mode: "live" });
+
+    await screen.findByText("Офлайн-анализ");
+    expect(valueOf("Способ анализа")).toBe("Офлайн-анализ");
   });
 });

@@ -10,7 +10,7 @@ import { formatDuration } from "@/lib/format";
 type FactsTranslator = ReturnType<typeof useTranslations<"Documents.facts">>;
 
 const MINUTES_PER_HOUR = 60;
-/** The built-in heuristic analyser names its models with this prefix. */
+/** The built-in analyser and embedder name their models with this prefix. */
 const BUILT_IN_MODEL_PREFIX = "mock-";
 
 const DIFFICULTY_KEYS = {
@@ -33,15 +33,28 @@ function studyTime(minutes: number, t: FactsTranslator): string {
   return rest === 0 ? t("hours", { hours }) : t("hoursMinutes", { hours, minutes: rest });
 }
 
+function isBuiltIn(model: string | null): boolean {
+  return model?.startsWith(BUILT_IN_MODEL_PREFIX) === true;
+}
+
 /**
- * Who analysed the file. The built-in analyser is all there is offline; with a model configured
- * it stands in only for a file the model could not analyse.
+ * Who analysed the file, read from the document's own record first, so that the label stays true
+ * after the server's AI settings change. Live mode always embeds with a real model, so passages
+ * embedded by the built-in one mean the whole run was offline; in live mode, the built-in
+ * analysis stands in only for a file the model could not analyse.
  */
-function analyser(model: string, mode: AiMode, t: FactsTranslator): string {
-  if (!model.startsWith(BUILT_IN_MODEL_PREFIX)) {
+function analyser(
+  model: string,
+  embeddingModel: string | null,
+  mode: AiMode,
+  t: FactsTranslator,
+): string {
+  if (!isBuiltIn(model)) {
     return model;
   }
-  return mode === "offline" ? t("offlineAnalysis") : t("basicAnalysis");
+  return mode === "offline" || isBuiltIn(embeddingModel)
+    ? t("offlineAnalysis")
+    : t("basicAnalysis");
 }
 
 /** What processing found out about a document, as ruled rows; facts not known yet are left out. */
@@ -80,9 +93,12 @@ export function DocumentFacts({
       value: formatDuration(document.processing_ms, locale),
     });
   }
-  // Without the AI mode a built-in model's name could not be told apart, so the row waits.
+  // A built-in analysis can need the AI mode to be named, so the row waits for it.
   if (document.analysis_model !== null && mode !== undefined) {
-    facts.push({ term: t("analysis"), value: analyser(document.analysis_model, mode, t) });
+    facts.push({
+      term: t("analysis"),
+      value: analyser(document.analysis_model, document.embedding_model, mode, t),
+    });
   }
 
   if (facts.length === 0) {
