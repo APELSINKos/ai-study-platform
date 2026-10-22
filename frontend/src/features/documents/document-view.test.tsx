@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultScheduler, notifyManager } from "@tanstack/react-query";
 import type * as MotionModule from "motion/react";
@@ -664,6 +664,7 @@ describe("DocumentView download and delete", () => {
 describe("DocumentView while the document is processed", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
+    replace.mockClear();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     // Updates normally reach React in a zero-delay timer, which the fake clock runs a
     // millisecond late when a request ends inside a tick; a microtask keeps every step exact.
@@ -682,6 +683,45 @@ describe("DocumentView while the document is processed", () => {
 
   const isDocumentPath = (path: string) => path === DOCUMENT_PATH;
   const isChunksPath = (path: string) => path.includes("/chunks");
+
+  /** How many times the page has asked for the document, apart from deleting it. */
+  function documentLoads(): number {
+    return apiFetchMock.mock.calls.filter(([path, init]) => isDocumentPath(path) && !init).length;
+  }
+
+  /**
+   * Serves a document whose delete the server carries out at once but answers only when told,
+   * the way a slow connection delivers it. From the delete on, the document is gone.
+   */
+  function serveSlowDelete(initial: DocumentOut): { answerDelete: () => void } {
+    let deleted = false;
+    let answer = () => {};
+    serve(initial, {
+      remove: () => {
+        deleted = true;
+        return new Promise((resolve) => {
+          answer = () => resolve(undefined);
+        });
+      },
+    });
+    const served = apiFetchMock.getMockImplementation();
+    apiFetchMock.mockImplementation((path, init) =>
+      deleted && isDocumentPath(path) && !init
+        ? Promise.reject(new ApiError({ status: 404, code: "document_not_found", message: "x" }))
+        : (served?.(path, init) ?? Promise.resolve(undefined)),
+    );
+    return { answerDelete: () => answer() };
+  }
+
+  /**
+   * Asks to delete the document and confirms. Plain events: user-event waits on a timer that the
+   * fake clock would hold forever.
+   */
+  function confirmDelete(): void {
+    fireEvent.click(screen.getByRole("button", { name: "Delete document" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Delete this document?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete document" }));
+  }
 
   it("moves on stage by stage and asks for the fragments once when it is done", async () => {
     const processing = documentFixture(1, { status: "processing" });
@@ -722,5 +762,50 @@ describe("DocumentView while the document is processed", () => {
 
     await pass(60_000);
     expect(requestsFor(isDocumentPath)).toBe(2);
+  });
+
+  it("stops asking for the document while deleting it, then leaves for its workspace", async () => {
+    const { answerDelete } = serveSlowDelete(documentFixture(1, { status: "processing" }));
+    renderView();
+    await pass(0);
+
+    confirmDelete();
+    // The server has deleted the document, but its answer is still on the way.
+    await pass(2000);
+    expect(documentLoads()).toBe(1);
+
+    answerDelete();
+    await pass(0);
+    expect(replace).toHaveBeenCalledWith(`/workspaces/${WORKSPACE_ID}`);
+
+    // The workspace's page takes a moment to open, and the document stays until it does.
+    await pass(2000);
+    expect(documentLoads()).toBe(1);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "lecture-1.pdf", hidden: true }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Document not found", hidden: true }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("asks for the document again once a delete fails", async () => {
+    serve(documentFixture(1, { status: "processing" }), {
+      remove: () =>
+        Promise.reject(new ApiError({ status: 500, code: "internal_error", message: "x" })),
+    });
+    renderView();
+    await pass(0);
+
+    confirmDelete();
+    await pass(0);
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(
+      "The document could not be deleted. Try again.",
+    );
+    const loads = documentLoads();
+
+    await pass(2000);
+
+    expect(documentLoads()).toBe(loads + 1);
   });
 });

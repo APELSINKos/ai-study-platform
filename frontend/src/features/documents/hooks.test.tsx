@@ -361,6 +361,22 @@ describe("useDocument", () => {
     expect(requests()).toBe(2);
   });
 
+  it("asks for nothing, not even while the document is on its way, when turned off", async () => {
+    apiFetchMock.mockResolvedValue(processing);
+    let turnedOff = false;
+    const { result, rerender } = renderWithClient(() =>
+      useDocument(processing.id, { enabled: !turnedOff }),
+    );
+    await pass(0);
+    expect(result.current.data?.status).toBe("processing");
+
+    turnedOff = true;
+    rerender();
+    await pass(60_000);
+
+    expect(requests()).toBe(1);
+  });
+
   it("stops asking after a 4xx answer", async () => {
     apiFetchMock
       .mockResolvedValueOnce(processing)

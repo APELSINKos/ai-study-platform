@@ -80,13 +80,19 @@ export function useWorkspaceDocuments(workspaceId: string) {
   });
 }
 
+interface DocumentQueryOptions {
+  /** False stops every request for the document, such as while it is being deleted. */
+  enabled?: boolean;
+}
+
 /** One document for its own page, asked for again on the same rule as the lists. */
-export function useDocument(id: string) {
+export function useDocument(id: string, { enabled = true }: DocumentQueryOptions = {}) {
   return useQuery({
     // An address may spell the id in capitals; the list, the retry and the delete use the API's
     // lowercase spelling, and all of them must reach the same cache entry.
     queryKey: queryKeys.document(id.toLowerCase()),
     queryFn: () => fetchDocument(id),
+    enabled,
     refetchInterval: (query) => {
       const document = query.state.data;
       return pollInterval(document === undefined ? [] : [document], query.state.error);

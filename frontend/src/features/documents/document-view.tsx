@@ -4,7 +4,7 @@ import { ArrowClockwiseIcon, TrashIcon } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useId, useRef, type RefObject } from "react";
+import { useId, useRef, useState, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/features/workspaces/hooks";
@@ -34,14 +34,23 @@ const MISSING_DOCUMENT_CODES: ReadonlySet<string> = new Set([
 // Holds the margin note's line while the workspace's name is on its way.
 const RESERVED_LINE = " ";
 
+/** Told with the document as a delete of it starts, and with null if the delete fails. */
+type DeletingHandler = (document: DocumentOut | null) => void;
+
 function isMissingDocument(error: unknown): boolean {
   return error instanceof ApiError && MISSING_DOCUMENT_CODES.has(error.code);
 }
 
 /** The page of one document, fetched in the browser: the server never sees the session. */
 export function DocumentView({ id }: { id: string }) {
-  const query = useDocument(id);
+  // While the document is being deleted, asking for it could only find it gone, so the page
+  // stops asking and shows it as it was until the workspace's page takes over.
+  const [deleting, setDeleting] = useState<DocumentOut | null>(null);
+  const query = useDocument(id, { enabled: deleting === null });
 
+  if (deleting !== null) {
+    return <DocumentDetail document={deleting} onDeleting={setDeleting} />;
+  }
   if (isMissingDocument(query.error)) {
     return <DocumentNotFound />;
   }
@@ -49,7 +58,7 @@ export function DocumentView({ id }: { id: string }) {
   // its way would never move on.
   const document = isClientError(query.error) ? undefined : query.data;
   if (document !== undefined) {
-    return <DocumentDetail document={document} />;
+    return <DocumentDetail document={document} onDeleting={setDeleting} />;
   }
   if (query.isPending) {
     return <DocumentSkeleton />;
@@ -63,7 +72,12 @@ export function DocumentView({ id }: { id: string }) {
   );
 }
 
-function DocumentDetail({ document }: { document: DocumentOut }) {
+interface DocumentDetailProps {
+  document: DocumentOut;
+  onDeleting: DeletingHandler;
+}
+
+function DocumentDetail({ document, onDeleting }: DocumentDetailProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   return (
@@ -75,6 +89,7 @@ function DocumentDetail({ document }: { document: DocumentOut }) {
         <DocumentActions
           document={document}
           onRetried={() => headingRef.current?.focus()}
+          onDeleting={onDeleting}
           className="mt-5"
         />
         <DocumentAnalysis document={document} />
@@ -158,6 +173,7 @@ interface DocumentActionsProps {
   document: DocumentOut;
   /** Runs once a retry has put the document back on its way, which takes Retry away. */
   onRetried: () => void;
+  onDeleting: DeletingHandler;
   className?: string;
 }
 
@@ -165,7 +181,7 @@ interface DocumentActionsProps {
  * What can be done with the document, none of it the page's main action. A failure shows under
  * the buttons, apart from that of a delete, which the dialog shows.
  */
-function DocumentActions({ document, onRetried, className }: DocumentActionsProps) {
+function DocumentActions({ document, onRetried, onDeleting, className }: DocumentActionsProps) {
   const t = useTranslations("Documents.detail");
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
@@ -178,22 +194,29 @@ function DocumentActions({ document, onRetried, className }: DocumentActionsProp
         />
       ) : null}
       <DownloadButton document={document} />
-      <DeleteDocumentButton document={document} />
+      <DeleteDocumentButton document={document} onDeleting={onDeleting} />
     </div>
   );
 }
 
-function DeleteDocumentButton({ document }: { document: DocumentOut }) {
+interface DeleteDocumentButtonProps {
+  document: DocumentOut;
+  onDeleting: DeletingHandler;
+}
+
+function DeleteDocumentButton({ document, onDeleting }: DeleteDocumentButtonProps) {
   const t = useTranslations("Documents.detail");
   const router = useRouter();
   const deletion = useDeleteDocument(document);
 
   function deleteAndLeave() {
+    onDeleting(document);
     return deletion.mutateAsync(undefined, {
-      // A callback passed here runs only while the page is still mounted, so a user who has left
+      // Callbacks passed here run only while the page is still mounted, so a user who has left
       // meanwhile stays where they went. Replaced, so that Back does not return to the page of a
       // document that is gone.
       onSuccess: () => router.replace(`/workspaces/${document.workspace_id}`),
+      onError: () => onDeleting(null),
     });
   }
 
