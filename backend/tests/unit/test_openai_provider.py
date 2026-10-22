@@ -7,6 +7,7 @@ import httpx2
 import openai
 import pytest
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from pgvector.sqlalchemy import Vector
 from pydantic import create_model
 
@@ -37,6 +38,7 @@ from app.llm.structured import (
     ChatOptions,
     complete_structured,
     response_format,
+    split_user_text,
 )
 from app.models.document import DOCUMENT_ERROR_CODES
 from app.models.document_chunk import DocumentChunk
@@ -480,7 +482,9 @@ def test_the_problems_sent_back_for_a_repair_are_capped(endpoint: FakeEndpoint) 
         _chat(json.dumps(dict.fromkeys(wide_answer.model_fields, "text"))),
     ]
 
-    complete_structured(endpoint.client, _options(), build_analysis_messages(REQUEST), wide_answer)
+    messages, user_text = split_user_text(build_analysis_messages(REQUEST))
+
+    complete_structured(endpoint.client, _options(), messages, user_text, wide_answer)
 
     problems = _repair_problems(*endpoint.bodies())
     assert len(uncapped) > REPAIR_PROBLEMS_MAX_CHARS
@@ -489,11 +493,30 @@ def test_the_problems_sent_back_for_a_repair_are_capped(endpoint: FakeEndpoint) 
     assert uncapped.startswith(problems.removesuffix(ELLIPSIS))
 
 
-def test_a_structured_request_must_end_with_the_users_text(endpoint: FakeEndpoint) -> None:
-    messages = build_analysis_messages(REQUEST)[:1]
+@pytest.mark.parametrize(
+    "messages",
+    [build_analysis_messages(REQUEST)[:1], []],
+    ids=["system-message-last", "no-messages"],
+)
+def test_a_structured_request_must_end_with_the_users_text(
+    messages: list[ChatCompletionMessageParam],
+) -> None:
+    with pytest.raises(ValueError, match="user"):
+        split_user_text(messages)
+
+
+def test_analysis_messages_built_wrong_fail_as_a_mistake_not_as_an_unreadable_answer(
+    endpoint: FakeEndpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Taken for an unreadable answer, the mistake would be hidden: the pipeline would put
+    # the built-in analysis in place of the model's for every document.
+    monkeypatch.setattr(
+        "app.llm.openai_provider.build_analysis_messages",
+        lambda request: build_analysis_messages(request)[:1],
+    )
 
     with pytest.raises(ValueError, match="user"):
-        complete_structured(endpoint.client, _options(), messages, DocumentAnalysis)
+        _llm(endpoint.client).analyze_document(REQUEST)
 
     assert endpoint.requests == []
 

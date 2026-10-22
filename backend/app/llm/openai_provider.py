@@ -26,7 +26,7 @@ from app.llm.base import (
 )
 from app.llm.prompts import build_analysis_messages
 from app.llm.schemas import DocumentAnalysis
-from app.llm.structured import ChatOptions, complete_structured
+from app.llm.structured import ChatOptions, complete_structured, split_user_text
 
 # A 429 with one of these codes means a spent balance or budget, which waiting does not restore.
 BILLING_ERROR_CODES: Final = frozenset(
@@ -69,9 +69,12 @@ class OpenAILLMProvider:
         return self.options.model
 
     def analyze_document(self, request: AnalysisRequest) -> AnalysisResult:
-        messages = build_analysis_messages(request)
+        # Split outside the block below, which takes any ValueError for an unreadable answer.
+        messages, user_text = split_user_text(build_analysis_messages(request))
         with _provider_errors():
-            output = complete_structured(self.client, self.options, messages, DocumentAnalysis)
+            output = complete_structured(
+                self.client, self.options, messages, user_text, DocumentAnalysis
+            )
         # The configured name rather than the snapshot the endpoint reports, so that a retry
         # recognises the analysis it saved.
         return AnalysisResult(

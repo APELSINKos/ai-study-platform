@@ -64,24 +64,36 @@ def response_format(
     }
 
 
+def split_user_text(
+    messages: Sequence[ChatCompletionMessageParam],
+) -> tuple[list[ChatCompletionMessageParam], str]:
+    """Messages that end with the user's text, split into the ones before it and the text.
+
+    A structured request must end with that text, as a repeated request adds a note of what
+    was wrong to it; other messages raise ValueError.
+    """
+    last = messages[-1] if messages else None
+    user_text = None if last is None else last.get("content")
+    if last is None or last["role"] != "user" or not isinstance(user_text, str):
+        raise ValueError(_NOT_USER_TEXT_MESSAGE)
+    return list(messages[:-1]), user_text
+
+
 def complete_structured[T: BaseModel](
     client: OpenAI,
     options: ChatOptions,
     messages: Sequence[ChatCompletionMessageParam],
+    user_text: str,
     schema: type[T],
 ) -> StructuredOutput[T]:
     """Ask for an answer that validates as schema; after a mismatch, ask once more.
 
-    The last message must be the user's text: the repeated request adds a note of what was
-    wrong to its end. A refusal, a cut-off answer or a second mismatch raises
+    The request is the messages followed by the user's text, to which the repeated request
+    adds a note of what was wrong. A refusal, a cut-off answer or a second mismatch raises
     ProviderRequestError (ai_invalid_output); errors of the API call itself propagate as the
     SDK raises them.
     """
-    *earlier, last = messages
-    user_text = last.get("content")
-    if last["role"] != "user" or not isinstance(user_text, str):
-        raise ValueError(_NOT_USER_TEXT_MESSAGE)
-    request = list(messages)
+    request: list[ChatCompletionMessageParam] = [*messages, {"role": "user", "content": user_text}]
     requested_format = response_format(schema, options.structured_output)
     prompt_tokens = completion_tokens = 0
     for _ in range(STRUCTURED_OUTPUT_ATTEMPTS):
@@ -103,7 +115,7 @@ def complete_structured[T: BaseModel](
             # have steered. They join the user's turn, as some chat templates refuse two user
             # messages in a row.
             note = REPAIR_NOTE.format(problems=_problems(error))
-            request = [*earlier, {"role": "user", "content": f"{user_text}\n\n{note}"}]
+            request = [*messages, {"role": "user", "content": f"{user_text}\n\n{note}"}]
             continue
         return StructuredOutput(
             value=value, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
