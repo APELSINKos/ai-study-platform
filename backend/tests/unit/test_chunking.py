@@ -11,6 +11,7 @@ from app.documents.chunking import (
     chunk_pdf_pages,
     chunk_plain,
     join_pages,
+    markdown_headings,
     sentence_spans,
 )
 from app.documents.text import ELLIPSIS
@@ -307,6 +308,29 @@ def test_a_single_heading_over_the_limit_is_cut_at_a_word_boundary() -> None:
     assert set(chunk.heading.removesuffix(ELLIPSIS).split(" ")) == {"word"}
 
 
+def test_the_headings_of_a_markdown_text_are_listed_in_order_without_their_paths() -> None:
+    text = (
+        "Intro before any heading.\n"
+        "# Databases\n"
+        "## Keys\n"
+        "```\n# a comment, not a heading\n```\n"
+        "## Normal forms ##\n"
+        "Normal forms limit redundancy.\n"
+        "#\n"
+        "## Keys\n"
+        "Keys again."
+    )
+
+    assert markdown_headings(text) == ["Databases", "Keys", "Normal forms", "Keys"]
+
+
+def test_a_heading_too_long_for_its_column_is_listed_cut_at_a_word_boundary() -> None:
+    [heading] = markdown_headings("# " + " ".join(["word"] * 200) + "\nBody.")
+
+    assert len(heading) <= CHUNK_HEADING_MAX_LENGTH
+    assert heading.endswith(ELLIPSIS)
+
+
 def test_a_document_of_headings_only_is_chunked_as_plain_text() -> None:
     text = "# Title\n## Subtitle\n"
 
@@ -390,6 +414,7 @@ def test_long_runs_are_chunked_in_linear_time(unit: str) -> None:
 
     started = time.perf_counter()
     chunk_markdown(text, size=SIZE, overlap=OVERLAP)
+    markdown_headings(text)
     chunk_plain(text, size=SIZE, overlap=OVERLAP)
     chunk_pdf_pages([text], size=SIZE, overlap=OVERLAP)
 
@@ -409,6 +434,8 @@ def test_short_sections_under_long_headings_are_chunked_in_linear_time(levels: i
 
     started = time.perf_counter()
     chunks = chunk_markdown(text, size=SIZE, overlap=OVERLAP)
+    headings = markdown_headings(text)
 
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
     assert {chunk.heading for chunk in chunks} == {"a"}
+    assert len(headings) > levels

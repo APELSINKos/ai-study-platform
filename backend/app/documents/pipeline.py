@@ -30,6 +30,7 @@ from app.documents.chunking import (
     chunk_pdf_pages,
     chunk_plain,
     join_pages,
+    markdown_headings,
 )
 from app.documents.cleaning import check_text, clean_pdf_pages, clean_text
 from app.documents.errors import (
@@ -140,9 +141,10 @@ class _RunSupersededError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class _DocumentText:
-    """A document's cleaned text, its chunks and, for a PDF, its number of pages."""
+    """A document's cleaned text, its headings, its chunks and, for a PDF, its page count."""
 
     text: str
+    headings: list[str]
     chunks: list[Chunk]
     page_count: int | None
 
@@ -199,15 +201,19 @@ class _Run:
         text, pages = _cleaned(extracted)
         check_text(text, max_chars=settings.max_document_chars)
         size, overlap = settings.chunk_size_chars, settings.chunk_overlap_chars
+        headings: list[str] = []
         if pages is not None:
             chunks = chunk_pdf_pages(pages, size=size, overlap=overlap)
         elif self.document.content_type == "text/markdown":
             chunks = chunk_markdown(text, size=size, overlap=overlap)
+            headings = markdown_headings(text)
         else:
             chunks = chunk_plain(text, size=size, overlap=overlap)
         if len(chunks) > MAX_CHUNKS_PER_DOCUMENT:
             raise DocumentProcessingError("text_too_long", TEXT_TOO_LONG_MESSAGE)
-        return _DocumentText(text=text, chunks=chunks, page_count=extracted.page_count)
+        return _DocumentText(
+            text=text, headings=headings, chunks=chunks, page_count=extracted.page_count
+        )
 
     def _analyse(self, text: _DocumentText) -> tuple[NormalizedAnalysis, str]:
         """The document's analysis and the name of the model that made it.
@@ -220,9 +226,8 @@ class _Run:
         saved = _saved_analysis(self.document)
         if saved is not None and self.document.analysis_model == self.llm.model_name:
             return saved, self.llm.model_name
-        headings = [chunk.heading for chunk in text.chunks if chunk.heading is not None]
         outline, sample = build_analysis_sample(
-            text.text, headings, self.settings.analysis_max_input_chars
+            text.text, text.headings, self.settings.analysis_max_input_chars
         )
         request = AnalysisRequest(
             filename=self.document.original_filename, outline=outline, sample=sample

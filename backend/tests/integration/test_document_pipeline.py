@@ -471,6 +471,30 @@ def test_the_model_reads_a_pdf_without_the_line_breaks_of_its_layout(runner: _Ru
     assert "Если ключ состоит из нескольких столбцов, " in request.sample
 
 
+def test_the_outline_of_a_long_markdown_document_lists_its_headings(
+    runner: _Runner, integration_settings: Settings
+) -> None:
+    markdown = "\n\n".join(
+        [
+            "# Sorting algorithms",
+            "## Merge sort",
+            "```python\n# split the list in half\nmerge(left, right)\n```",
+            "Merge sort splits the list in half and merges the sorted halves. " * 10,
+            "## Quick sort",
+            "Quick sort picks a pivot and moves the other items around it. " * 10,
+        ]
+    )
+    # Too long to be sent whole, so the model gets an outline and excerpts.
+    integration_settings.analysis_max_input_chars = len(markdown) // 2
+    document = runner.store(markdown.encode(), "sorting.md")
+    llm = _FakeLLM()
+
+    runner.run(document.id, llm=llm)
+
+    [request] = llm.requests
+    assert request.outline == "Sorting algorithms\nMerge sort\nQuick sort"
+
+
 def test_a_plain_text_document_becomes_ready_without_headings_or_pages(
     db_session: Session, runner: _Runner
 ) -> None:

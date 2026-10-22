@@ -74,6 +74,18 @@ def chunk_markdown(text: str, *, size: int, overlap: int) -> list[Chunk]:
     return chunks or chunk_plain(text, size=size, overlap=overlap)
 
 
+def markdown_headings(text: str) -> list[str]:
+    """The titles of a Markdown document's headings in order, as chunk headings name them.
+
+    Unlike the heading paths of chunks, these include the headings of sections without text.
+    """
+    return [
+        shorten(title, CHUNK_HEADING_MAX_LENGTH)
+        for _, _, _, title in _markdown_heading_lines(text)
+        if title
+    ]
+
+
 def chunk_pdf_pages(pages: Sequence[str], *, size: int, overlap: int) -> list[Chunk]:
     """Chunks of the pages of a PDF, each with the first and the last page it comes from.
 
@@ -220,6 +232,20 @@ def _markdown_sections(text: str) -> Iterator[_Section]:
     """
     open_headings: list[tuple[int, str]] = []
     body_start = 0
+    for line_start, line_end, level, title in _markdown_heading_lines(text):
+        if _NON_SPACE_RE.search(text, body_start, line_start):
+            yield tuple(title for _, title in open_headings), body_start, line_start
+        while open_headings and open_headings[-1][0] >= level:
+            open_headings.pop()
+        if title:
+            open_headings.append((level, title))
+        body_start = line_end
+    if _NON_SPACE_RE.search(text, body_start):
+        yield tuple(title for _, title in open_headings), body_start, len(text)
+
+
+def _markdown_heading_lines(text: str) -> Iterator[tuple[int, int, int, str]]:
+    """Where each heading line outside code blocks starts and ends, its level and title."""
     fence: str | None = None
     for match in _MARKDOWN_LINE_RE.finditer(text):
         line_start = match.start()
@@ -235,18 +261,8 @@ def _markdown_sections(text: str) -> Iterator[_Section]:
                 fence = None
             continue
         heading = None if fence is not None else _heading(line)
-        if heading is None:
-            continue
-        if _NON_SPACE_RE.search(text, body_start, line_start):
-            yield tuple(title for _, title in open_headings), body_start, line_start
-        level, title = heading
-        while open_headings and open_headings[-1][0] >= level:
-            open_headings.pop()
-        if title:
-            open_headings.append((level, title))
-        body_start = line_end
-    if _NON_SPACE_RE.search(text, body_start):
-        yield tuple(title for _, title in open_headings), body_start, len(text)
+        if heading is not None:
+            yield line_start, line_end, *heading
 
 
 def _heading(line: str) -> tuple[int, str] | None:
