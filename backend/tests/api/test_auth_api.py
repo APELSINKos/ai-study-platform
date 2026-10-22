@@ -22,6 +22,7 @@ from app.api.cookies import (
 from app.api.deps import get_redis
 from app.core.config import Settings
 from app.models.refresh_token import RefreshToken
+from app.models.user import User
 from tests.api.conftest import PASSWORD, csrf_headers, register
 
 pytestmark = pytest.mark.integration
@@ -130,6 +131,19 @@ def test_register_rejects_invalid_input_with_the_unified_error_shape(
     body = response.json()
     fields = {detail["field"] for detail in body["error"]["details"]}
     assert {"email", "password", "display_name"} <= fields
+
+
+def test_register_rejects_a_nul_character_in_the_display_name(
+    auth_client: TestClient, db_session: Session
+) -> None:
+    response = register(auth_client, email="nul-name@example.com", display_name="Per\x00son")
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    body = response.json()
+    assert body["error"]["code"] == "validation_error"
+    assert [detail["field"] for detail in body["error"]["details"]] == ["display_name"]
+    stored = select(func.count()).select_from(User).where(User.email == "nul-name@example.com")
+    assert db_session.execute(stored).scalar_one() == 0
 
 
 # --- login ------------------------------------------------------------------------
@@ -392,6 +406,17 @@ def test_token_endpoint_returns_a_usable_bearer_token_and_creates_no_refresh_tok
     )
     assert me_response.status_code == HTTPStatus.OK
     assert me_response.json()["email"] == "token-user@example.com"
+
+
+def test_token_endpoint_treats_a_username_with_a_nul_character_as_unknown(
+    auth_client: TestClient,
+) -> None:
+    response = auth_client.post(
+        _TOKEN_PATH, data={"username": "token\x00user@example.com", "password": PASSWORD}
+    )
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert response.json()["error"]["code"] == "invalid_credentials"
 
 
 # --- OpenAPI ------------------------------------------------------------------------

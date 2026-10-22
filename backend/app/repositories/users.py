@@ -1,9 +1,12 @@
 import uuid
+from typing import Final
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.user import User
+
+_NUL: Final = "\x00"
 
 
 class UserRepository:
@@ -16,6 +19,10 @@ class UserRepository:
         return self._session.get(User, user_id)
 
     def get_by_email(self, email: str) -> User | None:
+        if _NUL in email:
+            # PostgreSQL text cannot hold NUL, so no stored email has it, and the driver
+            # refuses to send it in a query.
+            return None
         statement = select(User).where(User.email == email)
         return self._session.execute(statement).scalar_one_or_none()
 

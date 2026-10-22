@@ -14,16 +14,9 @@ from pydantic import (
 
 from app.api.pagination import Page
 from app.models.workspace import WORKSPACE_DESCRIPTION_MAX_LENGTH, WORKSPACE_NAME_MAX_LENGTH
+from app.schemas.text import reject_nul
 
 _NAME_MIN_LENGTH: Final = 1
-_NUL: Final = "\x00"
-
-
-def _reject_nul(value: str) -> str:
-    # PostgreSQL text cannot hold NUL; rejecting it here keeps it a 422 instead of a 500.
-    if _NUL in value:
-        raise ValueError("must not contain the NUL character")
-    return value
 
 
 def _blank_as_none(value: str | None) -> str | None:
@@ -35,12 +28,12 @@ WorkspaceName = Annotated[
     StringConstraints(
         strip_whitespace=True, min_length=_NAME_MIN_LENGTH, max_length=WORKSPACE_NAME_MAX_LENGTH
     ),
-    AfterValidator(_reject_nul),
+    AfterValidator(reject_nul),
 ]
 _DescriptionText = Annotated[
     str,
     StringConstraints(strip_whitespace=True, max_length=WORKSPACE_DESCRIPTION_MAX_LENGTH),
-    AfterValidator(_reject_nul),
+    AfterValidator(reject_nul),
 ]
 # A blank description is stored as no description at all.
 WorkspaceDescription = Annotated[_DescriptionText | None, AfterValidator(_blank_as_none)]

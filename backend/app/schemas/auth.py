@@ -2,9 +2,10 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
 from app.models.user import DISPLAY_NAME_MAX_LENGTH
+from app.schemas.text import reject_nul
 
 PASSWORD_MIN_LENGTH: Final = 10
 PASSWORD_MAX_LENGTH: Final = 128
@@ -18,6 +19,7 @@ DisplayName = Annotated[
         min_length=_DISPLAY_NAME_MIN_LENGTH,
         max_length=DISPLAY_NAME_MAX_LENGTH,
     ),
+    AfterValidator(reject_nul),
 ]
 
 
