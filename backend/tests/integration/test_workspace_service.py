@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
@@ -278,6 +278,32 @@ def test_another_users_workspace_is_not_found_and_stays_unchanged(
     )
     assert _document_count(db_session, workspace.id) == 1
     assert storage.path_for(key).exists()
+
+
+def test_a_workspace_deleted_after_it_was_loaded_for_a_change_is_not_found(
+    db_session: Session,
+    service: WorkspaceService,
+    owner: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+    load = WorkspaceRepository.get_for_owner
+
+    def load_then_lose_the_row(
+        repository: WorkspaceRepository, workspace_id: uuid.UUID, owner_id: uuid.UUID
+    ) -> Workspace | None:
+        loaded = load(repository, workspace_id, owner_id)
+        # Another request deletes the workspace and commits right after this one loaded it.
+        db_session.execute(text("DELETE FROM workspaces WHERE id = :id"), {"id": workspace_id})
+        db_session.commit()
+        return loaded
+
+    monkeypatch.setattr(WorkspaceRepository, "get_for_owner", load_then_lose_the_row)
+    changes = WorkspaceUpdateRequest(name="Renamed")
+
+    _assert_not_found(
+        lambda: service.update(user=owner, workspace_id=workspace.id, changes=changes)
+    )
 
 
 def test_delete_removes_the_workspace_its_documents_and_its_folder(

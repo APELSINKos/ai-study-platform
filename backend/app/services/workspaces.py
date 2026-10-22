@@ -5,6 +5,7 @@ from typing import Final
 
 import structlog
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.clock import utcnow
 from app.core.exceptions import NotFoundError
@@ -70,7 +71,12 @@ class WorkspaceService:
         if "exam_date" in sent:
             workspace.exam_date = changes.exam_date
         workspace.updated_at = self._clock()
-        self._session.commit()
+        try:
+            self._session.commit()
+        except StaleDataError as exc:
+            # Another request deleted it after it was loaded, so the UPDATE matched no row.
+            self._session.rollback()
+            raise workspace_not_found() from exc
         return self._with_stats(workspace)
 
     def delete(self, *, user: User, workspace_id: uuid.UUID) -> None:
