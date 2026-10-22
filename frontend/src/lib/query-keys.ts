@@ -1,8 +1,9 @@
 /**
- * Every query key in the app. A key belongs either to `useQuery` or to `useInfiniteQuery`, never
- * to both, because the two cache differently shaped data under it. Keys nest, so a prefix reaches
- * everything below it: mutations invalidate `workspaces`, and deletes also remove the deleted
- * item's detail key, which takes its document list or chunks with it.
+ * The query keys of the workspaces, the documents and /meta; the signed-in user's key lives with
+ * the auth hooks. A key belongs either to `useQuery` or to `useInfiniteQuery`, never to both,
+ * because the two cache differently shaped data under it. Keys nest, and invalidating or removing
+ * a prefix reaches every key below it: `workspaces` takes in the lists, each workspace and its
+ * document list, but not a document's own page and fragments, which sit under `documents`.
  */
 export const queryKeys = {
   workspaces: ["workspaces"] as const,
