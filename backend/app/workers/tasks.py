@@ -65,6 +65,8 @@ def build_pipeline_dependencies(settings: Settings) -> PipelineDependencies:
 @celery_app.task(
     name=PROCESS_DOCUMENT_TASK_NAME,
     bind=True,
+    # Celery would otherwise add the task to every app the process finalises.
+    shared=False,
     max_retries=DOCUMENT_TASK_MAX_RETRIES,
     soft_time_limit=DOCUMENT_TASK_SOFT_TIME_LIMIT_SECONDS,
     time_limit=DOCUMENT_TASK_TIME_LIMIT_SECONDS,

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 import pytest
-from celery import signals
+from celery import Celery, signals
 from celery.exceptions import Retry
 from celery.result import EagerResult
 
@@ -95,6 +95,14 @@ def _task_lines(output: str) -> list[dict[str, Any]]:
 def test_the_worker_imports_the_task_module_and_finds_the_document_task() -> None:
     assert "app.workers.tasks" in celery_app.conf.include
     assert PROCESS_DOCUMENT_TASK_NAME in celery_app.tasks
+
+
+def test_another_celery_app_in_the_same_process_does_not_get_the_document_task() -> None:
+    other = Celery("other", set_as_current=False)
+    other.finalize()
+
+    assert PROCESS_DOCUMENT_TASK_NAME not in other.tasks
+    assert process_document.app is celery_app
 
 
 def test_the_task_has_the_document_time_limits_and_retry_budget() -> None:
