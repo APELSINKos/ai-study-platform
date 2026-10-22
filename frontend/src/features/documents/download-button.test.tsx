@@ -28,6 +28,8 @@ interface Click {
   download: string;
   attached: boolean;
   revokedBefore: boolean;
+  /** Whether the URL was revoked once the code that clicked had finished, before any timer. */
+  revokedRightAfter: boolean;
 }
 
 /** Records the link clicks a download makes, instead of letting jsdom follow them. */
@@ -36,11 +38,17 @@ function captureClicks(): Click[] {
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
     this: HTMLAnchorElement,
   ) {
-    clicks.push({
+    const click: Click = {
       href: this.href,
       download: this.download,
       attached: this.isConnected,
       revokedBefore: revokeObjectURL.mock.calls.length > 0,
+      revokedRightAfter: false,
+    };
+    clicks.push(click);
+    // A microtask runs as soon as the code that clicked returns, ahead of every timer.
+    queueMicrotask(() => {
+      click.revokedRightAfter = revokeObjectURL.mock.calls.length > 0;
     });
   });
   return clicks;
@@ -97,6 +105,8 @@ describe("DownloadButton", () => {
       download: "Лекция 4. Нормализация.pdf",
       attached: true,
       revokedBefore: false,
+      // Revoked later, not at once: revoking at once can cancel the download in some browsers.
+      revokedRightAfter: false,
     });
     // The link was only a means to start the download.
     expect(document.querySelector("a")).toBeNull();
