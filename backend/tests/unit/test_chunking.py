@@ -434,8 +434,8 @@ def test_short_sections_under_long_headings_are_chunked_in_linear_time(levels: i
 
     started = time.perf_counter()
     chunks = chunk_markdown(text, size=SIZE, overlap=OVERLAP)
-    headings = markdown_headings(text)
+    titles = markdown_headings(text)
 
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
     assert {chunk.heading for chunk in chunks} == {"a"}
-    assert len(headings) > levels
+    assert len(titles) > levels
