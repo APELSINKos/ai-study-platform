@@ -5,6 +5,7 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from app.core.config import DEV_SECRET_KEY, Settings, get_settings
+from app.models.document import MODEL_NAME_MAX_LENGTH
 
 # compose.yaml passes these through as ${VAR:-}, so an unset variable arrives blank.
 PASS_THROUGH_VARIABLES: Final = (
@@ -169,6 +170,20 @@ def test_chunk_overlap_must_be_smaller_than_the_chunk_size(overlap: int) -> None
 def test_embedding_batch_size_fits_one_api_request(batch_size: int) -> None:
     with pytest.raises(ValidationError, match="embedding_batch_size"):
         Settings(embedding_batch_size=batch_size)
+
+
+@pytest.mark.parametrize("variable", ["LLM_MODEL", "EMBEDDING_MODEL"])
+def test_a_model_name_fits_the_column_that_records_it_with_each_document(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    longest = "m" * MODEL_NAME_MAX_LENGTH
+    monkeypatch.setenv(variable, longest)
+
+    assert getattr(Settings(), variable.lower()) == longest
+
+    monkeypatch.setenv(variable, longest + "m")
+    with pytest.raises(ValidationError, match=variable.lower()):
+        Settings()
 
 
 def test_an_openai_key_switches_both_auto_providers_to_openai(

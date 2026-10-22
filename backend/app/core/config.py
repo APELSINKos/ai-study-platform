@@ -9,11 +9,14 @@ from pydantic import (
     PositiveFloat,
     PositiveInt,
     SecretStr,
+    StringConstraints,
     field_validator,
     model_validator,
 )
 from pydantic_core import PydanticUseDefault
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from app.models.document import MODEL_NAME_MAX_LENGTH
 
 Environment = Literal["development", "test", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -21,6 +24,8 @@ LogFormat = Literal["json", "console"]
 ProviderMode = Literal["auto", "mock", "openai"]
 ResolvedProvider = Literal["mock", "openai"]
 StructuredOutputMode = Literal["json_schema", "json_object"]
+# Recorded with every document the model processes, in a column of this length.
+ModelName = Annotated[str, StringConstraints(max_length=MODEL_NAME_MAX_LENGTH)]
 
 # Not a real secret: a known placeholder that the validator below rejects in production.
 DEV_SECRET_KEY: Final = "dev-only-secret-key-not-for-production-use-0000"  # noqa: S105
@@ -94,8 +99,8 @@ class Settings(BaseSettings):
     embedding_api_key: SecretStr | None = None
     llm_base_url: str | None = None
     embedding_base_url: str | None = None
-    llm_model: str = "gpt-5.4-mini"
-    embedding_model: str = "text-embedding-3-small"
+    llm_model: ModelName = "gpt-5.4-mini"
+    embedding_model: ModelName = "text-embedding-3-small"
     llm_structured_output: StructuredOutputMode = "json_schema"
     llm_timeout_seconds: PositiveFloat = 60.0
     embedding_timeout_seconds: PositiveFloat = 30.0
