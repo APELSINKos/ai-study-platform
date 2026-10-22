@@ -182,9 +182,9 @@ describe("EditWorkspaceForm", () => {
   });
 
   it("sends one request however often it is submitted", async () => {
-    apiFetchMock.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(WORKSPACE), 20)),
-    );
+    // Answered only when the test says so, so every click lands while the request is pending.
+    const saving = Promise.withResolvers<typeof WORKSPACE>();
+    apiFetchMock.mockReturnValue(saving.promise);
     const { onSaved } = renderForm();
     await replaceText("Name", "Applied statistics");
     const button = screen.getByRole("button", { name: "Save changes" });
@@ -192,6 +192,7 @@ describe("EditWorkspaceForm", () => {
     await userEvent.click(button);
     await userEvent.click(button);
     fireEvent.submit(button.closest("form") as HTMLFormElement);
+    saving.resolve(WORKSPACE);
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);

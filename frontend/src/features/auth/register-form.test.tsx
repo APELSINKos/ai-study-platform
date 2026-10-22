@@ -28,10 +28,6 @@ async function fillValidDetails(): Promise<void> {
   await userEvent.type(screen.getByLabelText("Password"), "correct horse battery");
 }
 
-function settle(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 20));
-}
-
 describe("RegisterForm", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
@@ -171,9 +167,9 @@ describe("RegisterForm", () => {
   });
 
   it("does not submit twice when the form is resubmitted while pending", async () => {
-    apiFetchMock.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(SESSION), 20)),
-    );
+    // Answered only when the test says so, however slowly the steps before it run.
+    const session = Promise.withResolvers<typeof SESSION>();
+    apiFetchMock.mockReturnValue(session.promise);
     renderWithIntl(<RegisterForm />);
 
     await fillValidDetails();
@@ -183,15 +179,15 @@ describe("RegisterForm", () => {
     fireEvent.submit(form as HTMLFormElement);
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
     fireEvent.submit(form as HTMLFormElement);
-    await settle();
+    session.resolve(SESSION);
 
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("does not submit twice when the loading button is clicked again", async () => {
-    apiFetchMock.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(SESSION), 20)),
-    );
+    const session = Promise.withResolvers<typeof SESSION>();
+    apiFetchMock.mockReturnValue(session.promise);
     renderWithIntl(<RegisterForm />);
 
     await fillValidDetails();
@@ -199,8 +195,9 @@ describe("RegisterForm", () => {
     await userEvent.click(button);
     expect(button).toHaveAttribute("aria-busy", "true");
     await userEvent.click(button);
-    await settle();
+    session.resolve(SESSION);
 
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 

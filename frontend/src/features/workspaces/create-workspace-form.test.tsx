@@ -217,9 +217,9 @@ describe("CreateWorkspaceForm", () => {
   });
 
   it("sends one request however often it is submitted, and stays busy until the page changes", async () => {
-    apiFetchMock.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(CREATED), 20)),
-    );
+    // Answered only when the test says so, so every click lands while the request is pending.
+    const creation = Promise.withResolvers<typeof CREATED>();
+    apiFetchMock.mockReturnValue(creation.promise);
     renderWithIntl(<CreateWorkspaceForm />);
     await userEvent.type(screen.getByLabelText("Name"), "Organic chemistry");
     const button = screen.getByRole("button", { name: "Create workspace" });
@@ -227,6 +227,7 @@ describe("CreateWorkspaceForm", () => {
     await userEvent.click(button);
     await userEvent.click(button);
     fireEvent.submit(button.closest("form") as HTMLFormElement);
+    creation.resolve(CREATED);
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
     await userEvent.click(button);
 

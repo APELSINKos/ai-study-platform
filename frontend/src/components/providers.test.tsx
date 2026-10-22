@@ -39,10 +39,6 @@ function setPath(path: string): void {
   navigation.pathname = window.location.pathname;
 }
 
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 20));
-}
-
 function countCallsTo(path: string): number {
   return fetchMock.mock.calls.filter(([input]) => String(input).endsWith(path)).length;
 }
@@ -76,7 +72,6 @@ describe("Providers", () => {
     );
 
     await waitFor(() => expect(replace).toHaveBeenCalled());
-    await settle();
 
     // A real router transition re-renders the still-mounted tree; simulate that here.
     rerender(
@@ -84,13 +79,14 @@ describe("Providers", () => {
         <Probe />
       </Providers>,
     );
-    await settle();
+    // The page asks for the user once more, and the session is found lost a second time.
+    await waitFor(() => expect(countCallsTo("/auth/refresh")).toBe(2));
 
     expect(replace).toHaveBeenCalledTimes(1);
     expect(replace).toHaveBeenCalledWith(
       `/login?next=${encodeURIComponent("/dashboard?tab=progress")}`,
     );
-    expect(countCallsTo("/auth/me")).toBeLessThanOrEqual(2);
+    expect(countCallsTo("/auth/me")).toBe(2);
   });
 
   it("redirects again when a later session is lost after signing back in", async () => {
@@ -123,8 +119,8 @@ describe("Providers", () => {
       </Providers>,
     );
 
-    await waitFor(() => expect(countCallsTo("/auth/me")).toBeGreaterThan(0));
-    await settle();
+    // The session is found lost once the refresh is refused.
+    await waitFor(() => expect(countCallsTo("/auth/refresh")).toBe(1));
 
     expect(replace).not.toHaveBeenCalled();
     expect(countCallsTo("/auth/me")).toBe(1);
@@ -139,8 +135,7 @@ describe("Providers", () => {
       </Providers>,
     );
 
-    await waitFor(() => expect(countCallsTo("/auth/me")).toBeGreaterThan(0));
-    await settle();
+    await waitFor(() => expect(countCallsTo("/auth/refresh")).toBe(1));
 
     expect(replace).not.toHaveBeenCalled();
     expect(countCallsTo("/auth/me")).toBe(1);
