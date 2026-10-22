@@ -18,6 +18,7 @@ from app.core.logging import configure_logging
 from app.documents.queue import QueueUnavailableError
 from app.documents.status import STALE_DOCUMENT_SECONDS
 from app.documents.storage import FileStorage
+from app.documents.validation import InspectedUpload, copy_upload
 from app.models.document import Document, DocumentStatus
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -249,6 +250,29 @@ def test_an_upload_deleted_while_the_broker_was_down_is_not_found(
     assert exc_info.value.code == "document_not_found"
 
 
+def test_no_transaction_stays_open_while_the_file_is_copied(
+    db_session: Session,
+    service: DocumentService,
+    owner: User,
+    queue: _Queue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+    open_while_copying: list[bool] = []
+
+    def copy_and_record(*args: Any, **kwargs: Any) -> InspectedUpload:
+        open_while_copying.append(db_session.in_transaction())
+        return copy_upload(*args, **kwargs)
+
+    monkeypatch.setattr("app.services.documents.copy_upload", copy_and_record)
+
+    view = service.upload(user=owner, workspace_id=workspace.id, upload=_upload_file())
+
+    # Its connection goes back to the pool while a large file is copied.
+    assert open_while_copying == [False]
+    assert queue.enqueued == [view.document.id]
+
+
 def test_the_quota_is_checked_again_with_the_real_size_once_the_row_is_in(
     db_session: Session,
     service: DocumentService,
@@ -296,11 +320,15 @@ def test_a_failed_commit_leaves_neither_the_row_nor_the_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _workspace(db_session, owner)
+    commit = db_session.commit
 
-    def fail_commit() -> None:
-        raise _CommitFailedError
+    # The commit that ends the first checks goes through; the one that saves the row fails.
+    def fail_once_a_document_is_in() -> None:
+        if any(isinstance(item, Document) for item in db_session.identity_map.values()):
+            raise _CommitFailedError
+        commit()
 
-    monkeypatch.setattr(db_session, "commit", fail_commit)
+    monkeypatch.setattr(db_session, "commit", fail_once_a_document_is_in)
 
     with pytest.raises(_CommitFailedError):
         service.upload(user=owner, workspace_id=workspace.id, upload=_upload_file())

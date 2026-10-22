@@ -131,6 +131,9 @@ class DocumentService:
         self._check_caps(
             self._documents.owner_usage(user.id), new_documents=1, new_bytes=upload.size or 0
         )
+        # The checks only read: ending their transaction gives the connection back to the pool
+        # while a large file is copied. The caps are checked again before the row is saved.
+        self._session.commit()
         self._storage.sweep_temp()
         filename = sanitize_filename(upload.filename or "")
         extension = extension_for(filename)
