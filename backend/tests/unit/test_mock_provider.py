@@ -476,16 +476,21 @@ def test_table_rows_stay_out_of_the_summary(llm: MockLLMProvider) -> None:
 
 
 @pytest.mark.parametrize(
-    "gap", ["\n", "\n\n"], ids=["straight-into-the-text", "before-a-blank-line"]
+    "title_lines",
+    [
+        "Лекция 4. Нормализация реляционных баз данных\n",
+        "Лекция 4. Нормализация реляционных баз данных\n\n",
+        "Лекция 4. Нормализация реляционных\nбаз данных\n",
+    ],
+    ids=["straight-into-the-text", "before-a-blank-line", "wrapped-over-two-lines"],
 )
 def test_a_title_line_names_the_document_and_stays_out_of_the_summary(
-    llm: MockLLMProvider, gap: str
+    llm: MockLLMProvider, title_lines: str
 ) -> None:
-    # Text taken from a PDF has no blank line under its title.
+    # Text taken from a PDF has no blank line under its title, and a long title in a large
+    # font takes two lines.
     sample = (
-        "Лекция 4. Нормализация реляционных баз данных"
-        + gap
-        + "Нормализация — это последовательное преобразование схемы базы данных. Цель "
+        title_lines + "Нормализация — это последовательное преобразование схемы базы данных. Цель "
         "такого преобразования — избавиться от повторов и противоречий в данных.\n"
     )
 
@@ -498,12 +503,99 @@ def test_a_title_line_names_the_document_and_stays_out_of_the_summary(
     )
 
 
-def test_a_line_under_the_title_heading_that_stands_alone_stays_out_of_the_summary(
+def test_a_title_line_may_end_in_an_address_whose_last_part_is_a_stop_word(
     llm: MockLLMProvider,
 ) -> None:
     sample = (
+        "Recursion, lecture notes of the course at example.org/courses/it\n"
+        "Recursion is when a function calls itself. Every call works on a smaller problem.\n"
+    )
+
+    analysis = _analyze(llm, sample, filename="recursion.pdf").analysis
+
+    assert analysis.title == "Recursion, lecture notes of the course at example.org/courses/it"
+    assert analysis.summary == (
+        "Recursion is when a function calls itself. Every call works on a smaller problem."
+    )
+
+
+def test_a_title_line_that_is_all_the_text_is_its_summary_as_well(llm: MockLLMProvider) -> None:
+    analysis = _analyze(
+        llm, "Лекция 4. Нормализация реляционных баз данных\n", filename="lecture.pdf"
+    ).analysis
+
+    assert analysis.title == "Лекция 4. Нормализация реляционных баз данных"
+    assert analysis.summary == "Лекция 4. Нормализация реляционных баз данных."
+    # Text rather than a heading, the line is counted once: none of its phrases repeats.
+    assert analysis.topics == ["лекция", "нормализация", "реляционных", "данных"]
+
+
+def test_the_only_line_under_a_heading_is_the_summary(llm: MockLLMProvider) -> None:
+    sample = "# Recursion\n\nA function that calls itself until it reaches a base case\n"
+
+    analysis = _analyze(llm, sample).analysis
+
+    assert analysis.title == "Recursion"
+    assert analysis.summary == "A function that calls itself until it reaches a base case."
+
+
+@pytest.mark.parametrize(
+    ("sample", "summary"),
+    [
+        (
+            "# Normalization\n\n"
+            "The relational model and the first three normal forms were introduced by\n"
+            "Edgar Codd in 1970. A table is in first normal form when every value is atomic.\n",
+            "The relational model and the first three normal forms were introduced by Edgar "
+            "Codd in 1970. A table is in first normal form when every value is atomic.",
+        ),
+        (
+            "# Нормализация\n\n"
+            "Реляционную модель данных и первые три нормальные формы предложил в 1970 году\n"
+            "Эдгар Кодд, сотрудник IBM. Таблица находится в первой нормальной форме, когда "
+            "каждое её значение атомарно.\n",
+            "Реляционную модель данных и первые три нормальные формы предложил в 1970 году "
+            "Эдгар Кодд, сотрудник IBM. Таблица находится в первой нормальной форме, когда "
+            "каждое её значение атомарно.",
+        ),
+        (
+            "The relational model and the first three normal forms were introduced by\n"
+            "Edgar Codd in 1970. A table is in first normal form when every value is atomic.\n",
+            "The relational model and the first three normal forms were introduced by Edgar "
+            "Codd in 1970. A table is in first normal form when every value is atomic.",
+        ),
+    ],
+    ids=["under-a-heading", "under-a-heading-in-russian", "ending-in-a-stop-word"],
+)
+def test_a_sentence_wrapped_before_a_capital_letter_stays_whole(
+    llm: MockLLMProvider, sample: str, summary: str
+) -> None:
+    assert _analyze(llm, sample).analysis.summary == summary
+
+
+@pytest.mark.parametrize(
+    ("first_line", "summary"),
+    [
+        (
+            "Spaced Repetition",
+            "Every review moves the next one further into the future. Forgotten cards come "
+            "back the next day.",
+        ),
+        (
+            "Lecture notes for the second week",
+            "Lecture notes for the second week Every review moves the next one further into "
+            "the future. Forgotten cards come back the next day.",
+        ),
+    ],
+    ids=["repeating-the-heading", "saying-something-else"],
+)
+def test_a_line_under_a_heading_stays_in_its_paragraph_unless_it_repeats_the_title(
+    llm: MockLLMProvider, first_line: str, summary: str
+) -> None:
+    # Markdown runs the lines of a paragraph together, the first one under a heading too.
+    sample = (
         "# Spaced repetition\n"
-        "Lecture notes for the second week\n"
+        f"{first_line}\n"
         "Every review moves the next one further into the future. Forgotten cards come "
         "back the next day.\n"
     )
@@ -511,9 +603,57 @@ def test_a_line_under_the_title_heading_that_stands_alone_stays_out_of_the_summa
     analysis = _analyze(llm, sample).analysis
 
     assert analysis.title == "Spaced repetition"
+    assert analysis.summary == summary
+
+
+def test_a_first_line_that_repeats_the_front_matter_title_stays_out_of_the_summary(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "---\n"
+        "title: Linear Algebra\n"
+        "---\n"
+        "Linear algebra\n"
+        "A vector is an ordered list of numbers that describes a point in space.\n"
+    )
+
+    analysis = _analyze(llm, sample).analysis
+
+    assert analysis.title == "Linear Algebra"
     assert analysis.summary == (
-        "Every review moves the next one further into the future. Forgotten cards come back "
-        "the next day."
+        "A vector is an ordered list of numbers that describes a point in space."
+    )
+
+
+@pytest.mark.parametrize(
+    "next_line",
+    [
+        "2024 год начался с новой версии стандарта языка запросов SQL.",
+        "«Нормальные формы» — так называют требования к схеме реляционной базы данных.",
+    ],
+    ids=["digit", "opening-quote"],
+)
+def test_a_first_line_before_a_line_starting_with_a_digit_or_a_quote_stands_alone(
+    llm: MockLLMProvider, next_line: str
+) -> None:
+    sample = f"Нормализация реляционных баз данных\n{next_line}\n"
+
+    analysis = _analyze(llm, sample, filename="lecture.pdf").analysis
+
+    assert analysis.title == "Нормализация реляционных баз данных"
+    assert analysis.summary == next_line
+
+
+def test_a_first_line_that_is_a_list_item_is_no_title_line(llm: MockLLMProvider) -> None:
+    sample = (
+        "- Install the command line tools first\n- Run the first exercise and compare the answers\n"
+    )
+
+    analysis = _analyze(llm, sample).analysis
+
+    assert analysis.title == "Install the command line tools first"
+    assert analysis.summary == (
+        "Install the command line tools first. Run the first exercise and compare the answers."
     )
 
 
@@ -600,6 +740,18 @@ def test_topics_hold_no_number_and_no_words_on_both_sides_of_punctuation(
     topics = _analyze(llm, sample).analysis.topics
 
     assert topics == ["vectors", "matrices", "tensors", "added", "scaled"]
+
+
+def test_a_title_line_counts_as_a_heading_for_the_topics(llm: MockLLMProvider) -> None:
+    sample = (
+        "Нормализация баз данных\n"
+        "Нормализация баз данных устраняет избыточность. Каждый факт хранится в одной "
+        "таблице один раз.\n"
+    )
+
+    topics = _analyze(llm, sample, filename="lecture.pdf").analysis.topics
+
+    assert topics[0] == "нормализация баз данных"
 
 
 def test_french_topics_leave_out_function_words_and_elided_articles(

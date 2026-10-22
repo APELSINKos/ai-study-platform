@@ -50,9 +50,11 @@ _HASH_BYTES: Final = 8
 _SIGN_BIT: Final = _HASH_BYTES * 8 - 1
 _EMPTY_TEXT_FEATURE: Final = "\x00empty"
 _STOPWORDS: Final = STOPWORDS_EN | STOPWORDS_RU
-# Number words make no topic ("two vectors", "ten minutes"). They and French stop words are
-# left out of topics only: the embeddings keep the words their stored vectors were made of.
-_TOPIC_STOPWORDS: Final = _STOPWORDS | STOPWORDS_FR | NUMBER_WORDS
+# French stop words count only where titles and topics are picked, and number words ("two
+# vectors", "ten minutes") only where topics are: the embeddings keep the words their stored
+# vectors were made of.
+_ALL_STOPWORDS: Final = _STOPWORDS | STOPWORDS_FR
+_TOPIC_STOPWORDS: Final = _ALL_STOPWORDS | NUMBER_WORDS
 # French articles and pronouns elided before a vowel: "l'algèbre", "d'une", "qu'il".
 _ELIDED_WORDS: Final = frozenset(
     {"c", "d", "j", "l", "m", "n", "s", "t", "qu", "jusqu", "lorsqu", "puisqu"}
@@ -157,8 +159,6 @@ class MockLLMProvider:
         ]
         title = _title(sample, sentences, request.filename)
         headings = [*request.outline.splitlines(), *sample.headings]
-        if sample.title_line is not None:
-            headings.append(sample.title_line)
         analysis = DocumentAnalysis(
             title=title,
             summary=_summary(sentences),
@@ -238,14 +238,15 @@ def _embed(text: str) -> list[float]:
 class _Sample:
     """The readable parts of an analysis sample as plain text.
 
-    Front matter, code blocks, HTML blocks and tables are left out. title is the one that
-    the front matter gives, if any; title_line is a first line of text that stands alone
-    like a title, which is a heading rather than a paragraph.
+    Front matter, code blocks, HTML blocks and tables are left out. title is the title the
+    text gives itself: the one in its front matter, or its first lines when they stand
+    alone like a title and nothing else names the text. Those lines head the text rather
+    than start it, so they count among its headings and not its paragraphs, unless they are
+    all the text there is.
     """
 
     title: str | None
     headings: list[str]
-    title_line: str | None
     paragraphs: list[str]
 
 
@@ -253,10 +254,11 @@ def _read_sample(sample: str) -> _Sample:
     lines = sample.splitlines()
     title, body_start = _front_matter(lines)
     headings: list[str] = []
-    paragraphs: list[str] = []
+    # A paragraph is kept as its lines until the end, so its first lines can still be told
+    # from the rest.
+    paragraphs: list[list[str]] = []
     paragraph: list[str] = []
-    first_line: str | None = None
-    first_line_is_list_item = False
+    starts_with_list_item = False
     in_code_block = False
     for line in lines[body_start:]:
         if line.strip() == _EXCERPT_SEPARATOR_LINE:
@@ -284,24 +286,64 @@ def _read_sample(sample: str) -> _Sample:
         has_content = _ALNUM_RE.search(text) is not None
         if is_list_item or not has_content:
             _end_paragraph(paragraph, paragraphs)
-        elif not paragraphs and paragraph == [first_line] and _starts_sentence(text):
-            # The first line does not go on into this one: it may stand alone like a title,
-            # as a PDF's title does, with no blank line under it.
-            _end_paragraph(paragraph, paragraphs)
         if has_content:
-            if first_line is None:
-                first_line, first_line_is_list_item = text, is_list_item
+            if not (paragraphs or paragraph):
+                starts_with_list_item = is_list_item
             paragraph.append(text)
     _end_paragraph(paragraph, paragraphs)
-    title_line = None
-    if (
-        paragraphs
-        and paragraphs[0] == first_line
-        and not first_line_is_list_item
-        and _is_title_like(first_line)
-    ):
-        title_line = paragraphs.pop(0)
-    return _Sample(title=title, headings=headings, title_line=title_line, paragraphs=paragraphs)
+    if not starts_with_list_item:
+        title = _take_title_lines(paragraphs, headings, title)
+    return _Sample(
+        title=title,
+        headings=headings,
+        paragraphs=[" ".join(paragraph_lines) for paragraph_lines in paragraphs],
+    )
+
+
+def _take_title_lines(
+    paragraphs: list[list[str]], headings: list[str], title: str | None
+) -> str | None:
+    """The text's title, once the first lines that stand alone like a title are taken out.
+
+    With nothing else naming the text, those lines become its title and its first heading.
+    Lines that only repeat the name that its front matter or its first heading gives go.
+    Lines that are all the text there is stay its text, and its title as well.
+    """
+    count = _title_line_count(paragraphs[0]) if paragraphs else 0
+    if not count:
+        return title
+    title_line = " ".join(paragraphs[0][:count])
+    name = title or next((heading for heading in headings if _has_letter(heading)), None)
+    if name is not None and title_line.casefold() != name.casefold():
+        # The text has a name already, so these lines start it: they run on in their
+        # paragraph, as Markdown renders them.
+        return title
+    if count < len(paragraphs[0]) or len(paragraphs) > 1:
+        del paragraphs[0][:count]
+        if not paragraphs[0]:
+            del paragraphs[0]
+        if name is None:
+            headings.insert(0, title_line)
+    return title_line if name is None else title
+
+
+def _title_line_count(lines: list[str]) -> int:
+    """How many first lines of a paragraph stand alone like a title, or 0 if they do not.
+
+    A PDF's title has no blank line under it and may take two lines, so the candidates are
+    the lines before the first one that starts a sentence, or all of them.
+    """
+    count = 0
+    length = 0
+    for line in lines:
+        if count and _starts_sentence(line):
+            break
+        # The lines are read as one, with a space between each two.
+        length += len(line) + (1 if count else 0)
+        if length > TITLE_LINE_MAX_CHARS:
+            return 0
+        count += 1
+    return count if _is_title_like(" ".join(lines[:count])) else 0
 
 
 def _starts_sentence(text: str) -> bool:
@@ -310,13 +352,18 @@ def _starts_sentence(text: str) -> bool:
     return first.isupper() or first.isdigit()
 
 
-def _is_title_like(line: str) -> bool:
-    """Whether a line could be a title: short, with a letter and no closing punctuation."""
-    return (
-        TITLE_LINE_MIN_CHARS <= len(line) <= TITLE_LINE_MAX_CHARS
-        and _has_letter(line)
-        and not line.endswith(_TITLE_LINE_ENDINGS)
-    )
+def _is_title_like(text: str) -> bool:
+    """Whether text could be a title: short, with a letter and ending as a title does.
+
+    Text ending in punctuation ends a sentence or a clause, and text ending in a stop word,
+    such as "by" or "и", is a sentence that goes on in the next line. The last word is all
+    that follows the last space, so an address such as "example.org/courses/it" does not end
+    in a stop word.
+    """
+    if not (TITLE_LINE_MIN_CHARS <= len(text) <= TITLE_LINE_MAX_CHARS and _has_letter(text)):
+        return False
+    last_word = text.rsplit(maxsplit=1)[-1]
+    return not text.endswith(_TITLE_LINE_ENDINGS) and _fold(last_word) not in _ALL_STOPWORDS
 
 
 def _front_matter(lines: list[str]) -> tuple[str | None, int]:
@@ -342,9 +389,9 @@ def _front_matter_title(block: list[str]) -> str | None:
     return None
 
 
-def _end_paragraph(lines: list[str], paragraphs: list[str]) -> None:
+def _end_paragraph(lines: list[str], paragraphs: list[list[str]]) -> None:
     if lines:
-        paragraphs.append(" ".join(lines))
+        paragraphs.append(lines.copy())
         lines.clear()
 
 
@@ -394,16 +441,14 @@ def _has_letter(text: str) -> bool:
 def _title(sample: _Sample, sentences: list[str], filename: str) -> str:
     """The document's title, taken from the first of these that it has.
 
-    The title in its front matter, its first heading, a first line standing alone like a
-    title, its first sentence and, last, its file name.
+    The title it gives itself in its front matter or its first lines, its first heading,
+    its first sentence and, last, its file name.
     """
     if sample.title is not None:
         return sample.title
     for heading in sample.headings:
         if _has_letter(heading):
             return shorten(heading, TITLE_MAX_LENGTH)
-    if sample.title_line is not None:
-        return sample.title_line
     for sentence in sentences:
         if _has_letter(sentence):
             return shorten(sentence.rstrip(_SENTENCE_END_CHARS), TITLE_SENTENCE_MAX_CHARS)
