@@ -32,7 +32,9 @@ _TOKEN_PATH: Final = "/api/v1/auth/token"
 _REFRESH_PATH: Final = "/api/v1/auth/refresh"
 _LOGOUT_PATH: Final = "/api/v1/auth/logout"
 _ME_PATH: Final = "/api/v1/auth/me"
-_PROTECTED_PATH: Final = "/api/v1/_test/protected"
+# A route that changes data for the signed-in user, so CurrentUser checks CSRF on it.
+_WORKSPACES_PATH: Final = "/api/v1/workspaces"
+_NEW_WORKSPACE: Final = {"name": "Algorithms"}
 
 
 def _login(client: TestClient, *, email: str, password: str = PASSWORD) -> httpx2.Response:
@@ -265,7 +267,7 @@ def test_cookie_authenticated_post_without_csrf_header_is_rejected(
 ) -> None:
     register(auth_client, email="csrf-missing@example.com")
 
-    response = auth_client.post(_PROTECTED_PATH)
+    response = auth_client.post(_WORKSPACES_PATH, json=_NEW_WORKSPACE)
 
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert response.json()["error"]["code"] == "csrf_failed"
@@ -276,9 +278,11 @@ def test_cookie_authenticated_post_with_matching_csrf_header_succeeds(
 ) -> None:
     register(auth_client, email="csrf-ok@example.com")
 
-    response = auth_client.post(_PROTECTED_PATH, headers=csrf_headers(auth_client))
+    response = auth_client.post(
+        _WORKSPACES_PATH, json=_NEW_WORKSPACE, headers=csrf_headers(auth_client)
+    )
 
-    assert response.status_code == HTTPStatus.OK
+    assert response.status_code == HTTPStatus.CREATED
 
 
 def test_bearer_authenticated_post_does_not_require_csrf(
@@ -288,10 +292,12 @@ def test_bearer_authenticated_post_does_not_require_csrf(
 
     with TestClient(auth_app) as bearer_client:
         response = bearer_client.post(
-            _PROTECTED_PATH, headers={"Authorization": f"Bearer {registered['access_token']}"}
+            _WORKSPACES_PATH,
+            json=_NEW_WORKSPACE,
+            headers={"Authorization": f"Bearer {registered['access_token']}"},
         )
 
-    assert response.status_code == HTTPStatus.OK
+    assert response.status_code == HTTPStatus.CREATED
 
 
 # --- refresh --------------------------------------------------------------------

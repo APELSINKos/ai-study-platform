@@ -5,13 +5,13 @@ from typing import Final, NamedTuple
 
 import httpx2
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy.orm import Session
 
 from app.api.cookies import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
-from app.api.deps import CurrentUser, get_db, get_document_queue
+from app.api.deps import get_db, get_document_queue
 from app.core.config import Settings
 from app.core.redis import get_redis_client
 from app.core.request_context import get_request_id
@@ -20,15 +20,6 @@ from app.main import create_app
 
 PASSWORD: Final = "correct horse battery staple"
 _REGISTER_PATH: Final = "/api/v1/auth/register"
-
-# A route with no purpose other than exercising CurrentUser's CSRF enforcement on a
-# mutating request; production code has no such endpoint yet at this stage.
-_csrf_probe_router = APIRouter()
-
-
-@_csrf_probe_router.post("/api/v1/_test/protected")
-def _csrf_probe(current_user: CurrentUser) -> dict[str, str]:
-    return {"user_id": str(current_user.id)}
 
 
 def register(
@@ -84,7 +75,6 @@ def auth_app(
     app.dependency_overrides[get_db] = lambda: db_session
     # Tests never publish to a real broker.
     app.dependency_overrides[get_document_queue] = lambda: document_queue
-    app.include_router(_csrf_probe_router)
     return app
 
 
