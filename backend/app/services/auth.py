@@ -44,6 +44,11 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def invalid_credentials() -> AuthenticationError:
+    """The error for an email and password that match no active account."""
+    return AuthenticationError(_INVALID_CREDENTIALS_MESSAGE, code="invalid_credentials")
+
+
 @dataclass(frozen=True)
 class IssuedSession:
     access_token: AccessToken
@@ -85,9 +90,9 @@ class AuthService:
         user = self._users.get_by_email(normalize_email(email))
         if user is None:
             burn_password_check(password)
-            raise AuthenticationError(_INVALID_CREDENTIALS_MESSAGE, code="invalid_credentials")
+            raise invalid_credentials()
         if not verify_password(password, user.password_hash) or not user.is_active:
-            raise AuthenticationError(_INVALID_CREDENTIALS_MESSAGE, code="invalid_credentials")
+            raise invalid_credentials()
         if password_needs_rehash(user.password_hash):
             user.password_hash = hash_password(password)
             self._session.commit()

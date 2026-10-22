@@ -21,6 +21,7 @@ from app.api.cookies import (
 )
 from app.api.deps import get_redis
 from app.core.config import Settings
+from app.core.logging import configure_logging
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from tests.api.conftest import PASSWORD, csrf_headers, register
@@ -423,6 +424,59 @@ def test_token_endpoint_treats_a_username_with_a_nul_character_as_unknown(
 
     assert response.status_code == HTTPStatus.UNAUTHORIZED
     assert response.json()["error"]["code"] == "invalid_credentials"
+
+
+def _token_form(
+    client: TestClient, *, username: bytes, password: bytes, charset: str
+) -> httpx2.Response:
+    """A token request whose form fields are sent exactly as given, in a body of this charset."""
+    boundary = "token-test-boundary"
+    parts = [
+        f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        + value
+        + b"\r\n"
+        for name, value in (("username", username), ("password", password))
+    ]
+    body = b"".join([*parts, f"--{boundary}--\r\n".encode()])
+    content_type = f"multipart/form-data; boundary={boundary}; charset={charset}"
+    return client.post(_TOKEN_PATH, content=body, headers={"Content-Type": content_type})
+
+
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        (b"token+2D0-user@example.com", PASSWORD.encode()),
+        (b"token-user@example.com", b"correct horse+2D0- battery staple"),
+        (b"nobody@example.com", b"correct horse+2D0- battery staple"),
+    ],
+    ids=["username", "password", "password-of-an-unknown-user"],
+)
+def test_token_endpoint_treats_a_surrogate_smuggled_in_by_the_body_charset_as_wrong_credentials(
+    auth_client: TestClient, capsys: pytest.CaptureFixture[str], username: bytes, password: bytes
+) -> None:
+    register(auth_client, email="token-user@example.com")
+    configure_logging("INFO", "json")
+
+    # In UTF-7, "+2D0-" is a lone surrogate, which no UTF-8 text can hold.
+    response = _token_form(auth_client, username=username, password=password, charset="utf-7")
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert response.json()["error"]["code"] == "invalid_credentials"
+    assert "unhandled_exception" not in capsys.readouterr().out
+
+
+def test_token_endpoint_accepts_a_password_with_a_character_beyond_the_basic_plane(
+    auth_client: TestClient,
+) -> None:
+    # UTF-16 writes this character as a surrogate pair; a Python string holds it whole.
+    password = f"{PASSWORD} \N{GRINNING FACE}"
+    register(auth_client, email="emoji-user@example.com", password=password)
+
+    response = auth_client.post(
+        _TOKEN_PATH, data={"username": "emoji-user@example.com", "password": password}
+    )
+
+    assert response.status_code == HTTPStatus.OK
 
 
 # --- OpenAPI ------------------------------------------------------------------------

@@ -24,7 +24,8 @@ from app.core.rate_limit import RateLimit, enforce_rate_limit, rate_limit_key
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, SessionOut, TokenOut, UserOut
 from app.schemas.errors import ErrorResponse
-from app.services.auth import IssuedSession, normalize_email
+from app.schemas.text import has_surrogate
+from app.services.auth import IssuedSession, invalid_credentials, normalize_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -143,6 +144,10 @@ def issue_token(
     settings: SettingsDep,
     redis: RedisClient,
 ) -> TokenOut:
+    # No account's email or password holds a surrogate, and one could not even be hashed
+    # into a rate limit key.
+    if has_surrogate(form.username) or has_surrogate(form.password):
+        raise invalid_credentials()
     _enforce_login_rate_limits(redis, settings, ip=client_ip(request), email=form.username)
     user = auth_service.authenticate(email=form.username, password=form.password)
     access_token = auth_service.issue_access_token(user)
