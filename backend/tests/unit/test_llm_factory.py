@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from typing import Any, Final
 
 import pytest
-from openai import OpenAI, Timeout
+from openai import Omit, OpenAI, Timeout
 from pydantic import SecretStr
 
 from app.core.config import DEFAULT_OPENAI_BASE_URL, ResolvedProvider, Settings
@@ -152,6 +152,28 @@ def test_an_exported_openai_base_url_is_never_used(monkeypatch: pytest.MonkeyPat
         CHAT_API_KEY,
         DEFAULT_OPENAI_BASE_URL,
     )
+
+
+def test_other_exported_openai_variables_never_reach_an_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The SDK reads these by itself and would send them with every request, to any URL.
+    monkeypatch.setenv("OPENAI_ORG_ID", "org-from-the-environment")
+    monkeypatch.setenv("OPENAI_PROJECT_ID", "proj_from_the_environment")
+    monkeypatch.setenv(
+        "OPENAI_CUSTOM_HEADERS", "Authorization: Bearer another-key\nX-Gateway-Key: gateway-key"
+    )
+    settings = _settings(openai_api_key=SecretStr(CHAT_API_KEY), llm_base_url=CHAT_BASE_URL)
+
+    for client in (_chat_provider(settings).client, _embedding_provider(settings).client):
+        sent = {
+            name.lower(): value
+            for name, value in client.default_headers.items()
+            if not isinstance(value, Omit)
+        }
+        assert not {"openai-organization", "openai-project", "x-gateway-key"} & sent.keys()
+        assert "authorization" not in sent
+        assert client.auth_headers == {"Authorization": f"Bearer {CHAT_API_KEY}"}
 
 
 def test_embeddings_inherit_the_chat_key_together_with_its_url() -> None:

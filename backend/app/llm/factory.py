@@ -85,12 +85,19 @@ def get_openai_client(
     never at import, so each forked worker process makes its own. The key and URL are always
     given, so the SDK never falls back to OPENAI_API_KEY or OPENAI_BASE_URL itself.
     """
-    return OpenAI(
+    client = OpenAI(
         api_key=api_key,
         base_url=base_url,
         timeout=Timeout(timeout_seconds, connect=CONNECT_TIMEOUT_SECONDS),
         max_retries=max_retries,
     )
+    # No argument keeps the SDK from filling these from OPENAI_ORG_ID, OPENAI_PROJECT_ID and
+    # OPENAI_CUSTOM_HEADERS, and it would send them with every request, whatever the URL;
+    # the custom headers could even replace the key. The settings configure none of them.
+    client.organization = None
+    client.project = None
+    client._custom_headers = {}
+    return client
 
 
 def _chat_endpoint(settings: Settings) -> ProviderEndpoint | None:
