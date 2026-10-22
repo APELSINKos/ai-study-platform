@@ -1028,15 +1028,17 @@ def test_a_run_that_reaches_its_deadline_while_reading_a_pdf_fails_as_a_timeout(
     assert llm.calls == 0
 
 
-def _leave_a_second_after_the_claim(monkeypatch: pytest.MonkeyPatch, clock: _FakeClock) -> None:
-    """Move the clock to a second before the deadline as soon as a run claims its document."""
+def _leave_after_the_claim(
+    monkeypatch: pytest.MonkeyPatch, clock: _FakeClock, left: timedelta
+) -> None:
+    """Move the clock to left before the deadline as soon as a run claims its document."""
     claim = DocumentRepository.claim_for_processing
 
     def claim_then_wait(
         repository: DocumentRepository, document_id: uuid.UUID, now: datetime
     ) -> ClaimedDocument | None:
         claimed = claim(repository, document_id, now)
-        clock.advance(_RUN_TIME_LIMIT - timedelta(seconds=1))
+        clock.advance(_RUN_TIME_LIMIT - left)
         return claimed
 
     monkeypatch.setattr(DocumentRepository, "claim_for_processing", claim_then_wait)
@@ -1049,7 +1051,7 @@ def test_a_damaged_pdf_that_keeps_the_pdf_library_busy_stops_at_the_deadline(
     # While pypdf repairs a damaged file it checks no deadline and swallows every Exception,
     # Celery's soft time limit included.
     document = runner.store(slow_to_repair_pdf(_SLOW_TO_REPAIR_PDF_BYTES), "damaged.pdf")
-    _leave_a_second_after_the_claim(monkeypatch, clock)
+    _leave_after_the_claim(monkeypatch, clock, timedelta(seconds=1))
     handler = signal.getsignal(signal.SIGALRM)
 
     outcome = runner.run(document.id)
@@ -1068,7 +1070,7 @@ def test_the_deadline_alarm_is_off_once_the_file_is_read(
 ) -> None:
     # Left on, it would go off in the middle of a later step.
     document = runner.store(_MARKDOWN.encode(), "sorting.md")
-    _leave_a_second_after_the_claim(monkeypatch, clock)
+    _leave_after_the_claim(monkeypatch, clock, timedelta(seconds=1))
     handler = signal.getsignal(signal.SIGALRM)
     alarms: list[tuple[float, float]] = []
     llm = _FakeLLM(before_call=lambda: alarms.append(signal.getitimer(signal.ITIMER_REAL)))
@@ -1078,6 +1080,21 @@ def test_the_deadline_alarm_is_off_once_the_file_is_read(
     assert outcome == PipelineOutcome.ready(chunk_count=3)
     assert alarms == [(0.0, 0.0)]
     assert signal.getsignal(signal.SIGALRM) == handler
+
+
+@pytest.mark.parametrize(
+    "left", [timedelta(0), timedelta(seconds=-1)], ids=["at-the-deadline", "past-it"]
+)
+def test_a_run_out_of_time_before_its_pdf_is_read_never_opens_it(
+    runner: _Runner, clock: _FakeClock, monkeypatch: pytest.MonkeyPatch, left: timedelta
+) -> None:
+    # An alarm can only be set for some time to come: one for no time would never go off.
+    document = runner.store(slow_to_repair_pdf(_SLOW_TO_REPAIR_PDF_BYTES), "damaged.pdf")
+    _leave_after_the_claim(monkeypatch, clock, left)
+
+    outcome = runner.run(document.id)
+
+    assert outcome == PipelineOutcome.failed("processing_timeout")
 
 
 @pytest.mark.parametrize("stage", ["analysis", "embeddings"])
