@@ -13,6 +13,7 @@ export const queryKeys = {
   workspace: (id: string) => ["workspaces", "detail", id] as const,
   /** Infinite, `WORKSPACE_DOCUMENTS_PAGE_SIZE` per page. */
   workspaceDocuments: (id: string) => ["workspaces", "detail", id, "documents"] as const,
+  documents: ["documents"] as const,
   document: (id: string) => ["documents", id] as const,
   /** Infinite, `DOCUMENT_CHUNKS_PAGE_SIZE` per page. */
   documentChunks: (id: string) => ["documents", id, "chunks"] as const,

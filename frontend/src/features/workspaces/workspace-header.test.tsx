@@ -2,6 +2,11 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  chunkFixture,
+  chunkPageFixture,
+  readyDocumentFixture,
+} from "@/features/documents/test-fixtures";
 import type { Locale } from "@/i18n/config";
 import { apiFetch } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
@@ -186,6 +191,29 @@ describe("WorkspaceHeader", () => {
     expect(queryClient.getQueryData(queryKeys.workspace(WORKSPACE.id))).toBeUndefined();
     expect(queryClient.getQueryData(queryKeys.workspaceDocuments(WORKSPACE.id))).toBeUndefined();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspaces"] });
+  });
+
+  it("forgets the pages and fragments of its documents, and of no other workspace's", async () => {
+    apiFetchMock.mockResolvedValue(undefined);
+    const { queryClient } = renderHeader();
+    const own = readyDocumentFixture(1, { workspace_id: WORKSPACE.id });
+    const elsewhere = readyDocumentFixture(2, { workspace_id: OTHER.id });
+    // Pages opened earlier: Back could return to one of them after the delete.
+    for (const document of [own, elsewhere]) {
+      queryClient.setQueryData(queryKeys.document(document.id), document);
+      queryClient.setQueryData(queryKeys.documentChunks(document.id), {
+        pages: [chunkPageFixture([chunkFixture(0)])],
+        pageParams: [1],
+      });
+    }
+
+    await confirmDelete(await openDeleteDialog());
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/workspaces"));
+    expect(queryClient.getQueryData(queryKeys.document(own.id))).toBeUndefined();
+    expect(queryClient.getQueryData(queryKeys.documentChunks(own.id))).toBeUndefined();
+    expect(queryClient.getQueryData(queryKeys.document(elsewhere.id))).toEqual(elsewhere);
+    expect(queryClient.getQueryData(queryKeys.documentChunks(elsewhere.id))).toBeDefined();
   });
 
   it("drops the cached lists, so the list it returns to never shows the deleted workspace", async () => {

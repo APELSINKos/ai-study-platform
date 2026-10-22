@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
   type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query";
 
 import { ApiError } from "@/lib/api/errors";
@@ -97,6 +98,28 @@ export function useUpdateWorkspace(id: string) {
   });
 }
 
+function isDocumentOf(data: unknown, workspaceId: string): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "workspace_id" in data &&
+    data.workspace_id === workspaceId
+  );
+}
+
+/**
+ * Forgets the cached pages of a deleted workspace's documents. They live under `documents`, apart
+ * from the workspace, so Back could otherwise show one of them as if it still existed.
+ */
+function removeCachedDocumentsOf(queryClient: QueryClient, workspaceId: string): void {
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: queryKeys.documents })) {
+    if (isDocumentOf(query.state.data, workspaceId)) {
+      // The document's key also holds its fragments.
+      queryClient.removeQueries({ queryKey: query.queryKey });
+    }
+  }
+}
+
 export function useDeleteWorkspace(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -114,6 +137,7 @@ export function useDeleteWorkspace(id: string) {
       // Removed, not invalidated: a refetch could only find the workspace gone. The key also
       // holds the workspace's document list.
       queryClient.removeQueries({ queryKey: queryKeys.workspace(id) });
+      removeCachedDocumentsOf(queryClient, id);
       // An invalidated list still shows its cached rows until the refetch lands, so a list off
       // screen would show the deleted workspace for a moment when the user returns to it; it
       // loads afresh instead. A list on screen (the user went back while waiting) is only

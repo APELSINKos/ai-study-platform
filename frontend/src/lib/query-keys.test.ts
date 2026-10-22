@@ -42,6 +42,7 @@ describe("queryKeys", () => {
     expect(queryKeys.recentWorkspaces).toEqual(["workspaces", "recent"]);
     expect(queryKeys.workspace("w1")).toEqual(["workspaces", "detail", "w1"]);
     expect(queryKeys.workspaceDocuments("w1")).toEqual(["workspaces", "detail", "w1", "documents"]);
+    expect(queryKeys.documents).toEqual(["documents"]);
     expect(queryKeys.document("d1")).toEqual(["documents", "d1"]);
     expect(queryKeys.documentChunks("d1")).toEqual(["documents", "d1", "chunks"]);
     expect(queryKeys.meta).toEqual(["meta"]);
