@@ -16,7 +16,7 @@ from app.core.clock import utcnow
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.db.session import get_session_factory
-from app.documents.pipeline import PipelineOutcome
+from app.documents.pipeline import PipelineOutcome, SkipReason
 from app.llm.mock_provider import HashingEmbeddingProvider, MockLLMProvider
 from app.workers.celery_app import (
     DOCUMENT_TASK_SOFT_TIME_LIMIT_SECONDS,
@@ -234,6 +234,29 @@ def test_a_failed_document_is_logged_as_a_warning_with_its_error_code(
     assert failed["code"] == "pdf_unreadable"
     assert failed["level"] == "warning"
     assert failed["document_id"] == str(_DOCUMENT_ID)
+
+
+@pytest.mark.parametrize("reason", ["not_claimable", "superseded"])
+def test_a_skipped_run_is_logged_with_why_it_was_skipped(
+    pipeline: _ScriptedPipeline, capsys: pytest.CaptureFixture[str], reason: SkipReason
+) -> None:
+    configure_logging("INFO", "json")
+    pipeline.outcomes = [PipelineOutcome.skipped(reason)]
+
+    _process()
+
+    lines = _task_lines(capsys.readouterr().out)
+    assert [line["event"] for line in lines] == [
+        "document_processing_started",
+        "document_processing_finished",
+        "document_processing_skipped",
+    ]
+    skipped = lines[-1]
+    assert (skipped["level"], skipped["reason"], skipped["document_id"]) == (
+        "info",
+        reason,
+        str(_DOCUMENT_ID),
+    )
 
 
 def test_every_attempt_is_logged_with_its_number_and_outcome(

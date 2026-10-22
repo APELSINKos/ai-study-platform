@@ -102,6 +102,9 @@ def process_document(self: Task[Any, Any], document_id: str) -> None:
     )
     if outcome.kind == "failed":
         logger.warning("document_processing_failed", code=outcome.code)
+    if outcome.kind == "skipped":
+        # Such as a message delivered twice, or one for a document deleted meanwhile.
+        logger.info("document_processing_skipped", reason=outcome.reason)
     if outcome.kind == "retry":
         raise self.retry(countdown=retry_countdown(retries, outcome.retry_after_seconds))
 
