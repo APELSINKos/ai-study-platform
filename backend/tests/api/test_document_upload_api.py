@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Final, NamedTuple
+from typing import Any, Final, NamedTuple, NoReturn
 
 import httpx2
 import pytest
@@ -492,12 +492,19 @@ def test_another_users_workspace_takes_no_upload_and_lists_nothing(
     workspace_before = user_client.get(_workspace_path(workspace_id)).json()
     files_before = _stored_files(integration_settings)
 
-    responses = [
-        _upload(other_user_client, workspace_id, "intruder.md", b"# Mine now\n"),
-        other_user_client.get(_documents_path(workspace_id)),
-        _upload(other_user_client, str(uuid.uuid4()), "notes.md", b"# Notes\n"),
-        other_user_client.get(_documents_path(str(uuid.uuid4()))),
-    ]
+    def no_storage(*_: object, **__: object) -> NoReturn:
+        pytest.fail("A request for a workspace the user does not own reached the file storage.")
+
+    # Not even a temporary copy may be written, and removed again, before the owner check.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(FileStorage, "sweep_temp", no_storage)
+        patch.setattr(FileStorage, "temp_file", no_storage)
+        responses = [
+            _upload(other_user_client, workspace_id, "intruder.md", b"# Mine now\n"),
+            other_user_client.get(_documents_path(workspace_id)),
+            _upload(other_user_client, str(uuid.uuid4()), "notes.md", b"# Notes\n"),
+            other_user_client.get(_documents_path(str(uuid.uuid4()))),
+        ]
 
     for response in responses:
         _assert_error(response, HTTPStatus.NOT_FOUND, "workspace_not_found")
