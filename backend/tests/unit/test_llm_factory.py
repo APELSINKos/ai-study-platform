@@ -27,17 +27,6 @@ from app.llm.mock_provider import (
 from app.llm.openai_provider import OpenAIEmbeddingProvider, OpenAILLMProvider
 from app.llm.structured import ChatOptions
 
-PROVIDER_VARIABLES: Final = (
-    "LLM_PROVIDER",
-    "OPENAI_API_KEY",
-    "LLM_BASE_URL",
-    "LLM_MODEL",
-    "EMBEDDING_PROVIDER",
-    "EMBEDDING_API_KEY",
-    "EMBEDDING_BASE_URL",
-    "EMBEDDING_MODEL",
-    "OPENAI_BASE_URL",
-)
 CHAT_API_KEY: Final = "chat-api-key-used-only-in-tests-000000"
 EMBEDDING_API_KEY: Final = "embedding-api-key-used-only-in-tests-0"
 CHAT_BASE_URL: Final = "https://openrouter.ai/api/v1"
@@ -45,10 +34,7 @@ EMBEDDING_BASE_URL: Final = "http://host.docker.internal:11434/v1"
 
 
 @pytest.fixture(autouse=True)
-def _isolated(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    # The dev containers and a developer's shell may export real provider settings.
-    for name in PROVIDER_VARIABLES:
-        monkeypatch.delenv(name, raising=False)
+def _isolated() -> Iterator[None]:
     # structlog keeps the logger it first used, so logging is set up before anything logs.
     configure_logging("INFO", "json")
     get_openai_client.cache_clear()

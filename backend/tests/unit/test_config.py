@@ -27,10 +27,9 @@ PRODUCTION_SECRET_KEY: Final = "x" * 40
 
 
 @pytest.fixture(autouse=True)
-def _without_provider_variables(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The dev containers and a developer's shell may export real provider settings.
-    for name in (*PASS_THROUGH_VARIABLES, "STORAGE_DIR"):
-        monkeypatch.delenv(name, raising=False)
+def _without_storage_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The dev containers set it; the provider variables are cleared for every test.
+    monkeypatch.delenv("STORAGE_DIR", raising=False)
 
 
 def test_cors_origins_are_read_from_a_comma_separated_variable(

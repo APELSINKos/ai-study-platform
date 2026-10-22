@@ -19,6 +19,25 @@ from app.main import create_app
 FRONTEND_ORIGIN = "http://localhost:3000"
 MAINTENANCE_DATABASE = "postgres"
 BACKEND_DIR: Final = Path(__file__).resolve().parents[1]
+# Model provider settings that the dev containers and a developer's shell may export; the
+# OpenAI SDK reads OPENAI_BASE_URL itself. A test that needs one sets it.
+PROVIDER_VARIABLES: Final = (
+    "LLM_PROVIDER",
+    "OPENAI_API_KEY",
+    "LLM_BASE_URL",
+    "LLM_MODEL",
+    "EMBEDDING_PROVIDER",
+    "EMBEDDING_API_KEY",
+    "EMBEDDING_BASE_URL",
+    "EMBEDDING_MODEL",
+    "OPENAI_BASE_URL",
+)
+
+
+@pytest.fixture(autouse=True)
+def _without_provider_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in PROVIDER_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _required_env(name: str) -> str:
