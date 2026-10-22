@@ -562,7 +562,7 @@ def test_an_upload_to_another_users_workspace_still_counts_against_the_limit(
     workspace_id = _create_workspace(user_client)
     other_workspace_id = _create_workspace(other_user_client)
 
-    # Its whole body was received before the workspace could be checked.
+    # Counted like any other attempt: the limit is the caller's own.
     not_found = _upload(user_client, other_workspace_id)
     limited = _upload(user_client, workspace_id)
 
