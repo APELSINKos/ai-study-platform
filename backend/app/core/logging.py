@@ -2,7 +2,9 @@ import logging
 import sys
 from typing import Final
 
+import psycopg
 import structlog
+from sqlalchemy.exc import DBAPIError
 from structlog.typing import Processor
 
 from app.core.config import LogFormat, LogLevel
@@ -62,3 +64,25 @@ def configure_logging(level: LogLevel, log_format: LogFormat) -> None:
 
     # RequestContextMiddleware writes the access log with the request id attached.
     logging.getLogger("uvicorn.access").disabled = True
+
+
+def log_unexpected_error(
+    logger: structlog.stdlib.BoundLogger, event: str, error: Exception, **fields: object
+) -> None:
+    """Log an error that nothing handled, with its traceback; a database error by its codes.
+
+    PostgreSQL describes a row it refuses by quoting it ("Failing row contains (...)"), and
+    the row can hold document text, names or a password hash. So a database error is logged
+    by its type, SQLSTATE and constraint alone, never by its text.
+    """
+    if not isinstance(error, DBAPIError):
+        logger.error(event, exc_info=error, **fields)
+        return
+    driver_error = error.orig if isinstance(error.orig, psycopg.Error) else None
+    logger.error(
+        event,
+        exc_type=type(error).__name__,
+        sqlstate=driver_error.sqlstate if driver_error is not None else None,
+        constraint=driver_error.diag.constraint_name if driver_error is not None else None,
+        **fields,
+    )

@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.logging import log_unexpected_error
 from app.core.metrics import observe_http_request
 from app.core.request_context import request_id_ctx
 from app.core.timing import to_ms
@@ -53,8 +54,10 @@ class RequestContextMiddleware:
 
         try:
             await self.app(scope, receive, send_with_request_id)
-        except Exception:
-            logger.exception("unhandled_exception", method=scope["method"], path=scope["path"])
+        except Exception as error:
+            log_unexpected_error(
+                logger, "unhandled_exception", error, method=scope["method"], path=scope["path"]
+            )
             if response_started:
                 raise
             await _internal_error(request_id)(scope, receive, send_with_request_id)

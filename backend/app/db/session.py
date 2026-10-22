@@ -13,8 +13,9 @@ def get_engine(database_url: str) -> Engine:
         database_url,
         pool_pre_ping=True,
         connect_args={"connect_timeout": DATABASE_CONNECT_TIMEOUT_SECONDS},
-        # A database error's text would otherwise carry the statement's values into the
-        # logs: document text, names and file names.
+        # Leaves the statement's values, such as document text, names and file names, out of
+        # the text SQLAlchemy gives a database error. PostgreSQL's own part of that text can
+        # still quote a row it refuses, which is why log_unexpected_error never logs it.
         hide_parameters=True,
     )
 

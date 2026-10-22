@@ -1368,6 +1368,38 @@ def test_chunks_the_database_rejects_fail_the_document_as_an_internal_error(
         for line in _json_lines(capsys.readouterr().out)
         if line["event"] == "document_processing_crashed"
     ]
-    # The rejected statement is logged without its values: they hold the document's text.
-    assert line["exception"][0]["exc_type"] == "IntegrityError"
+    # Logged by its codes alone: the rejected statement's values hold the document's text.
     assert "Sorting puts the items" not in json.dumps(line)
+    assert (line["exc_type"], line["sqlstate"], line["constraint"]) == (
+        "IntegrityError",
+        "23505",
+        "uq_document_chunks_document_id_chunk_index",
+    )
+
+
+def test_a_row_the_database_refuses_is_not_quoted_in_the_log(
+    runner: _Runner,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+    document = runner.store(_MARKDOWN.encode(), "sorting.md")
+    # Stands for any bug that stores a value a CHECK refuses. PostgreSQL's error then quotes
+    # the refused row, with the file name and the analysis.
+    monkeypatch.setattr("app.documents.pipeline.estimated_study_minutes", lambda *_: -1)
+
+    outcome = runner.run(document.id)
+
+    assert outcome == PipelineOutcome.failed("internal_error")
+    [line] = [
+        line
+        for line in _json_lines(capsys.readouterr().out)
+        if line["event"] == "document_processing_crashed"
+    ]
+    # The file name, the title, the summary and the topics all speak of sorting.
+    assert "sort" not in json.dumps(line).lower()
+    assert (line["exc_type"], line["sqlstate"], line["constraint"]) == (
+        "IntegrityError",
+        "23514",
+        "ck_documents_counts_non_negative",
+    )

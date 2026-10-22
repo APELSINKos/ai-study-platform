@@ -6,12 +6,19 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from psycopg.errors import CheckViolation
+from sqlalchemy.exc import IntegrityError
 
 from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 
 GENERATED_ID = re.compile(r"[0-9a-f]{32}")
 LEAKED_SECRET = "postgres password is hunter2"
+# How PostgreSQL describes a row that a CHECK refuses: by quoting it.
+REFUSED_ROW_ERROR = (
+    'new row for relation "users" violates check constraint "ck_users_email"\n'
+    "DETAIL:  Failing row contains (someone@example.com, $argon2id$v=19$m=65536...)."
+)
 
 
 @pytest.fixture
@@ -23,6 +30,12 @@ def client(app: FastAPI) -> Iterator[TestClient]:
     @app.get("/test/crash")
     def crash() -> None:
         raise RuntimeError(LEAKED_SECRET)
+
+    @app.get("/test/database-crash")
+    def database_crash() -> None:
+        raise IntegrityError(
+            "UPDATE users SET email=%(email)s", None, CheckViolation(REFUSED_ROW_ERROR)
+        )
 
     with TestClient(app) as test_client:
         yield test_client
@@ -77,6 +90,25 @@ def test_unhandled_exceptions_become_generic_json_500s(
     assert LEAKED_SECRET not in response.text
     events = [line["event"] for line in _log_lines(capsys.readouterr().out)]
     assert "unhandled_exception" in events
+
+
+def test_an_unhandled_database_error_is_logged_without_the_row_it_quotes(
+    capsys: pytest.CaptureFixture[str], client: TestClient
+) -> None:
+    configure_logging("INFO", "json")
+
+    response = client.get("/test/database-crash")
+
+    assert response.status_code == 500
+    [line] = [
+        line
+        for line in _log_lines(capsys.readouterr().out)
+        if line["event"] == "unhandled_exception"
+    ]
+    assert "someone@example.com" not in json.dumps(line)
+    assert "argon2" not in json.dumps(line)
+    assert (line["exc_type"], line["sqlstate"]) == ("IntegrityError", "23514")
+    assert line["path"] == "/test/database-crash"
 
 
 def test_each_request_is_logged_once_with_its_outcome(

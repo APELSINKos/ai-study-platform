@@ -22,6 +22,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
+from app.core.logging import log_unexpected_error
 from app.core.timing import MS_PER_SECOND
 from app.documents.analysis_sample import build_analysis_sample
 from app.documents.chunking import (
@@ -180,7 +181,9 @@ class _Run:
         except ProviderError as error:
             return self._provider_failed(error)
         except Exception as error:
-            logger.exception("document_processing_crashed", document_id=str(self.document.id))
+            log_unexpected_error(
+                logger, "document_processing_crashed", error, document_id=str(self.document.id)
+            )
             message = f"{_INTERNAL_ERROR_MESSAGE}: {type(error).__name__}."
             return self._fail("internal_error", message)
 
