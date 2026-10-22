@@ -121,6 +121,29 @@ def mapped_text_pdf(text: bytes, to_unicode: Mapping[int, str]) -> bytes:
     return _pdf([_stream(content)], font=font, more_objects=[_stream(cmap)])
 
 
+def many_fonts_pdf(font_count: int, map_bytes: int) -> bytes:
+    """One page that lists font_count fonts, each with a ToUnicode map of its own.
+
+    Every map inflates to map_bytes, nearly all of it a comment. pypdf decodes the map of
+    each font a page lists before it reads the page, and keeps it while the file is open.
+    """
+    head = b"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n%"
+    tail = b"\n1 beginbfchar\n<41> <0041>\nendbfchar\n"
+    cmap = head + b"x" * (map_bytes - len(head) - len(tail)) + tail
+    map_stream = _stream(zlib.compress(cmap, level=9), entries=_FLATE_FILTER)
+    font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode %d 0 R >>"
+    # The page and its content come first; each font follows, then its map.
+    first = _FIRST_PAGE_OBJECT + 2
+    names = b""
+    objects: list[bytes] = []
+    for index in range(font_count):
+        number = first + 2 * index
+        names += b" /F%d %d 0 R" % (index + 1, number)
+        objects += [font % (number + 1), map_stream]
+    content = _stream(_text_operators(["Set in many fonts."]))
+    return _pdf([content], resources=b"<< /Font <<%s >> >>" % names, more_objects=objects)
+
+
 def _xobject(xobject: Form | Image, numbers: Mapping[str, int]) -> bytes:
     if isinstance(xobject, Image):
         pixels = zlib.compress(b"\x00" * xobject.size, level=9)

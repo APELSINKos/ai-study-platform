@@ -1,14 +1,18 @@
 # Needed because Task[Any, Any] is not subscriptable at runtime on Celery.
 from __future__ import annotations
 
+import sys
 from typing import Any, Final
 
 import structlog
 from celery import Celery, Task, signals
 
-from app.core.config import get_settings
+from app.core.config import MIB, get_settings
 from app.core.logging import configure_logging
 from app.core.request_context import request_id_ctx
+
+if sys.platform != "win32":
+    import resource
 
 TASK_REQUEST_ID_KEY: Final = "request_id"
 PROCESS_DOCUMENT_TASK_NAME: Final = "documents.process"
@@ -25,6 +29,8 @@ BROKER_VISIBILITY_TIMEOUT_SECONDS: Final = 30 * 60
 BROKER_CONNECT_TIMEOUT_SECONDS: Final = 3
 BROKER_SOCKET_TIMEOUT_SECONDS: Final = 5
 PUBLISH_MAX_RETRIES: Final = 2
+# Largest documents allowed peak near 500 MiB (measured); two capped children fit in 2 GiB.
+WORKER_CHILD_MEMORY_LIMIT_BYTES: Final = 768 * MIB
 
 
 def create_celery_app() -> Celery:
@@ -72,6 +78,15 @@ celery_app = create_celery_app()
 def _configure_worker_logging(**_: Any) -> None:
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format)
+
+
+@signals.worker_process_init.connect
+def _limit_child_memory(**_: Any) -> None:
+    # A file that makes pypdf balloon then fails as unreadable on a MemoryError, instead of
+    # the kernel killing the child and leaving its document stuck in processing.
+    if sys.platform != "win32":
+        limit = WORKER_CHILD_MEMORY_LIMIT_BYTES
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
 
 
 @signals.before_task_publish.connect
