@@ -32,7 +32,7 @@ pytestmark = pytest.mark.integration
 _START: Final = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
 _MARKDOWN: Final = b"# Sorting\n\nMerge sort splits the list in half.\n"
 # How long a publish to a broker that is down keeps retrying before it gives up.
-_PUBLISH_GIVE_UP: Final = timedelta(seconds=24)
+_PUBLISH_GIVE_UP: Final = timedelta(seconds=21)
 _STALE_AGE: Final = timedelta(seconds=STALE_DOCUMENT_SECONDS)
 # The verb and table of a statement that changes rows, e.g. "UPDATE workspaces".
 _WRITE_STATEMENT: Final = re.compile(r"(?:INSERT INTO|UPDATE|DELETE FROM) \w+")

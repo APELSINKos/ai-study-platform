@@ -13,6 +13,9 @@ from app.workers.celery_app import (
 
 # The Next.js /api rewrite gives up on a proxied request after 30 seconds.
 WEB_PROXY_TIMEOUT_SECONDS: Final = 30
+# What an upload does besides publishing once its body has arrived, all within the same
+# 30 seconds: copying and hashing up to 20 MiB and a few short transactions.
+UPLOAD_WORK_SECONDS: Final = 5
 
 
 def test_redis_does_not_redeliver_a_document_task_that_may_still_be_running() -> None:
@@ -37,7 +40,7 @@ def test_a_publish_to_an_unreachable_broker_fails_before_the_web_proxy_gives_up(
         read_seconds + (policy["max_retries"] + 1) * (connect_seconds + read_seconds) + pauses
     )
 
-    assert worst_case_seconds < WEB_PROXY_TIMEOUT_SECONDS
+    assert worst_case_seconds + UPLOAD_WORK_SECONDS < WEB_PROXY_TIMEOUT_SECONDS
 
 
 def test_the_soft_limit_of_a_document_task_comes_before_the_hard_one() -> None:

@@ -25,10 +25,11 @@ MAX_RETRY_COUNTDOWN_SECONDS: Final = 5 * 60
 # longest run plus the longest retry countdown, or a document is processed twice.
 BROKER_VISIBILITY_TIMEOUT_SECONDS: Final = 30 * 60
 # Uploads publish inside the request: a dead broker must fail it before the web proxy's
-# 30 s timeout, so every connect, read and publish retry is bounded.
+# 30 s timeout, so every connect, read and publish retry is bounded. One retry gives up
+# within about 21 s, which leaves the rest of the upload time; a second would take 29 s.
 BROKER_CONNECT_TIMEOUT_SECONDS: Final = 3
 BROKER_SOCKET_TIMEOUT_SECONDS: Final = 5
-PUBLISH_MAX_RETRIES: Final = 2
+PUBLISH_MAX_RETRIES: Final = 1
 # The largest documents allowed peak below 650 MiB (measured); two capped children fit in 2 GiB.
 WORKER_CHILD_MEMORY_LIMIT_BYTES: Final = 768 * MIB
 
