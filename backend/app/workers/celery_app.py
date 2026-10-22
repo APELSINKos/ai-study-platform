@@ -29,7 +29,7 @@ BROKER_VISIBILITY_TIMEOUT_SECONDS: Final = 30 * 60
 BROKER_CONNECT_TIMEOUT_SECONDS: Final = 3
 BROKER_SOCKET_TIMEOUT_SECONDS: Final = 5
 PUBLISH_MAX_RETRIES: Final = 2
-# Largest documents allowed peak near 500 MiB (measured); two capped children fit in 2 GiB.
+# The largest documents allowed peak below 650 MiB (measured); two capped children fit in 2 GiB.
 WORKER_CHILD_MEMORY_LIMIT_BYTES: Final = 768 * MIB
 
 
