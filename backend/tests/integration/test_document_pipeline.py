@@ -470,6 +470,23 @@ def test_a_plain_text_document_becomes_ready_without_headings_or_pages(
     assert (chunk.heading, chunk.page_start, chunk.page_end) == (None, None, None)
 
 
+def test_superscripts_subscripts_and_fractions_are_stored_as_written(
+    db_session: Session, runner: _Runner
+) -> None:
+    # Stored text is NFC: NFKC would turn them into x2, H2O and 1/2 with a fraction slash.
+    text = (
+        "The area grows as x\N{SUPERSCRIPT TWO}, water is H\N{SUBSCRIPT TWO}O"
+        " and the recipe takes \N{VULGAR FRACTION ONE HALF} cup."
+    )
+    document = runner.store(text.encode(), "formulas.txt")
+
+    outcome = runner.run(document.id)
+
+    assert outcome == PipelineOutcome.ready(chunk_count=1)
+    [chunk] = _chunks(db_session, document.id)
+    assert chunk.content == text
+
+
 def test_a_clock_set_back_during_the_run_records_no_negative_processing_time(
     db_session: Session, runner: _Runner, clock: _FakeClock
 ) -> None:

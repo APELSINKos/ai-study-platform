@@ -130,6 +130,21 @@ def test_committing_over_a_stored_file_replaces_it_whole(storage: FileStorage) -
     assert _read(storage, key) == b"second version"
 
 
+def test_a_commit_moves_the_finished_file_into_place_in_one_step(storage: FileStorage) -> None:
+    key = _store(storage, b"first version")
+    target = storage.path_for(key)
+
+    with storage.temp_file() as temp:
+        temp.write_bytes(b"second version")
+        finished = temp.stat().st_ino
+        storage.commit_temp(temp, key)
+
+    # The finished file itself takes the key's name, so the key never names a file that is
+    # still being written: a reader gets the whole old file or the whole new one.
+    assert target.stat().st_ino == finished
+    assert target.read_bytes() == b"second version"
+
+
 def test_deleting_a_file_twice_reports_whether_it_was_there(storage: FileStorage) -> None:
     key = _store(storage, CONTENT)
 
