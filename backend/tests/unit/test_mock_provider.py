@@ -29,6 +29,9 @@ from app.llm.schemas import NormalizedAnalysis, normalize_analysis
 
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
+# Markup that the analysis reads past: badges, images, links, lines of HTML and tables,
+# front matter fences and web addresses.
+MARKUP_UNITS: Final = ("[![a](b)](", "![a](", "[a](", "<a", "|", "---\n", "https://", "www.")
 # Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 EMPHASIS_MARKS: Final = ("_", "*", "~")
@@ -383,6 +386,89 @@ def test_a_line_without_letters_or_digits_separates_paragraphs(llm: MockLLMProvi
     )
 
 
+def test_yaml_front_matter_gives_the_title_and_stays_out_of_the_rest(llm: MockLLMProvider) -> None:
+    sample = (
+        "---\n"
+        'title: "Linear Algebra"\n'
+        "date: 2024-09-01\n"
+        "tags: [math, algebra, vectors]\n"
+        "---\n"
+        "\n"
+        "A vector is an ordered list of numbers that describes a point in space.\n"
+    )
+
+    analysis = _analyze(llm, sample, filename="vectors.md").analysis
+
+    assert analysis.title == "Linear Algebra"
+    assert analysis.summary == (
+        "A vector is an ordered list of numbers that describes a point in space."
+    )
+    assert not {"date", "tags", "algebra"} & set(" ".join(analysis.topics).split())
+
+
+@pytest.mark.parametrize(
+    ("sample", "title"),
+    [
+        (
+            "---\ndate: 2024-09-01\n...\nA vector is an ordered list of numbers.\n",
+            "A vector is an ordered list of numbers",
+        ),
+        (
+            "---\n  title: Nested key\ntitle: '  '\n---\nA vector is an ordered list of numbers.",
+            "A vector is an ordered list of numbers",
+        ),
+        ("---\nVectors and matrices\n", "Vectors and matrices"),
+    ],
+    ids=["no-title", "no-usable-title", "never-closed"],
+)
+def test_front_matter_without_a_title_leaves_the_title_to_the_text(
+    llm: MockLLMProvider, sample: str, title: str
+) -> None:
+    assert _analyze(llm, sample).analysis.title == title
+
+
+def test_html_blocks_and_badges_stay_out_of_the_title_summary_and_topics(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        '<p align="center">\n'
+        '  <img src="docs/logo.png" alt="Logo" width="160">\n'
+        "</p>\n"
+        "\n"
+        "[![Build](https://github.com/acme/graphs/actions/workflows/ci.yml/badge.svg)]"
+        "(https://github.com/acme/graphs/actions)\n"
+        "[![PyPI](https://img.shields.io/pypi/v/graphs.svg)](https://pypi.org/project/graphs/)\n"
+        "\n"
+        "![Diagram of a graph](docs/graph.png) Every graph keeps its nodes and edges in "
+        "arrays. The guide at https://graphs.example.org/guide explains every graph method.\n"
+    )
+
+    analysis = _analyze(llm, sample, filename="README.md").analysis
+
+    assert analysis.title == "Every graph keeps its nodes and edges in arrays"
+    assert analysis.summary == (
+        "Every graph keeps its nodes and edges in arrays. The guide at "
+        "https://graphs.example.org/guide explains every graph method."
+    )
+    assert not {"https", "build", "pypi", "logo", "diagram"} & set(analysis.topics)
+
+
+def test_table_rows_stay_out_of_the_summary(llm: MockLLMProvider) -> None:
+    sample = (
+        "| Тема | Часы |\n"
+        "|------|------|\n"
+        "| Процессы и потоки, планирование и синхронизация | 8 |\n"
+        "\n"
+        "Процесс — это программа во время выполнения вместе с её адресным пространством.\n"
+    )
+
+    summary = _analyze(llm, sample).analysis.summary
+
+    assert summary == (
+        "Процесс — это программа во время выполнения вместе с её адресным пространством."
+    )
+
+
 def test_a_wrapped_line_starting_with_a_dash_continues_its_sentence(
     llm: MockLLMProvider,
 ) -> None:
@@ -462,6 +548,17 @@ def test_long_runs_of_punctuation_and_markup_are_processed_in_linear_time(
 
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
     assert analysis.title == "Hostile"
+
+
+@pytest.mark.no_cover
+@pytest.mark.parametrize("unit", MARKUP_UNITS)
+def test_long_runs_of_markup_are_analysed_in_linear_time(llm: MockLLMProvider, unit: str) -> None:
+    text = (unit * HOSTILE_TEXT_LENGTH)[:HOSTILE_TEXT_LENGTH]
+
+    started = time.perf_counter()
+    _analyze(llm, text, filename="hostile.md")
+
+    assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
 
 
 @pytest.mark.no_cover

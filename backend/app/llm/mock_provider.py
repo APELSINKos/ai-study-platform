@@ -73,6 +73,13 @@ DEFAULT_DIFFICULTY: Final[Difficulty] = "medium"
 _MARKDOWN_MAX_INDENT: Final = 3
 _MARKDOWN_MAX_HEADING_LEVEL: Final = 6
 _CODE_FENCES: Final = ("```", "~~~")
+# Notes from Obsidian, Jekyll or Hugo can start with metadata in YAML between these lines.
+_FRONT_MATTER_START: Final = "---"
+_FRONT_MATTER_ENDS: Final = ("---", "...")
+_FRONT_MATTER_TITLE_KEY: Final = "title"
+_QUOTES: Final = "\"'"
+# A line of an HTML block, such as a centred logo, or a row of a table: markup, not prose.
+_MARKUP_LINE_RE: Final = re.compile(r"[ \t]*+(?:<[A-Za-z/!]|\|)")
 _EXCERPT_SEPARATOR_LINE: Final = EXCERPT_SEPARATOR.strip()
 _TITLE_LINE_ENDINGS: Final = (".", "!", "?", "…", ":", ";", ",")
 _SENTENCE_END_CHARS: Final = ".!?…"
@@ -83,13 +90,17 @@ _VOWEL_GROUP_RE: Final = re.compile(r"[aeiouyаеёиоуыэюя]++", re.IGNORE
 # Markdown list markers and the bullets that text extracted from PDF slides starts lines with.
 # Dashes are left out: in wrapped text a line may start with a dash mid-sentence.
 _LIST_ITEM_RE: Final = re.compile(r"(?:[-*+•◦▪‣]|\d{1,9}[.)])[ \t]++")
-# Links and images keep their text; runs of emphasis and code marks at the edges of words go,
-# while those inside words (snake_case, 2*3, x**2) stay. A run of marks can match only from
-# its first mark: "_" is a word character, so without that anchor a run between two letters
-# would be scanned again from each of its marks.
+# Images go, and badges with them, which are images inside links; other links keep their
+# text. Runs of emphasis and code marks at the edges of words go, while those inside words
+# (snake_case, 2*3, x**2) stay. A run of marks can match only from its first mark: "_" is a
+# word character, so without that anchor a run between two letters would be scanned again
+# from each of its marks.
 _INLINE_MARKUP_RE: Final = re.compile(
-    r"!?\[([^\[\]]*+)\]\([^()\s]*+\)|`++|(?<![\w*~])[*_~]++|(?<![*_~])[*_~]++(?!\w)"
+    r"\[!\[[^\[\]]*+\]\([^()\s]*+\)\]\([^()\s]*+\)|!\[[^\[\]]*+\]\([^()\s]*+\)"
+    r"|\[([^\[\]]*+)\]\([^()\s]*+\)|`++|(?<![\w*~])[*_~]++|(?<![*_~])[*_~]++(?!\w)"
 )
+# A web address names no topic, although its parts look like words.
+_WEB_ADDRESS_RE: Final = re.compile(r"\b(?:https?://|www\.)\S++", re.IGNORECASE)
 _FILENAME_SEPARATORS: Final = str.maketrans("_.-", "   ")
 
 
@@ -121,7 +132,9 @@ class MockLLMProvider:
             sentence for paragraph in sample.paragraphs for sentence in split_sentences(paragraph)
         ]
         title = _title(sample, sentences, request.filename)
-        topic_text = "\n".join([request.outline, *sample.headings, *sample.paragraphs])
+        topic_text = _WEB_ADDRESS_RE.sub(
+            " ", "\n".join([request.outline, *sample.headings, *sample.paragraphs])
+        )
         analysis = DocumentAnalysis(
             title=title,
             summary=_summary(sentences),
@@ -193,20 +206,27 @@ def _embed(text: str) -> list[float]:
 
 @dataclass(frozen=True, slots=True)
 class _Sample:
-    """The readable parts of an analysis sample as plain text, code blocks left out."""
+    """The readable parts of an analysis sample as plain text.
 
+    Front matter, code blocks, HTML blocks and tables are left out; title is the one that
+    the front matter gives, if any.
+    """
+
+    title: str | None
     headings: list[str]
     first_line: str | None
     paragraphs: list[str]
 
 
 def _read_sample(sample: str) -> _Sample:
+    lines = sample.splitlines()
+    title, body_start = _front_matter(lines)
     headings: list[str] = []
     paragraphs: list[str] = []
     paragraph: list[str] = []
     first_line: str | None = None
     in_code_block = False
-    for line in sample.splitlines():
+    for line in lines[body_start:]:
         if line.strip() == _EXCERPT_SEPARATOR_LINE:
             # Each excerpt is read on its own: one may end inside a code block it cut off.
             in_code_block = False
@@ -217,6 +237,9 @@ def _read_sample(sample: str) -> _Sample:
             _end_paragraph(paragraph, paragraphs)
             continue
         if in_code_block:
+            continue
+        if _MARKUP_LINE_RE.match(line):
+            _end_paragraph(paragraph, paragraphs)
             continue
         heading = _heading_text(line)
         if heading is not None:
@@ -233,7 +256,30 @@ def _read_sample(sample: str) -> _Sample:
             first_line = first_line or text
             paragraph.append(text)
     _end_paragraph(paragraph, paragraphs)
-    return _Sample(headings=headings, first_line=first_line, paragraphs=paragraphs)
+    return _Sample(title=title, headings=headings, first_line=first_line, paragraphs=paragraphs)
+
+
+def _front_matter(lines: list[str]) -> tuple[str | None, int]:
+    """The title in the front matter that the lines start with, and where the text begins.
+
+    Without a closed front matter block, there is no title and the text begins at once.
+    """
+    if not lines or lines[0].rstrip() != _FRONT_MATTER_START:
+        return None, 0
+    for end in range(1, len(lines)):
+        if lines[end].rstrip() in _FRONT_MATTER_ENDS:
+            return _front_matter_title(lines[1:end]), end + 1
+    return None, 0
+
+
+def _front_matter_title(block: list[str]) -> str | None:
+    """The value of a top-level "title" key that has a letter, without its quotes."""
+    for line in block:
+        key, colon, value = line.partition(":")
+        if colon and key.rstrip().casefold() == _FRONT_MATTER_TITLE_KEY:
+            title = " ".join(value.strip().strip(_QUOTES).split())
+            return shorten(title, TITLE_MAX_LENGTH) if _has_letter(title) else None
+    return None
 
 
 def _end_paragraph(lines: list[str], paragraphs: list[str]) -> None:
@@ -286,7 +332,13 @@ def _has_letter(text: str) -> bool:
 
 
 def _title(sample: _Sample, sentences: list[str], filename: str) -> str:
-    """The first heading, a title-like first line, the first sentence or the file name."""
+    """The document's title, taken from the first of these that it has.
+
+    The title in its front matter, its first heading, a title-like first line, its first
+    sentence and, last, its file name.
+    """
+    if sample.title is not None:
+        return sample.title
     for heading in sample.headings:
         if _has_letter(heading):
             return shorten(heading, TITLE_MAX_LENGTH)
