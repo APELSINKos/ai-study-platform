@@ -23,3 +23,12 @@ class UserRepository:
         self._session.add(user)
         self._session.flush()
         return user
+
+    def lock(self, user_id: uuid.UUID) -> None:
+        """Lock the user's row until the transaction ends.
+
+        FOR NO KEY UPDATE: a second such lock waits, while rows that only reference the user,
+        such as a new workspace or refresh token, need KEY SHARE and go in at once.
+        """
+        statement = select(User.id).where(User.id == user_id).with_for_update(key_share=True)
+        self._session.execute(statement)

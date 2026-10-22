@@ -37,6 +37,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.repositories.document_chunks import DocumentChunkRepository
 from app.repositories.documents import DocumentRepository, OwnerUsage
+from app.repositories.users import UserRepository
 from app.repositories.workspaces import WorkspaceRepository
 from app.services.workspaces import workspace_not_found
 
@@ -115,6 +116,7 @@ class DocumentService:
         self._clock = clock
         self._documents = DocumentRepository(session)
         self._chunks = DocumentChunkRepository(session)
+        self._users = UserRepository(session)
         self._workspaces = WorkspaceRepository(session)
 
     def upload(self, *, user: User, workspace_id: uuid.UUID, upload: UploadFile) -> DocumentView:
@@ -218,6 +220,9 @@ class DocumentService:
         at once queue it once. A failed document becomes active again and must fit under
         the cap of active documents. A queue that cannot take it is handled as on upload.
         """
+        # The user's uploads and retries take turns from here to their commit, so the cap
+        # check below also sees one committed meanwhile, and the document is read after it.
+        self._users.lock(user.id)
         document = self._get_owned(user, document_id)
         now = self._clock()
         # Checked first so that waiting for the cap is never suggested for a document that
@@ -286,7 +291,10 @@ class DocumentService:
         self._insert(document)
         file_moved = False
         try:
-            # The new row counts now, as does any upload committed since the first check.
+            # The user's uploads and retries take turns from here to their commit, so the new
+            # row counts now, as does any committed since the first check; without the lock,
+            # two at once would each miss the other's row.
+            self._users.lock(user.id)
             self._check_caps(self._documents.owner_usage(user.id))
             self._storage.commit_temp(temp_path, document.storage_key)
             file_moved = True
