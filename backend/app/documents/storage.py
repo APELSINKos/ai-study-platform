@@ -43,7 +43,11 @@ class FileStorage:
 
     @contextmanager
     def temp_file(self) -> Iterator[Path]:
-        """Yield a fresh .part path for an upload in progress; a file left there is removed."""
+        """Yield a fresh .part path for an upload in progress; a file left there is removed.
+
+        It yields a path, not an open file. The caller opens it, writes the upload and closes
+        it again before commit_temp: Windows cannot move a file that is still open.
+        """
         directory = self._temp_dir()
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{uuid.uuid4()}{TEMP_FILE_SUFFIX}"
