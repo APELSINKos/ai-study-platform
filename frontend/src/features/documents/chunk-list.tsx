@@ -42,7 +42,10 @@ export function ChunkList({ document, className }: { document: DocumentOut; clas
       {document.status === "ready" ? (
         <ChunksBody chunks={chunks} className="mt-4" />
       ) : (
-        <p className="text-ink-soft mt-3 text-sm">{t("pending")}</p>
+        // A failed document gets fragments only if a retry succeeds, so none are promised.
+        <p className="text-ink-soft mt-3 text-sm">
+          {document.status === "failed" ? t("failed") : t("pending")}
+        </p>
       )}
     </section>
   );

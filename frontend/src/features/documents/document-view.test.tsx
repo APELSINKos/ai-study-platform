@@ -523,7 +523,7 @@ describe("DocumentView", () => {
       "Не удалось прочитать PDF. Возможно, файл повреждён.",
     );
     expect(screen.getByRole("button", { name: "Повторить обработку" })).toBeInTheDocument();
-    expect(screen.getByText("Фрагменты появятся, когда файл будет обработан.")).toBeInTheDocument();
+    expect(screen.getByText("Фрагментов нет: файл не удалось обработать.")).toBeInTheDocument();
   });
 
   it("is loading and not found in Russian", async () => {

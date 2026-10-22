@@ -397,6 +397,7 @@
     "chunks": {
       "title": "Fragments",
       "pending": "Fragments appear once the file is processed.",
+      "failed": "There are no fragments because the file could not be processed.",
       "loading": "Loading fragments…",
       "showMore": "Show more",
       "retry": "Try again",

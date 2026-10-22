@@ -43,21 +43,32 @@ describe("ChunkList", () => {
   });
 
   it.each([
-    ["on its way", documentFixture(1, { status: "indexing" })],
-    ["failed", documentFixture(1, { status: "failed", error_code: "no_text", can_retry: true })],
-  ])(
-    "says the fragments come once the file is processed while the document is %s",
-    (_, document) => {
-      apiFetchMock.mockResolvedValue(chunkPageFixture([chunkFixture(0)]));
-      renderList(document);
+    ["uploaded", documentFixture(1, { status: "uploaded" })],
+    ["indexing", documentFixture(1, { status: "indexing" })],
+  ])("says the fragments come once the file is processed while it is %s", (_, document) => {
+    apiFetchMock.mockResolvedValue(chunkPageFixture([chunkFixture(0)]));
+    renderList(document);
 
-      expect(
-        within(region()).getByText("Fragments appear once the file is processed."),
-      ).toBeInTheDocument();
-      expect(within(region()).queryByRole("list")).not.toBeInTheDocument();
-      expect(apiFetchMock).not.toHaveBeenCalled();
-    },
-  );
+    expect(
+      within(region()).getByText("Fragments appear once the file is processed."),
+    ).toBeInTheDocument();
+    expect(within(region()).queryByRole("list")).not.toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("says a failed document has no fragments instead of promising them", () => {
+    apiFetchMock.mockResolvedValue(chunkPageFixture([chunkFixture(0)]));
+    renderList(documentFixture(1, { status: "failed", error_code: "no_text", can_retry: true }));
+
+    expect(
+      within(region()).getByText("There are no fragments because the file could not be processed."),
+    ).toBeInTheDocument();
+    expect(
+      within(region()).queryByText("Fragments appear once the file is processed."),
+    ).not.toBeInTheDocument();
+    expect(within(region()).queryByRole("list")).not.toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
 
   it("shows that the fragments are loading", () => {
     apiFetchMock.mockReturnValue(new Promise(() => {}));
@@ -217,6 +228,14 @@ describe("ChunkList", () => {
 
     expect(
       within(region("Фрагменты")).getByText("Фрагменты появятся, когда файл будет обработан."),
+    ).toBeInTheDocument();
+  });
+
+  it("says a failed document has no fragments in Russian", () => {
+    renderList(documentFixture(1, { status: "failed", error_code: "pdf_unreadable" }), "ru");
+
+    expect(
+      within(region("Фрагменты")).getByText("Фрагментов нет: файл не удалось обработать."),
     ).toBeInTheDocument();
   });
 });
