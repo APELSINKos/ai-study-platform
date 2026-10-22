@@ -250,6 +250,70 @@ def test_an_upload_deleted_while_the_broker_was_down_is_not_found(
     assert exc_info.value.code == "document_not_found"
 
 
+def test_an_upload_a_worker_took_before_the_publish_failed_is_returned_as_it_stands(
+    db_session: Session,
+    service: DocumentService,
+    owner: User,
+    queue: _Queue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+
+    def delivered_then_failed(document_id: uuid.UUID) -> None:
+        # The broker took the message and a worker claimed the document before the
+        # publish gave up waiting for the broker's answer.
+        db_session.execute(
+            text(
+                "UPDATE documents SET status = 'processing', attempts = attempts + 1 WHERE id = :id"
+            ),
+            {"id": document_id},
+        )
+        raise QueueUnavailableError("The broker did not answer in time.")
+
+    monkeypatch.setattr(queue, "enqueue", delivered_then_failed)
+
+    view = service.upload(user=owner, workspace_id=workspace.id, upload=_upload_file())
+
+    returned = (view.document.status, view.document.error_code, view.document.attempts)
+    db_session.expire_all()
+    stored = (view.document.status, view.document.error_code, view.document.attempts)
+    assert returned == stored == ("processing", None, 1)
+
+
+def test_a_retry_a_worker_took_before_the_publish_failed_is_not_marked_failed(
+    db_session: Session,
+    service: DocumentService,
+    owner: User,
+    queue: _Queue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+    document = _document(
+        db_session, workspace, "failed", attempts=1, updated_at=_START - timedelta(hours=1)
+    )
+
+    def delivered_then_failed(document_id: uuid.UUID) -> None:
+        # A worker claimed the document, found the AI provider busy and left it waiting
+        # for another attempt, all before the publish gave up.
+        db_session.execute(
+            text(
+                "UPDATE documents SET attempts = attempts + 1, error_code = 'ai_unavailable',"
+                " error_message = 'The AI provider is busy.' WHERE id = :id"
+            ),
+            {"id": document_id},
+        )
+        raise QueueUnavailableError("The broker did not answer in time.")
+
+    monkeypatch.setattr(queue, "enqueue", delivered_then_failed)
+
+    view = service.retry(user=owner, document_id=document.id)
+
+    returned = (view.document.status, view.document.error_code, view.document.attempts)
+    db_session.expire_all()
+    stored = (document.status, document.error_code, document.attempts)
+    assert returned == stored == ("uploaded", "ai_unavailable", 2)
+
+
 def test_no_transaction_stays_open_while_the_file_is_copied(
     db_session: Session,
     service: DocumentService,

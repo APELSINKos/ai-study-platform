@@ -130,15 +130,18 @@ class DocumentRepository:
         )
         return self._update_returning(statement) is not None
 
-    def mark_queue_unavailable(self, document_id: uuid.UUID, message: str, now: datetime) -> bool:
-        """Fail a document that could not be queued; False when its row is gone.
+    def mark_queue_unavailable(
+        self, document_id: uuid.UUID, attempts: int, message: str, now: datetime
+    ) -> bool:
+        """Fail a document that could not be queued; False when it has moved on or is gone.
 
-        A statement, because the unit of work leaves out an updated_at equal to the loaded
-        one, and the column's onupdate would then write the database's clock instead.
+        A publish can fail after the broker took the message, and a worker may have claimed
+        the document since. Every claim moves attempts on, so only a document still at the
+        attempts it was queued with is failed.
         """
         statement = (
             update(Document)
-            .where(Document.id == document_id)
+            .where(Document.id == document_id, Document.attempts == attempts)
             .values(
                 status="failed",
                 error_code="queue_unavailable",

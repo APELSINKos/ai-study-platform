@@ -324,19 +324,23 @@ class DocumentService:
             raise
 
     def _enqueue(self, document: Document) -> None:
+        # Taken before the publish: a worker that claims the document moves it on.
+        attempts = document.attempts
         try:
             self._queue.enqueue(document.id)
         except QueueUnavailableError:
             logger.warning("document_not_queued", document_id=str(document.id), exc_info=True)
-            # Unlike the worker's writes, not checked against a run token: an upload or a
-            # retry is no run.
             marked = self._documents.mark_queue_unavailable(
-                document.id, _QUEUE_UNAVAILABLE_MESSAGE, self._clock()
+                document.id, attempts, _QUEUE_UNAVAILABLE_MESSAGE, self._clock()
             )
-            if not marked:
+            if marked:
+                self._session.commit()
+                return
+            if not self._documents.exists(document.id):
                 # The broker takes seconds to give up; the owner may delete it meanwhile.
                 raise document_not_found() from None
-            self._session.commit()
+            # The broker took the message after all, and a worker has moved the document on.
+            self._session.refresh(document)
 
     @staticmethod
     def _view(document: Document, now: datetime) -> DocumentView:

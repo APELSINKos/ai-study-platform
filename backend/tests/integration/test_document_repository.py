@@ -289,14 +289,47 @@ def test_mark_queue_unavailable_fails_the_document_at_the_given_time(db_session:
     document = _document(db_session, workspace, "uploaded", attempts=1, updated_at=_NOW)
 
     # The same time as before must still be written, not replaced by the database clock.
-    assert repository.mark_queue_unavailable(document.id, "Not queued.", _NOW) is True
-    assert repository.mark_queue_unavailable(uuid.uuid4(), "Not queued.", _NOW) is False
+    assert repository.mark_queue_unavailable(document.id, 1, "Not queued.", _NOW) is True
+    assert repository.mark_queue_unavailable(uuid.uuid4(), 1, "Not queued.", _NOW) is False
 
     loaded = (document.status, document.error_code, document.error_message, document.updated_at)
     db_session.expire_all()
     stored = (document.status, document.error_code, document.error_message, document.updated_at)
     assert loaded == stored == ("failed", "queue_unavailable", "Not queued.", _NOW)
     assert document.attempts == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "attempts", "error_code"),
+    [("processing", 2, None), ("uploaded", 2, "ai_unavailable")],
+    ids=["claimed", "waiting-for-a-retry"],
+)
+def test_mark_queue_unavailable_leaves_a_document_a_worker_has_moved_on(
+    db_session: Session, status: DocumentStatus, attempts: int, error_code: str | None
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    # Queued with attempts at 1; a worker has claimed it since.
+    document = _document(
+        db_session,
+        workspace,
+        status,
+        attempts=attempts,
+        error_code=error_code,
+        updated_at=_EARLIER,
+    )
+
+    assert (
+        DocumentRepository(db_session).mark_queue_unavailable(document.id, 1, "Not queued.", _NOW)
+        is False
+    )
+
+    db_session.expire_all()
+    assert (document.status, document.attempts, document.error_code, document.updated_at) == (
+        status,
+        attempts,
+        error_code,
+        _EARLIER,
+    )
 
 
 def test_claim_for_processing_starts_a_run_and_returns_what_the_run_needs(
