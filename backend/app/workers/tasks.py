@@ -112,8 +112,9 @@ def process_document(self: Task[Any, Any], document_id: str) -> None:
 def retry_countdown(retries: int, retry_after_seconds: float | None) -> float:
     """Seconds to wait before the next attempt of a task already retried `retries` times.
 
-    The wait doubles with each retry, is never shorter than the provider asked for, and
-    never longer than MAX_RETRY_COUNTDOWN_SECONDS.
+    The backoff doubles with each retry, and a longer wait the provider asked for replaces
+    it. Either way the wait is at most MAX_RETRY_COUNTDOWN_SECONDS, even when the provider
+    asked for more.
     """
     backoff: float = RETRY_BASE_COUNTDOWN_SECONDS * 2**retries
     return min(MAX_RETRY_COUNTDOWN_SECONDS, max(backoff, retry_after_seconds or 0))
