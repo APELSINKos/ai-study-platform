@@ -324,6 +324,17 @@ def test_an_embedding_key_alone_switches_only_the_embeddings_to_openai(
     assert settings.resolved_embedding_provider == "openai"
 
 
+def test_forcing_openai_chat_with_only_an_embedding_key_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The embedding key never goes to the chat endpoint, so chat has no key of its own.
+    monkeypatch.setenv("EMBEDDING_API_KEY", EMBEDDING_API_KEY)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+
+    with pytest.raises(ValidationError, match="LLM_PROVIDER=openai needs OPENAI_API_KEY"):
+        Settings()
+
+
 def test_forced_openai_embeddings_accept_the_reused_chat_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
