@@ -67,6 +67,13 @@ class DocumentRepository:
         statement = select(Document.id).where(Document.id == document_id)
         return self._session.execute(statement).first() is not None
 
+    def reload(self, document_id: uuid.UUID) -> Document | None:
+        """The row as the database holds it now, read into the session's copy; None if gone.
+
+        Session.refresh() would raise for a row that is gone instead.
+        """
+        return self._session.get(Document, document_id, populate_existing=True)
+
     def get_for_owner(self, document_id: uuid.UUID, owner_id: uuid.UUID) -> Document | None:
         statement = (
             select(Document)

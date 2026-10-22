@@ -304,6 +304,51 @@ def test_an_upload_a_worker_took_before_the_publish_failed_is_returned_as_it_sta
     assert returned == stored == ("processing", None, 1)
 
 
+def test_an_upload_a_worker_took_and_the_owner_deleted_just_after_it_was_read_is_returned_as_read(
+    db_session: Session,
+    service: DocumentService,
+    owner: User,
+    queue: _Queue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(db_session, owner)
+    claimed: list[uuid.UUID] = []
+
+    def delivered_then_failed(document_id: uuid.UUID) -> None:
+        db_session.execute(
+            text(
+                "UPDATE documents SET status = 'processing', attempts = attempts + 1 WHERE id = :id"
+            ),
+            {"id": document_id},
+        )
+        claimed.append(document_id)
+        raise QueueUnavailableError("The broker did not answer in time.")
+
+    def owner_deletes_after_the_next_read(**event_args: Any) -> None:
+        # Sent through the driver's connection, past the request's session.
+        if claimed and event_args["statement"].startswith("SELECT"):
+            event_args["cursor"].connection.execute(
+                "DELETE FROM documents WHERE id = %s", (claimed.pop(),)
+            )
+
+    monkeypatch.setattr(queue, "enqueue", delivered_then_failed)
+    event.listen(
+        db_session.connection(),
+        "after_cursor_execute",
+        owner_deletes_after_the_next_read,
+        named=True,
+    )
+
+    view = service.upload(user=owner, workspace_id=workspace.id, upload=_upload_file())
+
+    assert (view.document.status, view.document.error_code, view.document.attempts) == (
+        "processing",
+        None,
+        1,
+    )
+    assert _document_count(db_session, workspace.id) == 0
+
+
 def test_a_retry_a_worker_took_before_the_publish_failed_is_not_marked_failed(
     db_session: Session,
     service: DocumentService,

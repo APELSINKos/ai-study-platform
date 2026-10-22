@@ -336,11 +336,13 @@ class DocumentService:
             if marked:
                 self._session.commit()
                 return
-            if not self._documents.exists(document.id):
+            # Read once: a delete between a check that the row exists and a second read of it
+            # would make that read fail.
+            if self._documents.reload(document.id) is None:
                 # The broker takes seconds to give up; the owner may delete it meanwhile.
                 raise document_not_found() from None
-            # The broker took the message after all, and a worker has moved the document on.
-            self._session.refresh(document)
+            # Otherwise the broker took the message after all, and a worker has moved the
+            # document on: it is returned as the worker left it.
 
     @staticmethod
     def _view(document: Document, now: datetime) -> DocumentView:
