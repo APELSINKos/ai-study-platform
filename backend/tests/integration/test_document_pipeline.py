@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.documents.chunking import Chunk, chunk_markdown
+from app.documents.errors import ProcessingDeadlineExceeded
 from app.documents.extraction import ExtractedDocument, extract
 from app.documents.pipeline import (
     DEADLINE_MARGIN_SECONDS,
@@ -877,9 +878,11 @@ def test_a_run_whose_document_a_newer_run_claimed_is_skipped_and_stores_no_chunk
     assert _chunks(db_session, document.id) == []
 
 
-@pytest.mark.parametrize("stage", ["analysis", "embeddings"])
+@pytest.mark.parametrize(
+    ("stage", "batches"), [("analysis", []), ("embeddings", [3])], ids=["analysis", "embeddings"]
+)
 def test_a_document_deleted_during_the_run_is_skipped(
-    db_session: Session, runner: _Runner, stage: str
+    db_session: Session, runner: _Runner, stage: str, batches: list[int]
 ) -> None:
     document = runner.store(_MARKDOWN.encode(), "sorting.md")
     delete_document = _delete(db_session, document)
@@ -889,6 +892,9 @@ def test_a_document_deleted_during_the_run_is_skipped(
     outcome = runner.run(document.id, llm=llm, embedder=embedder)
 
     assert outcome == PipelineOutcome.skipped("superseded")
+    # The run stops at its next write: a document deleted during its analysis is never
+    # embedded, which would be paid for.
+    assert embedder.batches == batches
     assert not DocumentRepository(db_session).exists(document.id)
     assert _chunks(db_session, document.id) == []
 
@@ -1046,10 +1052,15 @@ def test_a_run_that_reaches_its_deadline_while_reading_a_pdf_fails_as_a_timeout(
     runner: _Runner, clock: _FakeClock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     document = runner.store(_LECTURE_PDF.read_bytes(), "lecture-ru.pdf")
+    stopped_reading: list[bool] = []
 
     def slow_start(*args: Any, **kwargs: Any) -> ExtractedDocument:
         clock.advance(_RUN_TIME_LIMIT)
-        return extract(*args, **kwargs)
+        try:
+            return extract(*args, **kwargs)
+        except ProcessingDeadlineExceeded:
+            stopped_reading.append(True)
+            raise
 
     monkeypatch.setattr("app.documents.pipeline.extract", slow_start)
     llm = _FakeLLM()
@@ -1057,7 +1068,47 @@ def test_a_run_that_reaches_its_deadline_while_reading_a_pdf_fails_as_a_timeout(
     outcome = runner.run(document.id, llm=llm)
 
     assert outcome == PipelineOutcome.failed("processing_timeout")
+    # The reading itself stops, rather than going through every page first.
+    assert stopped_reading == [True]
     assert llm.calls == 0
+
+
+def test_a_run_whose_reading_took_it_to_its_deadline_asks_for_no_analysis(
+    db_session: Session, runner: _Runner, clock: _FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Markdown is read in one go, with no deadline check of its own.
+    document = runner.store(_MARKDOWN.encode(), "sorting.md")
+
+    def slow_read(*args: Any, **kwargs: Any) -> ExtractedDocument:
+        extracted = extract(*args, **kwargs)
+        clock.advance(_RUN_TIME_LIMIT)
+        return extracted
+
+    monkeypatch.setattr("app.documents.pipeline.extract", slow_read)
+    llm = _FakeLLM()
+
+    outcome = runner.run(document.id, llm=llm)
+
+    assert outcome == PipelineOutcome.failed("processing_timeout")
+    assert llm.calls == 0
+    db_session.refresh(document)
+    assert (document.status, document.analysis_model) == ("failed", None)
+
+
+def test_a_run_whose_analysis_took_it_to_its_deadline_embeds_nothing(
+    db_session: Session, runner: _Runner, clock: _FakeClock
+) -> None:
+    document = runner.store(_MARKDOWN.encode(), "sorting.md")
+    llm = _FakeLLM(before_call=lambda: clock.advance(_RUN_TIME_LIMIT))
+    embedder = _FakeEmbedder()
+
+    outcome = runner.run(document.id, llm=llm, embedder=embedder)
+
+    assert outcome == PipelineOutcome.failed("processing_timeout")
+    assert embedder.batches == []
+    db_session.refresh(document)
+    # The analysis is kept for the next attempt to reuse.
+    assert (document.status, document.analysis_model) == ("failed", _FAKE_CHAT_MODEL)
 
 
 def _leave_after_the_claim(
