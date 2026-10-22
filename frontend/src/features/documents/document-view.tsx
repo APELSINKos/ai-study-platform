@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useId, useRef, type RefObject } from "react";
 
-import { AlertDialog } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { ApiError, isClientError } from "@/lib/api/errors";
@@ -15,6 +14,7 @@ import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { ChunkList } from "./chunk-list";
+import { DeleteDocumentDialog, RetryProcessingButton } from "./document-actions";
 import { DocumentFacts } from "./document-facts";
 import { StageLine } from "./document-row";
 import { DownloadButton } from "./download-button";
@@ -23,7 +23,7 @@ import {
   documentErrorMessage,
   processingErrorMessage,
 } from "./error-message";
-import { useDeleteDocument, useDocument, useRetryDocument } from "./hooks";
+import { useDeleteDocument, useDocument } from "./hooks";
 import { documentProgress } from "./status";
 
 // A malformed id fails validation before the backend looks for a document.
@@ -166,49 +166,25 @@ interface DocumentActionsProps {
  * the buttons, apart from that of a delete, which the dialog shows.
  */
 function DocumentActions({ document, onRetried, className }: DocumentActionsProps) {
+  const t = useTranslations("Documents.detail");
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
-      {document.can_retry ? <RetryButton document={document} onRetried={onRetried} /> : null}
+      {document.can_retry ? (
+        <RetryProcessingButton
+          document={document}
+          label={t("retryProcessing")}
+          icon={<ArrowClockwiseIcon aria-hidden />}
+          onRetried={onRetried}
+        />
+      ) : null}
       <DownloadButton document={document} />
       <DeleteDocumentButton document={document} />
     </div>
   );
 }
 
-function RetryButton({ document, onRetried }: { document: DocumentOut; onRetried: () => void }) {
-  const t = useTranslations("Documents.detail");
-  const tErrors = useTranslations("Documents.errors");
-  const retry = useRetryDocument(document);
-
-  function retryProcessing() {
-    retry.mutate(undefined, {
-      onSuccess: (updated) => {
-        if (!updated.can_retry) {
-          onRetried();
-        }
-      },
-    });
-  }
-
-  return (
-    <>
-      <Button variant="secondary" size="sm" isLoading={retry.isPending} onClick={retryProcessing}>
-        {retry.isPending ? null : <ArrowClockwiseIcon aria-hidden />}
-        {t("retryProcessing")}
-      </Button>
-      {retry.isError ? (
-        // Last in the row, so the sentence sits under all the buttons.
-        <p role="alert" className="text-margin order-last basis-full text-sm">
-          {documentErrorMessage(retry.error, "retry", tErrors)}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
 function DeleteDocumentButton({ document }: { document: DocumentOut }) {
-  const t = useTranslations("Documents");
-  const tErrors = useTranslations("Documents.errors");
+  const t = useTranslations("Documents.detail");
   const router = useRouter();
   const deletion = useDeleteDocument(document);
 
@@ -222,18 +198,15 @@ function DeleteDocumentButton({ document }: { document: DocumentOut }) {
   }
 
   return (
-    <AlertDialog
+    <DeleteDocumentDialog
+      document={document}
       trigger={
         <Button variant="danger" size="sm">
           <TrashIcon aria-hidden />
-          {t("detail.delete")}
+          {t("delete")}
         </Button>
       }
-      title={t("deleteDialog.title")}
-      description={t("deleteDialog.description", { filename: document.original_filename })}
-      confirmLabel={t("deleteDialog.confirm")}
       onConfirm={deleteAndLeave}
-      errorMessage={(error) => documentErrorMessage(error, "delete", tErrors)}
     />
   );
 }

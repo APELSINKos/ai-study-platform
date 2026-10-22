@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useRef, type ReactNode, type RefObject } from "react";
 
-import { AlertDialog } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import type { DocumentContentType, DocumentOut } from "@/lib/api/types";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import { documentErrorMessage, processingErrorMessage } from "./error-message";
-import { useDeleteDocument, useRetryDocument } from "./hooks";
+import { DeleteDocumentDialog, RetryProcessingButton } from "./document-actions";
+import { processingErrorMessage } from "./error-message";
+import { useDeleteDocument } from "./hooks";
 import { documentProgress, type DocumentProgress } from "./status";
 import { StatusRail } from "./status-rail";
 
@@ -146,72 +146,39 @@ function ProgressNote({ document, progress, onRetried }: ProgressNoteProps) {
   return (
     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
       {note}
-      {document.can_retry ? <RetryAction document={document} onRetried={onRetried} /> : null}
+      {document.can_retry ? (
+        <RetryProcessingButton
+          document={document}
+          label={t("retry")}
+          ariaLabel={t("retryLabel", { filename: document.original_filename })}
+          // Kept above the title link, which is stretched over the whole row.
+          className="relative"
+          onRetried={onRetried}
+        />
+      ) : null}
     </div>
   );
 }
 
-function RetryAction({ document, onRetried }: { document: DocumentOut; onRetried: () => void }) {
-  const t = useTranslations("Documents.row");
-  const tErrors = useTranslations("Documents.errors");
-  const retry = useRetryDocument(document);
-
-  function retryProcessing() {
-    retry.mutate(undefined, {
-      // Retry goes away once the document is on its way again, so focus stays in the row.
-      onSuccess: (updated) => {
-        if (!updated.can_retry) {
-          onRetried();
-        }
-      },
-    });
-  }
-
-  return (
-    <>
-      <Button
-        variant="secondary"
-        size="sm"
-        isLoading={retry.isPending}
-        aria-label={t("retryLabel", { filename: document.original_filename })}
-        className="relative"
-        onClick={retryProcessing}
-      >
-        {t("retry")}
-      </Button>
-      {retry.isError ? (
-        <p role="alert" className="text-margin basis-full text-sm">
-          {documentErrorMessage(retry.error, "retry", tErrors)}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
 function DeleteDocumentButton({ document, focusAfterDelete }: DocumentRowProps) {
-  const t = useTranslations("Documents");
-  const tErrors = useTranslations("Documents.errors");
+  const t = useTranslations("Documents.row");
   const deletion = useDeleteDocument(document);
-  const filename = document.original_filename;
 
   return (
-    <AlertDialog
+    <DeleteDocumentDialog
+      document={document}
       trigger={
         <Button
           variant="ghost"
           size="icon"
-          aria-label={t("row.delete", { filename })}
+          aria-label={t("delete", { filename: document.original_filename })}
           // Centred on the name's line, with the icon on the row's text edge.
           className="absolute top-2 right-2 sm:right-3"
         >
           <TrashIcon aria-hidden />
         </Button>
       }
-      title={t("deleteDialog.title")}
-      description={t("deleteDialog.description", { filename })}
-      confirmLabel={t("deleteDialog.confirm")}
       onConfirm={() => deletion.mutateAsync()}
-      errorMessage={(error) => documentErrorMessage(error, "delete", tErrors)}
       focusAfterConfirm={focusAfterDelete}
     />
   );
