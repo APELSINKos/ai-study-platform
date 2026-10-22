@@ -13,6 +13,9 @@ def get_engine(database_url: str) -> Engine:
         database_url,
         pool_pre_ping=True,
         connect_args={"connect_timeout": DATABASE_CONNECT_TIMEOUT_SECONDS},
+        # A database error's text would otherwise carry the statement's values into the
+        # logs: document text, names and file names.
+        hide_parameters=True,
     )
 
 

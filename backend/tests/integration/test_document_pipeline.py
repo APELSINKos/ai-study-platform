@@ -1169,7 +1169,9 @@ def test_chunks_the_database_rejects_fail_the_document_as_an_internal_error(
     db_session: Session,
     runner: _Runner,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    configure_logging("INFO", "json")
     document = runner.store(_MARKDOWN.encode(), "sorting.md")
 
     def chunks_with_a_repeated_index(text: str, *, size: int, overlap: int) -> list[Chunk]:
@@ -1190,3 +1192,11 @@ def test_chunks_the_database_rejects_fail_the_document_as_an_internal_error(
     assert document.error_message is not None
     assert "IntegrityError" in document.error_message
     assert _chunks(db_session, document.id) == []
+    [line] = [
+        line
+        for line in _json_lines(capsys.readouterr().out)
+        if line["event"] == "document_processing_crashed"
+    ]
+    # The rejected statement is logged without its values: they hold the document's text.
+    assert line["exception"][0]["exc_type"] == "IntegrityError"
+    assert "Sorting puts the items" not in json.dumps(line)
