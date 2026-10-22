@@ -18,9 +18,11 @@ from app.documents.text import shorten, split_sentences
 from app.models.document_chunk import CHUNK_HEADING_MAX_LENGTH
 
 HEADING_SEPARATOR: Final = " \N{SINGLE RIGHT-POINTING ANGLE QUOTATION MARK} "
-# A sentence can go on from one page to the next, so pages are joined by a line break
-# rather than by a blank line, which ends a sentence.
+# A sentence can go on from one page to the next, so a page starts after a line break
+# rather than after a blank line, which ends a sentence; a page that goes on in lower case
+# follows the page before it after a space instead.
 PAGE_SEPARATOR: Final = "\n"
+_RUN_ON_SEPARATOR: Final = " "
 MARKDOWN_MAX_HEADING_LEVEL: Final = 6
 _CODE_FENCES: Final = ("```", "~~~")
 # A line that may be a heading or a code fence: up to three spaces, then "#", "```" or "~~~".
@@ -78,12 +80,7 @@ def chunk_pdf_pages(pages: Sequence[str], *, size: int, overlap: int) -> list[Ch
     A chunk may run on from one page to the next. A page without text keeps its number.
     """
     _check_sizes(size, overlap)
-    text = PAGE_SEPARATOR.join(pages)
-    page_starts: list[int] = []
-    offset = 0
-    for page in pages:
-        page_starts.append(offset)
-        offset += len(page) + len(PAGE_SEPARATOR)
+    text, page_starts = _joined_pages(pages)
     # A chunk starts and ends with a non-space character, so never inside a separator.
     return [
         Chunk(
@@ -96,6 +93,27 @@ def chunk_pdf_pages(pages: Sequence[str], *, size: int, overlap: int) -> list[Ch
         )
         for index, (start, end) in enumerate(_chunk_spans(text, 0, len(text), size, overlap))
     ]
+
+
+def join_pages(pages: Sequence[str]) -> str:
+    """The text of the pages in order, as chunk_pdf_pages reads it."""
+    return _joined_pages(pages)[0]
+
+
+def _joined_pages(pages: Sequence[str]) -> tuple[str, list[int]]:
+    """The text of the pages and where in it each page starts."""
+    parts: list[str] = []
+    page_starts: list[int] = []
+    offset = 0
+    for page in pages:
+        if page_starts:
+            separator = _RUN_ON_SEPARATOR if page[:1].islower() else PAGE_SEPARATOR
+            parts.append(separator)
+            offset += len(separator)
+        page_starts.append(offset)
+        parts.append(page)
+        offset += len(page)
+    return "".join(parts), page_starts
 
 
 def sentence_spans(text: str, start: int, end: int, *, max_chars: int) -> list[Span]:

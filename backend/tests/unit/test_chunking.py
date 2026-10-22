@@ -10,6 +10,7 @@ from app.documents.chunking import (
     chunk_markdown,
     chunk_pdf_pages,
     chunk_plain,
+    join_pages,
     sentence_spans,
 )
 from app.documents.text import ELLIPSIS
@@ -330,7 +331,7 @@ def test_pdf_chunks_know_the_pages_they_come_from() -> None:
 
 
 def test_a_sentence_that_runs_on_to_the_next_page_stays_whole() -> None:
-    sentence = "The first sentence runs on\nto the next page."
+    sentence = "The first sentence runs on to the next page."
     pages = ["The first sentence runs on", "to the next page. Then another one."]
 
     chunks = chunk_pdf_pages(pages, size=len(sentence), overlap=0)
@@ -339,6 +340,16 @@ def test_a_sentence_that_runs_on_to_the_next_page_stays_whole() -> None:
         (sentence, 1, 2),
         ("Then another one.", 2, 2),
     ]
+
+
+def test_a_page_starts_on_a_new_line_unless_it_goes_on_in_lower_case() -> None:
+    pages = ["A heading", "Its first sentence runs on", "to this page.", "", "«Quoted» page."]
+
+    assert join_pages(pages) == (
+        f"A heading{PAGE_SEPARATOR}Its first sentence runs on to this page."
+        f"{PAGE_SEPARATOR}{PAGE_SEPARATOR}«Quoted» page."
+    )
+    assert join_pages([]) == ""
 
 
 def test_chunking_is_deterministic() -> None:

@@ -146,6 +146,7 @@ class _FakeLLM:
         before_call: Callable[[], None] = _nothing,
     ) -> None:
         self.calls = 0
+        self.requests: list[AnalysisRequest] = []
         self._errors = list(errors)
         self._analysis = analysis
         self._model = model
@@ -157,6 +158,7 @@ class _FakeLLM:
 
     def analyze_document(self, request: AnalysisRequest) -> AnalysisResult:
         self.calls += 1
+        self.requests.append(request)
         self._before_call()
         if self._errors:
             raise self._errors.pop(0)
@@ -452,6 +454,21 @@ def test_the_russian_lecture_pdf_becomes_ready_with_page_ranges_and_no_running_l
     for chunk in chunks:
         assert _LECTURE_HEADER not in chunk.content
         assert _PAGE_NUMBER_LINE.search(chunk.content) is None
+    # Lines the layout wrapped are joined, at the end of a page too.
+    text = " ".join(chunk.content for chunk in chunks)
+    assert "схемы базы данных, при котором каждая таблица" in text
+    assert "Если ключ состоит из нескольких столбцов, " in text
+
+
+def test_the_model_reads_a_pdf_without_the_line_breaks_of_its_layout(runner: _Runner) -> None:
+    document = runner.store(_LECTURE_PDF.read_bytes(), "lecture-ru.pdf")
+    llm = _FakeLLM()
+
+    runner.run(document.id, llm=llm)
+
+    [request] = llm.requests
+    assert "схемы базы данных, при котором каждая таблица" in request.sample
+    assert "Если ключ состоит из нескольких столбцов, " in request.sample
 
 
 def test_a_plain_text_document_becomes_ready_without_headings_or_pages(

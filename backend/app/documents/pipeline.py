@@ -25,11 +25,11 @@ from app.core.config import Settings
 from app.core.timing import MS_PER_SECOND
 from app.documents.analysis_sample import build_analysis_sample
 from app.documents.chunking import (
-    PAGE_SEPARATOR,
     Chunk,
     chunk_markdown,
     chunk_pdf_pages,
     chunk_plain,
+    join_pages,
 )
 from app.documents.cleaning import check_text, clean_pdf_pages, clean_text
 from app.documents.errors import (
@@ -394,7 +394,7 @@ def _cleaned(extracted: ExtractedDocument) -> tuple[str, list[str] | None]:
     """The cleaned text, with the cleaned pages of a PDF; None for the pages of other files."""
     if extracted.pages is not None:
         pages = clean_pdf_pages(extracted.pages)
-        return PAGE_SEPARATOR.join(pages), pages
+        return join_pages(pages), pages
     # Every other file is extracted as one text.
     return clean_text(extracted.text or ""), None
 

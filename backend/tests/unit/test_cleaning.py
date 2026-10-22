@@ -10,7 +10,12 @@ from typing import Final
 
 import pytest
 
-from app.documents.cleaning import check_text, clean_pdf_pages, clean_text
+from app.documents.cleaning import (
+    WRAPPED_LINE_MIN_CHARS,
+    check_text,
+    clean_pdf_pages,
+    clean_text,
+)
 from app.documents.errors import DocumentProcessingError
 from app.documents.extraction import extract
 from tests.fixtures.pdf_builder import mapped_text_pdf, text_pdf
@@ -28,8 +33,9 @@ EXPANDING_UNITS: Final = (
 )
 # Combining marks with no letter in sight, so a piece has nowhere good to end.
 MARK_UNITS: Final = ("\N{COMBINING ACUTE ACCENT}",)
-# Line structure the cleaning looks at: breaks, soft hyphens, trailing spaces, hyphenation.
-LINE_UNITS: Final = ("\r\n", "\xad", " \n", "a-\n")
+# Line structure the cleaning looks at: breaks, soft hyphens, trailing spaces, hyphenation,
+# short lines and lines long enough to have been wrapped.
+LINE_UNITS: Final = ("\r\n", "\xad", " \n", "a-\n", "a\n", "a" * WRAPPED_LINE_MIN_CHARS + "\n")
 # Many short pages, on which a cost that grows page after page shows.
 HOSTILE_PAGE_LENGTH: Final = 100
 # Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
@@ -399,8 +405,67 @@ def test_the_running_header_and_page_numbers_of_a_browser_printed_pdf_are_remove
             for line in clean_text(raw).split("\n")
             if line not in (LECTURE_HEADER, f"Стр. {number}")
         ]
-        assert page.split("\n") == body
+        # The body keeps its words; only the line breaks between them may go.
+        assert page.split() == " ".join(body).split()
     assert LECTURE_HEADER not in "\n".join(cleaned)
+
+
+def test_the_paragraphs_of_a_browser_printed_pdf_become_lines_of_their_own() -> None:
+    cleaned = clean_pdf_pages(_pdf_pages(LECTURE_PDF))
+
+    title, paragraph, heading, *_ = cleaned[0].split("\n")
+    assert title == "Лекция 4. Нормализация реляционных баз данных"
+    assert paragraph.startswith(
+        "Нормализация — это последовательное преобразование схемы базы данных, при котором "
+        "каждая таблица описывает ровно одну сущность или одну связь между сущностями."
+    )
+    assert paragraph.endswith("и база начинает давать разные ответы на один вопрос.")
+    assert heading == "Аномалии при работе с данными"
+    questions = cleaned[-1].split("\n")[-5:]
+    assert questions[0] == (
+        "1. Какие три вида аномалий возникают в ненормализованной таблице и чем они опасны?"
+    )
+    assert [question[:2] for question in questions] == ["1.", "2.", "3.", "4.", "5."]
+
+
+def test_lines_the_layout_wrapped_are_joined_and_the_others_kept() -> None:
+    page = "\n".join(
+        [
+            "Нормализация реляционных баз данных",
+            "Нормализация — это последовательное преобразование схемы базы",
+            "данных, при котором каждая таблица описывает одну сущность.",
+            "Вопросы для самопроверки",
+            "1. Какие три вида аномалий возникают в ненормализованной таблице и",
+            "чем они опасны?",
+            "2. Чем полная функциональная зависимость отличается от частичной?",
+        ]
+    )
+
+    assert clean_pdf_pages([page]) == [
+        "Нормализация реляционных баз данных\n"
+        "Нормализация — это последовательное преобразование схемы базы данных, при котором "
+        "каждая таблица описывает одну сущность.\n"
+        "Вопросы для самопроверки\n"
+        "1. Какие три вида аномалий возникают в ненормализованной таблице и чем они опасны?\n"
+        "2. Чем полная функциональная зависимость отличается от частичной?"
+    ]
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "Строки таблицы читают из файла по одной, как в коротком примере:\n"
+        "import csv\n"
+        "rows = list(csv.reader(stream))",
+        "Функция возвращает первую строку таблицы, если она есть, а иначе\n    return None",
+        "Виды аномалий\nвставки\nобновления\nудаления",
+        "Таблица находится во второй нормальной форме, если выполнено условие.\n"
+        "т. е. каждый неключевой атрибут зависит от всего ключа",
+    ],
+    ids=["after-a-colon-and-short-lines", "indented-line", "short-lines-only", "after-a-stop"],
+)
+def test_line_breaks_that_the_writer_made_are_kept(page: str) -> None:
+    assert clean_pdf_pages([page]) == [page]
 
 
 @pytest.mark.parametrize("text", ["Нормализация", "2026"], ids=["letters", "digits"])

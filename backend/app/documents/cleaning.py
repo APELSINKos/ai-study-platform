@@ -10,6 +10,7 @@ import re
 import unicodedata
 from collections import Counter
 from collections.abc import Sequence
+from itertools import pairwise
 from typing import Final
 
 from app.documents.errors import TEXT_TOO_LONG_MESSAGE, DocumentProcessingError
@@ -25,6 +26,11 @@ PAGE_NUMBER_EDGE_LINES: Final = 3
 RUNNING_LINE_MIN_SHARE: Final = 0.5
 RUNNING_LINE_MIN_PAGES: Final = 3
 RUNNING_LINES_MAX_PER_EDGE: Final = 3
+# A line the layout wrapped is about as long as the longest line of its page, and as long
+# as an ordinary line of text: shorter lines, such as headings, the last lines of
+# paragraphs, code or the items of a list on a slide, were ended by the writer.
+WRAPPED_LINE_MIN_SHARE: Final = 0.7
+WRAPPED_LINE_MIN_CHARS: Final = 30
 
 _SOFT_HYPHEN: Final = "\N{SOFT HYPHEN}"
 # Every line break str.splitlines knows, "\r\n" counting as one.
@@ -48,10 +54,10 @@ _LINE_END_SOFT_HYPHEN_RE: Final = re.compile(r"\N{SOFT HYPHEN}(?=[^\S\n]*+(?:\n|
 # The lookbehind lets a match start only where a run of spaces starts, so a long run that
 # is not at the end of its line is scanned once rather than once per space.
 _TRAILING_SPACE_RE: Final = re.compile(r"(?<![^\S\n])[^\S\n]++$", re.MULTILINE)
-# A hyphen after a letter at the end of a line, with the next line starting with a letter.
-# Only a lower-case letter continues a broken word: "Москва-" before "Река" stays as it is.
-_LINE_END_HYPHEN_RE: Final = re.compile(r"(?<=[^\W\d_])[-\N{HYPHEN}]\n[^\S\n]*+(?=[^\W\d_])")
 _LINE_END_HYPHENS: Final = ("-", "\N{HYPHEN}")
+# A line ending with one of these ends a sentence or a clause, often before a list or code,
+# or ends with a hyphen that did not break a word: its line break stays.
+_LINE_ENDS_KEPT: Final = (".", "!", "?", "…", ":", ";", *_LINE_END_HYPHENS)
 _LETTER_RE: Final = re.compile(r"[^\W\d_]")
 # A line that is only a page number: "7", "Page 7 of 12", "Стр. 7", "7 / 12", "7 из 12".
 _PAGE_NUMBER_RE: Final = re.compile(
@@ -114,15 +120,13 @@ def clean_pdf_pages(pages: Sequence[str]) -> list[str]:
     Blank lines, page numbers at the top or the bottom and running headers and footers
     repeated at the edges of the pages are dropped; then words hyphenated at line ends, the
     last line of a page included, are joined, so a word broken at the end of the body never
-    runs into a footer.
+    runs into a footer. Last, the lines that the layout wrapped are joined, so a paragraph,
+    a heading or an item of a list is a line of its own.
     """
     page_lines = [_drop_page_numbers(_page_lines(page)) for page in pages]
     _drop_running_lines(page_lines)
     _join_words_broken_across_pages(page_lines)
-    return [
-        _LINE_END_HYPHEN_RE.sub(_join_lower_case_continuation, "\n".join(lines))
-        for lines in page_lines
-    ]
+    return [_page_text(lines) for lines in page_lines]
 
 
 def _page_lines(page: str) -> list[str]:
@@ -130,8 +134,34 @@ def _page_lines(page: str) -> list[str]:
     return [line for line in clean_text(page).split("\n") if line]
 
 
-def _join_lower_case_continuation(match: re.Match[str]) -> str:
-    return "" if match.string[match.end()].islower() else match.group()
+def _page_text(lines: list[str]) -> str:
+    """The lines of a page joined into its text, without the line breaks of its layout.
+
+    A word hyphenated at a line end is joined up when the next line goes on in lower case:
+    "Москва-" before "Река" stays as it is. A wrapped line, one long enough to fill the
+    page, runs on into the next line after a space when that line starts with a lower-case
+    letter and nothing in between ends a sentence or a clause. Every other line break
+    stays: one before a capital letter can start a heading, a paragraph or a list item.
+    """
+    if not lines:
+        return ""
+    longest = max(len(line) for line in lines)
+    wrapped_length = max(WRAPPED_LINE_MIN_CHARS, WRAPPED_LINE_MIN_SHARE * longest)
+    parts = [lines[0]]
+    for line, next_line in pairwise(lines):
+        continuation = next_line.lstrip()
+        if _ends_inside_a_word(line) and continuation[:1].islower():
+            parts[-1] = parts[-1][:-1]
+            parts.append(continuation)
+        elif (
+            len(line) >= wrapped_length
+            and next_line[:1].islower()
+            and not line.endswith(_LINE_ENDS_KEPT)
+        ):
+            parts.extend((" ", next_line))
+        else:
+            parts.extend(("\n", next_line))
+    return "".join(parts)
 
 
 def _drop_page_numbers(lines: list[str]) -> list[str]:
