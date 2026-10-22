@@ -5,6 +5,7 @@ import math
 import re
 import signal
 import sys
+import threading
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -1235,6 +1236,21 @@ def test_the_deadline_alarm_is_off_once_the_file_is_read(
     assert outcome == PipelineOutcome.ready(chunk_count=3)
     assert alarms == [(0.0, 0.0)]
     assert signal.getsignal(signal.SIGALRM) == handler
+
+
+def test_a_run_outside_the_main_thread_goes_on_without_the_deadline_alarm(
+    runner: _Runner,
+) -> None:
+    # Only the main thread may set a signal handler. Were the alarm set anyway, a worker
+    # running tasks in threads would fail every document.
+    document = runner.store(_MARKDOWN.encode(), "sorting.md")
+    outcomes: list[PipelineOutcome] = []
+    thread = threading.Thread(target=lambda: outcomes.append(runner.run(document.id)))
+
+    thread.start()
+    thread.join()
+
+    assert outcomes == [PipelineOutcome.ready(chunk_count=3)]
 
 
 @pytest.mark.parametrize(
