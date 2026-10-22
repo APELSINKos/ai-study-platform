@@ -22,9 +22,10 @@ PDF_SIGNATURE: Final = b"%PDF-"
 # PDF readers accept a header that follows up to 1 KiB of other bytes.
 PDF_SIGNATURE_WINDOW_BYTES: Final = 1024
 UPLOAD_CHUNK_BYTES: Final = 64 * 1024
-# Control characters, plus format characters: bidi overrides and zero-width characters
-# can make "notes<U+202E>fdp.txt" display as "notestxt.pdf".
-_STRIPPED_CATEGORIES: Final = frozenset({"Cc", "Cf"})
+# Control characters; format characters, as bidi overrides and zero-width characters can
+# make "notes<U+202E>fdp.txt" display as "notestxt.pdf"; and lone surrogates, which a body
+# charset such as UTF-7 can put into a name and PostgreSQL cannot store.
+_STRIPPED_CATEGORIES: Final = frozenset({"Cc", "Cf", "Cs"})
 
 _UNSUPPORTED_FILE_TYPE_MESSAGE: Final = (
     "Only PDF, Markdown (.md) and plain text (.txt) files can be uploaded."

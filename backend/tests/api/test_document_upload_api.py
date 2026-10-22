@@ -70,6 +70,28 @@ def _upload(
     )
 
 
+def _upload_named(
+    client: TestClient, workspace_id: str, filename: bytes, *, charset: str = "utf-8"
+) -> httpx2.Response:
+    """An upload whose file name is sent exactly as given, in a body of this charset."""
+    boundary = "upload-test-boundary"
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode(),
+            b'Content-Disposition: form-data; name="file"; filename="' + filename + b'"\r\n',
+            b"Content-Type: text/plain\r\n\r\n",
+            b"Lecture notes\n",
+            f"\r\n--{boundary}--\r\n".encode(),
+        ]
+    )
+    content_type = f"multipart/form-data; boundary={boundary}; charset={charset}"
+    return client.post(
+        _documents_path(workspace_id),
+        content=body,
+        headers={**csrf_headers(client), "Content-Type": content_type},
+    )
+
+
 def _uploaded(
     client: TestClient, workspace_id: str, filename: str = "notes.md", content: bytes = _MARKDOWN
 ) -> dict[str, Any]:
@@ -316,6 +338,20 @@ def test_a_file_name_is_cleaned_and_never_becomes_part_of_a_path(
     assert _stored_files(integration_settings) == [
         root / workspace_id / f"{document.id}{extension}"
     ]
+
+
+def test_a_surrogate_smuggled_in_by_the_body_charset_is_dropped_from_the_name(
+    user_client: TestClient, db_session: Session
+) -> None:
+    workspace_id = _create_workspace(user_client)
+
+    # In UTF-7, "+2D0-" is a lone surrogate, which PostgreSQL cannot store.
+    response = _upload_named(user_client, workspace_id, b"notes+2D0-.txt", charset="utf-7")
+
+    assert response.status_code == HTTPStatus.ACCEPTED, response.text
+    assert response.json()["original_filename"] == "notes.txt"
+    [document] = _documents_in(db_session, workspace_id)
+    assert document.original_filename == "notes.txt"
 
 
 # --- duplicates and per-user caps ---------------------------------------------
