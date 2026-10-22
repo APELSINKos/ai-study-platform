@@ -470,6 +470,20 @@ def test_a_plain_text_document_becomes_ready_without_headings_or_pages(
     assert (chunk.heading, chunk.page_start, chunk.page_end) == (None, None, None)
 
 
+def test_a_clock_set_back_during_the_run_records_no_negative_processing_time(
+    db_session: Session, runner: _Runner, clock: _FakeClock
+) -> None:
+    document = runner.store(_MARKDOWN.encode(), "sorting.md")
+    # The wall clock is set back while the chunks are embedded.
+    embedder = _FakeEmbedder(before_call=lambda: clock.advance(timedelta(seconds=-5)))
+
+    outcome = runner.run(document.id, embedder=embedder)
+
+    assert outcome == PipelineOutcome.ready(chunk_count=3)
+    db_session.refresh(document)
+    assert (document.status, document.processing_ms) == ("ready", 0)
+
+
 @pytest.mark.parametrize("status", ["processing", "indexing", "ready", "failed"])
 def test_a_document_that_is_not_waiting_for_processing_is_skipped_untouched(
     db_session: Session, runner: _Runner, status: str

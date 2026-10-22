@@ -1,7 +1,9 @@
 import hashlib
 import io
 import json
+import os
 import re
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,7 +19,12 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.core.logging import configure_logging
 from app.documents.queue import QueueUnavailableError
 from app.documents.status import STALE_DOCUMENT_SECONDS
-from app.documents.storage import FileStorage
+from app.documents.storage import (
+    STALE_TEMP_FILE_AGE,
+    TEMP_DIR_NAME,
+    TEMP_FILE_SUFFIX,
+    FileStorage,
+)
 from app.documents.validation import InspectedUpload, copy_upload
 from app.models.document import Document, DocumentStatus
 from app.models.user import User
@@ -198,6 +205,23 @@ def test_upload_takes_its_times_from_the_clock_and_touches_the_workspace(
     assert workspace.updated_at == _START
     assert view.can_retry is False
     assert queue.enqueued == [document.id]
+
+
+def test_an_upload_first_removes_the_part_files_of_uploads_that_died(
+    db_session: Session, service: DocumentService, owner: User, integration_settings: Settings
+) -> None:
+    workspace = _workspace(db_session, owner)
+    temp_dir = integration_settings.storage_dir / TEMP_DIR_NAME
+    temp_dir.mkdir(parents=True)
+    stale = temp_dir / f"{uuid.uuid4()}{TEMP_FILE_SUFFIX}"
+    stale.write_bytes(b"partial upload")
+    modified = time.time() - (STALE_TEMP_FILE_AGE + timedelta(hours=1)).total_seconds()
+    os.utime(stale, (modified, modified))
+
+    service.upload(user=owner, workspace_id=workspace.id, upload=_upload_file())
+
+    assert not stale.exists()
+    assert list(temp_dir.iterdir()) == []
 
 
 def test_a_publish_failure_marks_the_document_failed_when_the_publish_gave_up(
