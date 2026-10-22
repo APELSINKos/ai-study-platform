@@ -59,19 +59,26 @@ function ListSummary({ loaded }: { loaded: LoadedDocuments | undefined }) {
   );
 }
 
-/** Counts what the loaded rows show; documents on pages not loaded yet count only in the total. */
+/**
+ * Counts the loaded rows only. The statuses of documents on pages not loaded yet are unknown, so
+ * with more documents than loaded the summary first says how many it counts.
+ */
 function summaryText({ documents, total }: LoadedDocuments, t: DocumentsTranslator): string {
   if (total === 0) {
     return t("list.empty");
   }
+  const shown = documents.length;
   const { active, ready, failed } = tallyDocuments(documents);
   const sentences: string[] = [];
+  if (shown < total) {
+    sentences.push(t("summary.shown", { shown, total }));
+  }
   if (active > 0) {
-    sentences.push(t("summary.processing", { active, total }));
-  } else if (ready === total) {
-    sentences.push(t("summary.allReady", { total }));
+    sentences.push(t("summary.processing", { active, total: shown }));
+  } else if (ready > 0 && ready === shown) {
+    sentences.push(t("summary.allReady", { total: shown }));
   } else if (ready > 0) {
-    sentences.push(t("summary.someReady", { ready, total }));
+    sentences.push(t("summary.someReady", { ready, total: shown }));
   }
   if (failed > 0) {
     sentences.push(t("summary.failed", { failed }));

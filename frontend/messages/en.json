@@ -332,6 +332,7 @@
       "empty": "No documents yet."
     },
     "summary": {
+      "shown": "{total, plural, other {Showing {shown} of # files.}}",
       "processing": "{total, plural, =1 {Processing the file.} other {Processing {active} of # files.}}",
       "allReady": "{total, plural, =1 {The file is ready.} other {All # files are ready.}}",
       "someReady": "{ready, plural, one {# of {total} files is ready.} other {# of {total} files are ready.}}",

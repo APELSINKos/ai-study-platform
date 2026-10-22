@@ -332,6 +332,7 @@
       "empty": "Документов пока нет."
     },
     "summary": {
+      "shown": "{total, plural, one {Показано {shown} из # файла.} few {Показано {shown} из # файлов.} many {Показано {shown} из # файлов.} other {Показано {shown} из # файла.}}",
       "processing": "{total, plural, =1 {Файл обрабатывается.} one {В обработке {active} из # файла.} few {В обработке {active} из # файлов.} many {В обработке {active} из # файлов.} other {В обработке {active} из # файла.}}",
       "allReady": "{total, plural, =1 {Файл готов.} one {Все # файл готовы.} few {Все # файла готовы.} many {Все # файлов готовы.} other {Все # файла готовы.}}",
       "someReady": "{total, plural, one {Готово {ready} из # файла.} few {Готово {ready} из # файлов.} many {Готово {ready} из # файлов.} other {Готово {ready} из # файла.}}",

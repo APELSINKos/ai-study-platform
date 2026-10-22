@@ -193,17 +193,24 @@ describe("DocumentList", () => {
   });
 
   it.each([
-    ["en", "ready", "50 of 51 files are ready."],
-    ["en", "processing", "Processing 1 of 51 files."],
-    ["ru", "ready", "Готово 50 из 51 файла."],
+    ["en", "ready", "Showing 50 of 51 files. All 50 files are ready."],
+    ["en", "processing", "Showing 50 of 51 files. Processing 1 of 50 files."],
+    ["en", "failed", "Showing 50 of 51 files. 49 of 50 files are ready. 1 file failed."],
+    ["ru", "ready", "Показано 50 из 51 файла. Все 50 файлов готовы."],
+    [
+      "ru",
+      "failed",
+      "Показано 50 из 51 файла. Готово 49 из 50 файлов. Не удалось обработать 1 файл.",
+    ],
   ] as const)(
-    "counts the documents not loaded yet without vouching for them (%s, %s)",
+    "counts only the documents loaded so far, and says so (%s, %s)",
     async (locale, firstStatus, summary) => {
+      // The document not loaded yet may be ready, on its way or failed: nothing is said of it.
       const firstFifty = withStatuses(firstStatus, ...Array<DocumentStatus>(49).fill("ready"));
       apiFetchMock.mockResolvedValue(documentPageFixture(firstFifty, { total: 51 }));
       renderList(locale);
 
-      await expectSummary(summary);
+      await waitFor(() => expect(screen.getByRole("status").textContent).toBe(summary));
     },
   );
 
