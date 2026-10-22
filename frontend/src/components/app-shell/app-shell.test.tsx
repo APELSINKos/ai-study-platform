@@ -91,6 +91,7 @@ describe("AppShell", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(dialog).toHaveAccessibleDescription("Main navigation and account");
+    expect(document.querySelector(".fixed.inset-0.z-40")).toHaveClass("bg-scrim");
 
     await user.keyboard("{Escape}");
 

@@ -76,6 +76,17 @@ describe("AlertDialog", () => {
     );
   });
 
+  it("dims the page behind the question with the scrim of the current theme", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await openWithKeyboard(user);
+
+    // jsdom applies no styles, so the class is checked: ink would lighten a dark page instead.
+    const overlay = document.querySelector(".fixed.inset-0.z-40");
+    expect(overlay).toHaveClass("bg-scrim");
+  });
+
   it("closes on Escape and returns focus to the trigger", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn(async () => undefined);

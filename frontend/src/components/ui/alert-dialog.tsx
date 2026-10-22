@@ -81,7 +81,7 @@ export function AlertDialog({
     <AlertDialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <AlertDialogPrimitive.Trigger asChild>{trigger}</AlertDialogPrimitive.Trigger>
       <AlertDialogPrimitive.Portal>
-        <AlertDialogPrimitive.Overlay className="bg-ink/30 fixed inset-0 z-40" />
+        <AlertDialogPrimitive.Overlay className="bg-scrim fixed inset-0 z-40" />
         <AlertDialogPrimitive.Content
           onCloseAutoFocus={handleCloseAutoFocus}
           className="index-card fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto"

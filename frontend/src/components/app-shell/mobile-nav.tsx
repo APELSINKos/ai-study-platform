@@ -24,7 +24,7 @@ export function MobileNav({ user }: { user: UserOut | undefined }) {
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Overlay className="bg-ink/30 fixed inset-0 z-40" />
+        <Dialog.Overlay className="bg-scrim fixed inset-0 z-40" />
         <Dialog.Content className="bg-sheet fixed inset-y-0 left-0 z-50 flex w-72 flex-col gap-6 p-4 shadow-[var(--shadow-raised)]">
           <VisuallyHidden.Root asChild>
             <Dialog.Description>{t("description")}</Dialog.Description>

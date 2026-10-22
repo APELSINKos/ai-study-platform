@@ -29,6 +29,8 @@
   --margin: #c0392b;
   --ok: #1d8a5a;
   --shadow-raised: 0 1px 0 var(--rule), 0 18px 40px -24px rgb(21 27 48 / 0.35);
+  /* Laid over the page behind a dialog. It darkens in both themes: ink would lighten a dark page. */
+  --scrim: rgb(21 27 48 / 0.3);
   color-scheme: light;
 }
 
@@ -47,6 +49,7 @@
   --margin: #ff6b61;
   --ok: #4cc38a;
   --shadow-raised: 0 1px 0 var(--rule), 0 18px 40px -24px rgb(0 0 0 / 0.7);
+  --scrim: rgb(3 5 14 / 0.6);
   color-scheme: dark;
 }
 
@@ -82,6 +85,7 @@
   --color-on-highlight: var(--on-highlight);
   --color-margin: var(--margin);
   --color-ok: var(--ok);
+  --color-scrim: var(--scrim);
 
   /* Names that shadcn/ui components expect, mapped onto the palette above. */
   --color-background: var(--paper);
