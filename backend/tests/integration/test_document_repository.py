@@ -487,7 +487,15 @@ def test_mark_retry_pending_sends_the_document_back_to_uploaded_with_its_error(
 
 def test_complete_marks_the_document_ready_at_the_given_time(db_session: Session) -> None:
     workspace = _workspace(db_session, _user(db_session))
-    document = _document(db_session, workspace, "indexing", attempts=1, updated_at=_EARLIER)
+    document = _document(
+        db_session,
+        workspace,
+        "indexing",
+        attempts=1,
+        error_code="queue_unavailable",
+        error_message="Not queued.",
+        updated_at=_EARLIER,
+    )
 
     completed = DocumentRepository(db_session).complete(
         document.id, 1, _NOW, chunk_count=3, embedding_model="mock-hashing-v1", processing_ms=1500
@@ -502,7 +510,9 @@ def test_complete_marks_the_document_ready_at_the_given_time(db_session: Session
         document.processing_ms,
         document.processed_at,
         document.updated_at,
-    ) == ("ready", 3, "mock-hashing-v1", 1500, _NOW, _NOW)
+        document.error_code,
+        document.error_message,
+    ) == ("ready", 3, "mock-hashing-v1", 1500, _NOW, _NOW, None, None)
 
 
 def test_owner_usage_counts_active_documents_and_every_stored_byte(db_session: Session) -> None:

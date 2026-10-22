@@ -250,6 +250,8 @@ class _Run:
                 self.document.token,
                 self.clock(),
                 status="indexing",
+                error_code=None,
+                error_message=None,
                 title=analysis.title,
                 summary=analysis.summary,
                 topics=analysis.topics,

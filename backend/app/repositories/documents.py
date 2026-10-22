@@ -242,12 +242,20 @@ class DocumentRepository:
     def complete(self, document_id: uuid.UUID, token: int, now: datetime, **values: object) -> bool:
         """Mark the run's document ready, processed now; False when the run lost it.
 
-        values are the rest a ready document needs: chunk_count, embedding_model and
-        processing_ms. The UPDATE locks the document row until the transaction ends, so the
-        caller stores the chunks after it, in the same transaction.
+        Any error left on it is cleared. values are the rest a ready document needs:
+        chunk_count, embedding_model and processing_ms. The UPDATE locks the document row
+        until the transaction ends, so the caller stores the chunks after it, in the same
+        transaction.
         """
         return self.update_if_current(
-            document_id, token, now, status="ready", processed_at=now, **values
+            document_id,
+            token,
+            now,
+            status="ready",
+            processed_at=now,
+            error_code=None,
+            error_message=None,
+            **values,
         )
 
     def _update_returning(self, statement: Update) -> Document | None:

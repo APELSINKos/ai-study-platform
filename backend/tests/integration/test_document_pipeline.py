@@ -826,6 +826,38 @@ def test_a_first_heading_of_5000_characters_gives_a_title_that_fits_its_column(
     assert len(chunk.heading) <= CHUNK_HEADING_MAX_LENGTH
 
 
+def test_each_step_forward_clears_an_error_written_on_the_document_during_the_run(
+    db_session: Session, runner: _Runner
+) -> None:
+    document = runner.store(_MARKDOWN.encode(), "sorting.md")
+    while_embedding: list[tuple[str, str | None, str | None]] = []
+
+    def write_an_error() -> None:
+        # Written while the run works, without moving its run token.
+        db_session.execute(
+            update(Document)
+            .where(Document.id == document.id)
+            .values(error_code="queue_unavailable", error_message="Not queued.")
+            .execution_options(synchronize_session=False)
+        )
+        db_session.commit()
+
+    def note_the_state() -> None:
+        db_session.refresh(document)
+        while_embedding.append((document.status, document.error_code, document.error_message))
+        write_an_error()
+
+    llm = _FakeLLM(before_call=write_an_error)
+    embedder = _FakeEmbedder(before_call=note_the_state)
+
+    outcome = runner.run(document.id, llm=llm, embedder=embedder)
+
+    assert outcome == PipelineOutcome.ready(chunk_count=3)
+    assert while_embedding == [("indexing", None, None)]
+    db_session.refresh(document)
+    assert (document.status, document.error_code, document.error_message) == ("ready", None, None)
+
+
 def test_a_run_whose_document_a_newer_run_claimed_is_skipped_and_stores_no_chunks(
     db_session: Session, runner: _Runner
 ) -> None:
