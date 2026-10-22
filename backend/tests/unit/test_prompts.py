@@ -35,6 +35,7 @@ HOSTILE_UNITS: Final = (
     "<document>",
     "</docu</document>ment>",
 )
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 
 FILENAME: Final = "lecture-3.pdf"
@@ -174,6 +175,7 @@ def test_other_angle_brackets_are_kept() -> None:
     assert sample in user
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS)
 def test_long_runs_of_markup_are_processed_in_linear_time(unit: str) -> None:
     hostile = unit * (HOSTILE_TEXT_LENGTH // len(unit))

@@ -29,6 +29,7 @@ from app.llm.schemas import NormalizedAnalysis, normalize_analysis
 
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 EMPHASIS_MARKS: Final = ("_", "*", "~")
 
@@ -448,6 +449,7 @@ def test_normalizing_the_offline_analysis_changes_nothing(
     )
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS)
 def test_long_runs_of_punctuation_and_markup_are_processed_in_linear_time(
     llm: MockLLMProvider, embedder: HashingEmbeddingProvider, unit: str
@@ -462,6 +464,7 @@ def test_long_runs_of_punctuation_and_markup_are_processed_in_linear_time(
     assert analysis.title == "Hostile"
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("mark", EMPHASIS_MARKS)
 def test_a_long_run_of_emphasis_marks_inside_a_word_is_processed_in_linear_time(
     llm: MockLLMProvider, embedder: HashingEmbeddingProvider, mark: str

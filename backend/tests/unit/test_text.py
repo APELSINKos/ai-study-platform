@@ -17,6 +17,7 @@ from app.documents.text import (
 
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 
 
@@ -326,6 +327,7 @@ def test_a_limit_without_room_for_the_ellipsis_is_rejected(max_chars: int) -> No
         shorten("abc def ghi", max_chars)
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS)
 def test_long_runs_of_punctuation_and_markup_are_processed_in_linear_time(unit: str) -> None:
     text = (unit * HOSTILE_TEXT_LENGTH)[:HOSTILE_TEXT_LENGTH]

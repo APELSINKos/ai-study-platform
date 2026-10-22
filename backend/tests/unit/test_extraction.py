@@ -41,6 +41,7 @@ LECTURE_PDF: Final = Path(__file__).resolve().parents[1] / "fixtures" / "lecture
 MAX_PDF_PAGES: Final = 500
 MAX_CHARS: Final = 2_000_000
 BOMB_MAX_FILE_BYTES: Final = 25 * 1024
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 BOMB_TIME_LIMIT_SECONDS: Final = 2.0
 FORM_BYTES: Final = 1000
 
@@ -378,6 +379,7 @@ def _content_bytes(pdf: bytes) -> int:
     return len(contents.get_data())
 
 
+@pytest.mark.no_cover
 def test_a_small_pdf_that_inflates_to_sixteen_mebibytes_is_stopped_quickly(
     tmp_path: Path,
 ) -> None:
@@ -488,6 +490,7 @@ def test_forms_drawn_up_to_the_page_limit_are_read(
     assert _extract(path, "application/pdf").page_count == 1
 
 
+@pytest.mark.no_cover
 def test_a_small_page_drawing_a_big_form_again_and_again_is_stopped_quickly(
     tmp_path: Path,
 ) -> None:

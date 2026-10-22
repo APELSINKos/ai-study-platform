@@ -23,6 +23,7 @@ LONG_TEXT: Final = " ".join(SENTENCES)
 HEADINGS: Final = [f"Heading number {index:03d}" for index in range(200)]
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 _NUMBER_RE: Final = re.compile(r"Sentence (\d{4})")
 
@@ -164,6 +165,7 @@ def test_a_tiny_limit_still_gives_a_bounded_sample_of_the_beginning(max_chars: i
     assert len(outline) + len(sample) <= max_chars
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS)
 def test_long_runs_are_sampled_in_linear_time(unit: str) -> None:
     text = (unit * HOSTILE_TEXT_LENGTH)[:HOSTILE_TEXT_LENGTH]

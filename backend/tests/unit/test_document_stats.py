@@ -10,6 +10,7 @@ from app.models.document import DIFFICULTIES, Difficulty
 
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 
 
@@ -59,6 +60,7 @@ def test_harder_material_takes_longer_to_study() -> None:
     assert (easy, medium, hard) == (50, 65, 80)
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS)
 def test_words_of_long_runs_are_counted_in_linear_time(unit: str) -> None:
     text = (unit * HOSTILE_TEXT_LENGTH)[:HOSTILE_TEXT_LENGTH]

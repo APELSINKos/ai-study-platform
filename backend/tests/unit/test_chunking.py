@@ -21,6 +21,7 @@ HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
 # What the chunker's own patterns look for: blank lines, code fences and spaces.
 LINE_UNITS: Final = ("\n", " \n", "```\n", " ")
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 SECTION_BODY: Final = (
     "Every section under the long headings holds this one sentence and nothing else."
@@ -371,6 +372,7 @@ def test_sentence_spans_reject_a_limit_below_one(max_chars: int) -> None:
         sentence_spans("Text.", 0, 5, max_chars=max_chars)
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS + LINE_UNITS)
 def test_long_runs_are_chunked_in_linear_time(unit: str) -> None:
     text = (unit * HOSTILE_TEXT_LENGTH)[:HOSTILE_TEXT_LENGTH]
@@ -383,6 +385,7 @@ def test_long_runs_are_chunked_in_linear_time(unit: str) -> None:
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("levels", [1, 5], ids=["one-long-heading", "five-long-headings"])
 def test_short_sections_under_long_headings_are_chunked_in_linear_time(levels: int) -> None:
     # Half of the text is long headings, each one level below the one before; the rest is

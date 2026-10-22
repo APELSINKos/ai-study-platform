@@ -29,6 +29,7 @@ EXPANDING_UNITS: Final = (
 MARK_UNITS: Final = ("\N{COMBINING ACUTE ACCENT}",)
 # Line structure the cleaning looks at: breaks, soft hyphens, trailing spaces, hyphenation.
 LINE_UNITS: Final = ("\r\n", "\xad", " \n", "a-\n")
+# Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 
 
@@ -389,6 +390,7 @@ def test_text_without_a_letter_or_a_digit_has_no_text(text: str) -> None:
     assert caught.value.code == "no_text"
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS + EXPANDING_UNITS + MARK_UNITS + LINE_UNITS)
 def test_long_runs_are_cleaned_in_linear_time(unit: str) -> None:
     text = (unit * HOSTILE_TEXT_LENGTH)[:HOSTILE_TEXT_LENGTH]
@@ -401,6 +403,7 @@ def test_long_runs_are_cleaned_in_linear_time(unit: str) -> None:
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
 
 
+@pytest.mark.no_cover
 @pytest.mark.parametrize("unit", HOSTILE_UNITS + EXPANDING_UNITS + MARK_UNITS + LINE_UNITS)
 def test_long_runs_on_pdf_pages_are_cleaned_in_linear_time(unit: str) -> None:
     text = (unit * HOSTILE_TEXT_LENGTH)[:HOSTILE_TEXT_LENGTH]
