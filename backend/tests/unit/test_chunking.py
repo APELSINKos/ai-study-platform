@@ -376,6 +376,21 @@ def test_a_page_starts_on_a_new_line_unless_it_goes_on_in_lower_case() -> None:
     assert join_pages([]) == ""
 
 
+@pytest.mark.parametrize(
+    "pages",
+    [
+        ["Пример запроса:", "select name, count(*) from students group by name;"],
+        ["Различают следующие аномалии.", "аномалия вставки, удаления и обновления;"],
+        ["Пример запроса:", "", "select name from students;"],
+    ],
+    ids=["after-a-colon", "after-a-stop", "after-a-colon-and-an-empty-page"],
+)
+def test_a_page_after_the_end_of_a_sentence_or_a_clause_starts_on_a_new_line(
+    pages: list[str],
+) -> None:
+    assert join_pages(pages) == PAGE_SEPARATOR.join(pages)
+
+
 def test_chunking_is_deterministic() -> None:
     assert chunk_markdown(MIXED_TEXT, size=100, overlap=30) == chunk_markdown(
         MIXED_TEXT, size=100, overlap=30

@@ -461,8 +461,34 @@ def test_lines_the_layout_wrapped_are_joined_and_the_others_kept() -> None:
         "Виды аномалий\nвставки\nобновления\nудаления",
         "Таблица находится во второй нормальной форме, если выполнено условие.\n"
         "т. е. каждый неключевой атрибут зависит от всего ключа",
+        "Чтобы прочитать таблицу из файла, достаточно нескольких строк кода на языке Python\n"
+        "rows = list(csv.reader(open('data.csv', encoding='utf-8'), delimiter=';'))\n"
+        "total = sum(int(row[2]) for row in rows)\n"
+        "print(total)",
+        "Строки таблицы печатают в цикле:\n"
+        "for row in csv.reader(open('data.csv')): print(row[0], row[1])\n"
+        "print('done')",
+        "Запрос удобно сначала записать в переменную, а потом выполнить его одной командой:\n"
+        "query = 'select name, count(*) from students group by name order by name'\n"
+        "print(run(query))",
+        "Нормализация реляционных баз данных и её роль в проектировании информационных систем\n"
+        "Нормализация — это последовательное преобразование схемы базы данных.",
+        "Различают три аномалии, которые возникают в ненормализованной таблице с данными:\n"
+        "аномалия вставки новой записи в таблицу\n"
+        "аномалия обновления повторяющихся данных\n"
+        "аномалия удаления последней записи о сущности",
     ],
-    ids=["after-a-colon-and-short-lines", "indented-line", "short-lines-only", "after-a-stop"],
+    ids=[
+        "after-a-colon-and-short-lines",
+        "indented-line",
+        "short-lines-only",
+        "after-a-stop",
+        "code-after-text",
+        "code-line-ending-with-a-call",
+        "assignment-before-a-call",
+        "before-a-capital-letter",
+        "lines-much-shorter-than-the-longest",
+    ],
 )
 def test_line_breaks_that_the_writer_made_are_kept(page: str) -> None:
     assert clean_pdf_pages([page]) == [page]

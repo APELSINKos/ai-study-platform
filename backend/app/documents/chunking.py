@@ -14,13 +14,15 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from app.documents.cleaning import LINE_ENDS_KEPT
 from app.documents.text import shorten, split_sentences
 from app.models.document_chunk import CHUNK_HEADING_MAX_LENGTH
 
 HEADING_SEPARATOR: Final = " \N{SINGLE RIGHT-POINTING ANGLE QUOTATION MARK} "
 # A sentence can go on from one page to the next, so a page starts after a line break
-# rather than after a blank line, which ends a sentence; a page that goes on in lower case
-# follows the page before it after a space instead.
+# rather than after a blank line, which ends a sentence. A page that goes on in lower case
+# from text that ended neither a sentence nor a clause follows it after a space instead,
+# as a line the layout wrapped does inside a page.
 PAGE_SEPARATOR: Final = "\n"
 _RUN_ON_SEPARATOR: Final = " "
 MARKDOWN_MAX_HEADING_LEVEL: Final = 6
@@ -117,14 +119,19 @@ def _joined_pages(pages: Sequence[str]) -> tuple[str, list[int]]:
     parts: list[str] = []
     page_starts: list[int] = []
     offset = 0
+    # Whether the last page with text left its last sentence or clause open.
+    open_ended = False
     for page in pages:
         if page_starts:
-            separator = _RUN_ON_SEPARATOR if page[:1].islower() else PAGE_SEPARATOR
+            runs_on = open_ended and page[:1].islower()
+            separator = _RUN_ON_SEPARATOR if runs_on else PAGE_SEPARATOR
             parts.append(separator)
             offset += len(separator)
         page_starts.append(offset)
         parts.append(page)
         offset += len(page)
+        if page:
+            open_ended = not page.endswith(LINE_ENDS_KEPT)
     return "".join(parts), page_starts
 
 

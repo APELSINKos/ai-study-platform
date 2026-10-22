@@ -57,7 +57,11 @@ _TRAILING_SPACE_RE: Final = re.compile(r"(?<![^\S\n])[^\S\n]++$", re.MULTILINE)
 _LINE_END_HYPHENS: Final = ("-", "\N{HYPHEN}")
 # A line ending with one of these ends a sentence or a clause, often before a list or code,
 # or ends with a hyphen that did not break a word: its line break stays.
-_LINE_ENDS_KEPT: Final = (".", "!", "?", "…", ":", ";", *_LINE_END_HYPHENS)
+LINE_ENDS_KEPT: Final = (".", "!", "?", "…", ":", ";", *_LINE_END_HYPHENS)
+# Code can follow text without a colon. An assignment or a comparison holds "=" and a call
+# often ends its line with ")": the writer ended those lines, not the layout.
+_CODE_SIGN: Final = "="
+_WRAPPED_LINE_NEVER_ENDS: Final = (*LINE_ENDS_KEPT, ")")
 _LETTER_RE: Final = re.compile(r"[^\W\d_]")
 # A line that is only a page number: "7", "Page 7 of 12", "Стр. 7", "7 / 12", "7 из 12".
 _PAGE_NUMBER_RE: Final = re.compile(
@@ -140,8 +144,9 @@ def _page_text(lines: list[str]) -> str:
     A word hyphenated at a line end is joined up when the next line goes on in lower case:
     "Москва-" before "Река" stays as it is. A wrapped line, one long enough to fill the
     page, runs on into the next line after a space when that line starts with a lower-case
-    letter and nothing in between ends a sentence or a clause. Every other line break
-    stays: one before a capital letter can start a heading, a paragraph or a list item.
+    letter, nothing in between ends a sentence or a clause and neither line looks like
+    code. Every other line break stays: one before a capital letter can start a heading,
+    a paragraph or a list item.
     """
     if not lines:
         return ""
@@ -156,7 +161,9 @@ def _page_text(lines: list[str]) -> str:
         elif (
             len(line) >= wrapped_length
             and next_line[:1].islower()
-            and not line.endswith(_LINE_ENDS_KEPT)
+            and not line.endswith(_WRAPPED_LINE_NEVER_ENDS)
+            and _CODE_SIGN not in line
+            and _CODE_SIGN not in next_line
         ):
             parts.extend((" ", next_line))
         else:
