@@ -51,6 +51,8 @@ _TRAILING_SPACE_RE: Final = re.compile(r"(?<![^\S\n])[^\S\n]++$", re.MULTILINE)
 # A hyphen after a letter at the end of a line, with the next line starting with a letter.
 # Only a lower-case letter continues a broken word: "Москва-" before "Река" stays as it is.
 _LINE_END_HYPHEN_RE: Final = re.compile(r"(?<=[^\W\d_])[-\N{HYPHEN}]\n[^\S\n]*+(?=[^\W\d_])")
+_LINE_END_HYPHENS: Final = ("-", "\N{HYPHEN}")
+_LETTER_RE: Final = re.compile(r"[^\W\d_]")
 # A line that is only a page number: "7", "Page 7 of 12", "Стр. 7", "7 / 12", "7 из 12".
 _PAGE_NUMBER_RE: Final = re.compile(
     r"(?:(?:page|стр\.?|страница)\s*+)?\d{1,5}+(?:\s*+(?:/|of|из)\s*+\d{1,5}+)?",
@@ -110,11 +112,13 @@ def clean_pdf_pages(pages: Sequence[str]) -> list[str]:
     """Clean each page and remove what the page layout added to its text.
 
     Blank lines, page numbers at the top or the bottom and running headers and footers
-    repeated at the edges of the pages are dropped; then words hyphenated at line ends are
-    joined, so a word broken at the end of the body never runs into a footer.
+    repeated at the edges of the pages are dropped; then words hyphenated at line ends, the
+    last line of a page included, are joined, so a word broken at the end of the body never
+    runs into a footer.
     """
     page_lines = [_drop_page_numbers(_page_lines(page)) for page in pages]
     _drop_running_lines(page_lines)
+    _join_words_broken_across_pages(page_lines)
     return [
         _LINE_END_HYPHEN_RE.sub(_join_lower_case_continuation, "\n".join(lines))
         for lines in page_lines
@@ -164,6 +168,29 @@ def _drop_running_lines(pages: list[list[str]]) -> None:
 def _running_line_key(line: str) -> str:
     # Running lines often carry the page number: "Lecture 3, page 12".
     return _DIGITS_RE.sub("#", " ".join(line.split()))
+
+
+def _join_words_broken_across_pages(pages: list[list[str]]) -> None:
+    """Join each word hyphenated at the end of a page on that page, in place.
+
+    The word goes on in the first word of the next page with text, when that one starts
+    with a lower-case letter; it moves up, so the whole word stays on the page it starts on.
+    A page left empty by the move passes nothing on, so no line grows page after page.
+    """
+    previous: list[str] = []
+    for lines in pages:
+        if not lines:
+            continue
+        first_word, *rest = lines[0].split(maxsplit=1)
+        if previous and _ends_inside_a_word(previous[-1]) and first_word[:1].islower():
+            previous[-1] = previous[-1][:-1] + first_word
+            lines[:1] = rest
+        previous = lines
+
+
+def _ends_inside_a_word(line: str) -> bool:
+    """Whether the line ends with a hyphen right after a letter, where a word was broken."""
+    return line.endswith(_LINE_END_HYPHENS) and _LETTER_RE.match(line[-2:-1]) is not None
 
 
 def check_text(text: str, *, max_chars: int) -> None:

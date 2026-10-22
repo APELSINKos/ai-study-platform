@@ -1,6 +1,7 @@
 # ruff: noqa: RUF001 -- Russian sample text is intended
 
 import contextlib
+import string
 import time
 import unicodedata
 from collections.abc import Sequence
@@ -29,6 +30,8 @@ EXPANDING_UNITS: Final = (
 MARK_UNITS: Final = ("\N{COMBINING ACUTE ACCENT}",)
 # Line structure the cleaning looks at: breaks, soft hyphens, trailing spaces, hyphenation.
 LINE_UNITS: Final = ("\r\n", "\xad", " \n", "a-\n")
+# Many short pages, on which a cost that grows page after page shows.
+HOSTILE_PAGE_LENGTH: Final = 100
 # Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 
@@ -203,6 +206,40 @@ def test_a_word_broken_before_a_running_footer_is_not_joined_to_it() -> None:
         "Третья страница.",
         "Четвёртая страница.",
     ]
+
+
+def test_a_word_hyphenated_at_the_end_of_a_page_is_joined_on_the_page_where_it_starts() -> None:
+    # The running header and the page numbers go first, so the word ends on the next page.
+    pages = [
+        "Курс по базам данных\nПервая страница описывает важную инфор-\n7",
+        "Курс по базам данных\nмацию о нормализации. Дальше идёт текст.\n8",
+        "Курс по базам данных\nТретья страница.\n9",
+    ]
+
+    assert clean_pdf_pages(pages) == [
+        "Первая страница описывает важную информацию",
+        "о нормализации. Дальше идёт текст.",
+        "Третья страница.",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("pages", "expected"),
+    [
+        (["Это инфор\N{HYPHEN}", "мация.\nДалее."], ["Это информация.", "Далее."]),
+        (
+            ["Это инфор-", " \n", "  мация о нормализации."],
+            ["Это информация", "", "о нормализации."],
+        ),
+        (["Это инфор-", "Мация с заглавной."], ["Это инфор-", "Мация с заглавной."]),
+        (["Номер 5-", "мация."], ["Номер 5-", "мация."]),
+    ],
+    ids=["whole-line", "empty-page-between", "capital-after", "digit-before"],
+)
+def test_only_a_word_broken_across_pages_moves_to_the_page_where_it_starts(
+    pages: list[str], expected: list[str]
+) -> None:
+    assert clean_pdf_pages(pages) == expected
 
 
 @pytest.mark.parametrize(
@@ -412,3 +449,19 @@ def test_long_runs_on_pdf_pages_are_cleaned_in_linear_time(unit: str) -> None:
     clean_pdf_pages([text])
 
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
+
+
+@pytest.mark.no_cover
+def test_pages_that_each_end_inside_one_long_word_are_cleaned_in_linear_time() -> None:
+    # Every page would continue the word of the page before it. Different letters keep the
+    # pages from being taken for running lines.
+    pages = [
+        string.ascii_lowercase[number % 26] * (HOSTILE_PAGE_LENGTH - 1) + "-"
+        for number in range(HOSTILE_TEXT_LENGTH // HOSTILE_PAGE_LENGTH)
+    ]
+
+    started = time.perf_counter()
+    cleaned = clean_pdf_pages(pages)
+
+    assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
+    assert len("".join(cleaned)) > HOSTILE_TEXT_LENGTH // 2
