@@ -235,7 +235,7 @@ def test_english_notes_are_analysed_from_the_heading_and_the_first_sentences(
         "are likely to forget the material. Every successful review increases the interval, so "
         "well-known flashcards appear rarely. A failed review resets the interval to ten minutes."
     )
-    assert analysis.topics == ["review", "interval", "spaced", "repetition", "schedules"]
+    assert analysis.topics == ["algorithm", "spaced repetition", "review", "interval", "schedules"]
     assert analysis.difficulty == "medium"
 
 
@@ -249,7 +249,13 @@ def test_a_russian_lecture_is_titled_by_its_first_line(llm: MockLLMProvider) -> 
         "избыточности и аномалий модификации данных. Первая нормальная форма требует "
         "атомарности значений атрибутов."
     )
-    assert analysis.topics == ["нормальная", "данных", "форма", "атрибутов", "требует"]
+    assert analysis.topics == [
+        "нормальная форма",
+        "зависимости неключевых атрибутов",
+        "данных",
+        "требует",
+        "процесс",
+    ]
     assert analysis.difficulty == "hard"
 
 
@@ -559,6 +565,64 @@ def test_headings_of_the_outline_count_towards_the_topics(llm: MockLLMProvider) 
 
     assert topics[0] == "транзакции"
     assert len(topics) == TOPIC_COUNT
+
+
+def test_topics_are_headings_the_text_comes_back_to_then_repeated_phrases_then_words(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "# Lecture 5: Memory and the forgetting curve\n\n"
+        "## The forgetting curve\n\n"
+        "The forgetting curve shows how retention drops over time. Every review flattens the "
+        "forgetting curve.\n\n"
+        "## Spaced repetition\n\n"
+        "Spaced repetition schedules each review just before the material is forgotten. "
+        "Flashcard programs use spaced repetition to choose the cards of the day.\n\n"
+        "## Summary\n\n"
+        "Reviews at growing intervals keep the material in memory.\n"
+    )
+
+    topics = _analyze(llm, sample).analysis.topics
+
+    # The text never comes back to "Summary", and "forgetting" or "curve" alone would repeat
+    # a topic.
+    assert topics == ["forgetting curve", "spaced repetition", "review", "memory", "material"]
+
+
+def test_topics_hold_no_number_and_no_words_on_both_sides_of_punctuation(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "Two vectors can be added. Two vectors can be scaled. "
+        "Vectors, matrices and tensors; vectors, matrices and tensors."
+    )
+
+    topics = _analyze(llm, sample).analysis.topics
+
+    assert topics == ["vectors", "matrices", "tensors", "added", "scaled"]
+
+
+def test_french_topics_leave_out_function_words_and_elided_articles(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "# L'algèbre linéaire\n\n"
+        "L'algèbre linéaire étudie les espaces vectoriels et les applications linéaires. "
+        "Une application linéaire entre deux espaces vectoriels se représente par une "
+        "matrice dès qu'on a choisi une base de chacun d'eux.\n\n"
+        "## Les matrices\n\n"
+        "Le produit de deux matrices correspond à la composition des applications linéaires.\n"
+    )
+
+    topics = _analyze(llm, sample).analysis.topics
+
+    assert topics == [
+        "matrices",
+        "algèbre linéaire",
+        "applications linéaires",
+        "espaces vectoriels",
+        "étudie",
+    ]
 
 
 def test_the_analysis_is_deterministic_and_free(llm: MockLLMProvider) -> None:

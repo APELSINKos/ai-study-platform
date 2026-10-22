@@ -1,13 +1,16 @@
 # ruff: noqa: RUF001 -- Russian sample text and typographic quotes are intended
 
 import time
+import unicodedata
 from typing import Final
 
 import pytest
 
 from app.documents.text import (
     ELLIPSIS,
+    NUMBER_WORDS,
     STOPWORDS_EN,
+    STOPWORDS_FR,
     STOPWORDS_RU,
     has_cyrillic,
     shorten,
@@ -282,13 +285,17 @@ def test_cyrillic_is_detected_in_any_case() -> None:
 def test_stopwords_cover_common_function_words() -> None:
     assert {"the", "and", "of", "is", "don't"} <= STOPWORDS_EN
     assert {"и", "в", "не", "что", "это", "который"} <= STOPWORDS_RU
+    assert {"le", "la", "les", "de", "et", "une", "dans", "où", "été"} <= STOPWORDS_FR
+    assert {"two", "двух", "трех", "deux"} <= NUMBER_WORDS
     assert not {"database", "interval", "repetition"} & STOPWORDS_EN
     assert not {"нормализация", "данных", "интервал"} & STOPWORDS_RU
+    assert not {"algèbre", "matrice", "vecteur", "linéaire"} & STOPWORDS_FR
 
 
 def test_stopwords_are_lower_case_with_yo_written_as_ye() -> None:
-    for stopword in STOPWORDS_EN | STOPWORDS_RU:
+    for stopword in STOPWORDS_EN | STOPWORDS_RU | STOPWORDS_FR | NUMBER_WORDS:
         assert stopword == stopword.casefold()
+        assert unicodedata.is_normalized("NFKC", stopword)
         assert "ё" not in stopword
     assert {"ее", "еще", "все"} <= STOPWORDS_RU
 

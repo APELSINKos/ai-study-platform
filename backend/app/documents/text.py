@@ -7,6 +7,7 @@ input such as two million dots.
 # ruff: noqa: RUF001, RUF003 -- Cyrillic letters and typographic quotes are meant
 
 import re
+from collections.abc import Iterator
 from typing import Final
 
 
@@ -92,11 +93,36 @@ STOPWORDS_RU: Final = _word_set(
     этот эту я является являются
     """
 )
+STOPWORDS_FR: Final = _word_set(
+    """
+    à afin ai alors au aucun aucune aussi autre autres aux avaient avais avait avant avec avez
+    avoir avons ayant bien ça car ce ceci cela celle celles celui ces cet cette ceux chacun
+    chacune chaque chez comme comment dans de des dès donc dont du elle elles en encore entre
+    est et étaient était étant été être eu eux fait font hors ici il ils je la là le les leur
+    leurs lors lorsque lui ma mais me même mêmes mes moi moins mon ne ni nos notre nous on ont
+    ou où par parce pas peu peut peuvent plus pour pourquoi puis puisque quand que quel quelle
+    quelles quels qui quoi sa sans se selon ses si sinon soi soit son sont sous suis sur ta te
+    tes toi ton tous tout toute toutes très tu un une vers vos votre vous y
+    """
+)
+# Cardinal numbers written as words; "one", "один" and "un" are stop words already.
+NUMBER_WORDS: Final = _word_set(
+    """
+    two three four five six seven eight nine ten hundred thousand million два две двух три
+    трех четыре четырех пять шесть семь восемь девять десять сто тысяча миллион deux trois
+    quatre cinq six sept huit neuf dix cent mille
+    """
+)
 
 
 def words(text: str) -> list[str]:
     """The words of a text in reading order: runs of letters and digits of any script."""
     return _WORD_RE.findall(text)
+
+
+def word_matches(text: str) -> Iterator[re.Match[str]]:
+    """The words of a text in reading order, as words() finds them, with where they are."""
+    return _WORD_RE.finditer(text)
 
 
 def split_sentences(text: str) -> list[str]:
