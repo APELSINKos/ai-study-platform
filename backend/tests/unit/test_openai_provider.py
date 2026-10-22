@@ -64,6 +64,8 @@ REQUEST: Final = AnalysisRequest(
 TEXTS: Final = ("first chunk", "second chunk")
 # Nested deeper than the JSON decoder's recursion limit.
 DEEPLY_NESTED_JSON: Final = "[" * 100_000 + "]" * 100_000
+# More digits than the 4300 Python turns into an integer by default.
+TOO_LONG_INTEGER: Final = "1" * 5000
 
 
 class FakeEndpoint:
@@ -282,6 +284,10 @@ INVALID_CHAT_ANSWERS: Final[list[Any]] = [
     pytest.param(lambda _: _raw_json("{not json"), id="malformed-json"),
     pytest.param(lambda _: _raw_json(b'{"choices": "\xff\xfe"}'), id="invalid-utf-8"),
     pytest.param(lambda _: _raw_json(DEEPLY_NESTED_JSON), id="deeply-nested"),
+    pytest.param(
+        lambda _: _raw_json(f'{{"choices": [], "created": {TOO_LONG_INTEGER}}}'),
+        id="integer-too-long-to-read",
+    ),
 ]
 INVALID_EMBEDDING_ANSWERS: Final[list[Any]] = [
     pytest.param(lambda _: _embeddings([_vector(1.0)]), id="too-few"),
@@ -324,6 +330,12 @@ INVALID_EMBEDDING_ANSWERS: Final[list[Any]] = [
             _embeddings([_vector(1.0), _vector(1.0)]).text.replace("1.0", "1" + "0" * 400)
         ),
         id="integer-beyond-float-range",
+    ),
+    pytest.param(
+        lambda _: _raw_json(
+            _embeddings([_vector(1.0), _vector(1.0)]).text.replace("1.0", TOO_LONG_INTEGER)
+        ),
+        id="integer-too-long-to-read",
     ),
     pytest.param(
         # Every value is finite, but the norm is not.
@@ -604,6 +616,23 @@ def test_a_provider_error_carries_no_key_url_or_response_text(endpoint: FakeEndp
     # Tracebacks would print the SDK error with the response text, so it is not chained.
     assert caught.value.__cause__ is None
     assert caught.value.__suppress_context__
+
+
+@pytest.mark.parametrize("operation", OPERATIONS)
+def test_a_key_that_cannot_go_into_a_header_is_not_blamed_on_the_answer(
+    operation: Operation,
+) -> None:
+    # Pasted with a no-break space, the key cannot be sent at all; no request is made.
+    with (
+        OpenAI(
+            api_key=f"{API_KEY}\N{NO-BREAK SPACE}",
+            base_url=BASE_URL,
+            max_retries=0,
+            http_client=httpx2.Client(transport=httpx2.MockTransport(_refuse_connection)),
+        ) as client,
+        pytest.raises(UnicodeEncodeError),
+    ):
+        operation(client)
 
 
 def test_the_embedding_request_asks_for_float_vectors_of_the_column_dimensions(

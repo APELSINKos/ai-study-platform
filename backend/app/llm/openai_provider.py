@@ -5,7 +5,6 @@ from the HTTP status and the vendor's error code only: the API's own error text 
 key, so it is neither copied nor chained.
 """
 
-import json
 import math
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -150,9 +149,13 @@ def _provider_errors() -> Iterator[None]:
         yield
     except openai.OpenAIError as error:
         raise classify_openai_error(error) from None
-    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, OverflowError):
+    except UnicodeEncodeError:
+        # A key or header the client cannot send: a setting to fix, not an answer to blame.
+        raise
+    except (ValueError, RecursionError, OverflowError):
         # The SDK lets these through for a body that claims to be JSON but cannot be read:
-        # malformed, not UTF-8, nested too deeply or with a number too large for a float.
+        # malformed, not UTF-8, with an integer longer than Python reads (a plain
+        # ValueError), nested too deeply or with a number too large for a float.
         raise ProviderRequestError(_UNREADABLE_MESSAGE, code="ai_invalid_output") from None
 
 
