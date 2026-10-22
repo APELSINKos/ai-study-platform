@@ -146,6 +146,8 @@ class Document(TimestampMixin, Base):
         DateTime(timezone=True), default=None
     )
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # The time of the last status change, which the stale Retry compares with the
+    # application's clock: every write sets it from that clock, never the database's.
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

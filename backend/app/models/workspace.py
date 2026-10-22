@@ -24,6 +24,8 @@ class Workspace(TimestampMixin, Base):
         String(WORKSPACE_DESCRIPTION_MAX_LENGTH), default=None
     )
     exam_date: Mapped[date | None] = mapped_column(Date, default=None)
+    # Every write sets it from the application's clock. No onupdate: the unit of work leaves
+    # out a time equal to the stored one, which would let the database's clock fill it in.
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

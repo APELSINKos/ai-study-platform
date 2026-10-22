@@ -426,6 +426,25 @@ def test_whether_a_document_can_be_retried_follows_the_clock(
     assert can_retry() == {on_the_boundary.id: True, stalled.id: True, failed.id: True}
 
 
+def test_a_document_whose_run_died_after_its_claim_stalls_by_the_clock_time_of_the_claim(
+    db_session: Session, service: DocumentService, owner: User, clock: _FakeClock
+) -> None:
+    workspace = _workspace(db_session, owner)
+    document = _document(db_session, workspace, "uploaded")
+    # A run claims it at the clock's time and dies with its worker.
+    DocumentRepository(db_session).claim_for_processing(document.id, clock())
+    db_session.commit()
+    clock.advance(_STALE_AGE)
+
+    with pytest.raises(ConflictError) as exc_info:
+        service.retry(user=owner, document_id=document.id)
+    clock.advance(timedelta(microseconds=1))
+    view = service.retry(user=owner, document_id=document.id)
+
+    assert exc_info.value.code == "document_not_retryable"
+    assert (view.document.status, view.document.updated_at) == ("uploaded", clock())
+
+
 def test_delete_touches_the_workspace_with_the_clock_time(
     db_session: Session, service: DocumentService, owner: User, clock: _FakeClock
 ) -> None:

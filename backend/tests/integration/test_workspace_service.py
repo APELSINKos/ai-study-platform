@@ -246,6 +246,20 @@ def test_update_with_explicit_nulls_clears_the_description_and_the_exam_date(
     )
 
 
+def test_an_update_when_the_clock_has_not_moved_keeps_the_clock_time(
+    db_session: Session, service: WorkspaceService, owner: User
+) -> None:
+    # The new time equals the stored one, so the change leaves the column out of the UPDATE.
+    workspace = _workspace(db_session, owner, "Draft")
+
+    service.update(
+        user=owner, workspace_id=workspace.id, changes=WorkspaceUpdateRequest(name="Algorithms")
+    )
+
+    db_session.expire_all()
+    assert (workspace.name, workspace.updated_at) == ("Algorithms", _START)
+
+
 def test_an_unknown_workspace_is_not_found(service: WorkspaceService, owner: User) -> None:
     missing = uuid.uuid4()
     changes = WorkspaceUpdateRequest(name="Renamed")
