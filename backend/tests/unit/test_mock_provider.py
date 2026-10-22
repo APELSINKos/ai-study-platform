@@ -882,6 +882,96 @@ def test_a_title_line_counts_as_a_heading_for_the_topics(llm: MockLLMProvider) -
     assert topics[0] == "нормализация баз данных"
 
 
+def test_a_heading_in_both_the_outline_and_the_sample_counts_once(llm: MockLLMProvider) -> None:
+    request = AnalysisRequest(
+        filename="graphs.md",
+        outline="Graph theory\nTrees",
+        sample=(
+            "# Graph theory\n\nA tree is a connected graph without cycles. A tree with n "
+            "vertices has n - 1 edges."
+        ),
+    )
+
+    topics = llm.analyze_document(request).analysis.topics
+
+    assert "graph theory" not in topics
+
+
+def test_a_phrase_that_holds_a_topic_already_taken_says_nothing_new(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "# Memory\n\n"
+        "Memory consolidation happens during sleep. Memory consolidation needs rest, and rest "
+        "helps memory.\n"
+    )
+
+    topics = _analyze(llm, sample).analysis.topics
+
+    assert topics[0] == "memory"
+    assert "memory consolidation" not in topics
+
+
+@pytest.mark.parametrize(
+    ("sample", "topics"),
+    [
+        (
+            "Relational database schema design matters. Good relational database schema "
+            "design avoids anomalies. Relational database schema design takes practice.",
+            ["relational database schema", "matters", "good", "avoids", "anomalies"],
+        ),
+        (
+            "Нормализация реляционных баз данных важна. Нормализация реляционных баз данных "
+            "устраняет аномалии. Нормализация реляционных баз данных требует практики.",
+            ["нормализация реляционных баз", "важна", "устраняет", "аномалии", "требует"],
+        ),
+    ],
+    ids=["english", "russian"],
+)
+def test_a_repeated_term_of_four_words_gives_one_topic(
+    llm: MockLLMProvider, sample: str, topics: list[str]
+) -> None:
+    # Its two windows of three words overlap in two words, and its shorter phrases and its
+    # words are heard only inside it.
+    assert _analyze(llm, sample).analysis.topics == topics
+
+
+def test_web_addresses_give_no_topics(llm: MockLLMProvider) -> None:
+    sample = (
+        "Reading list\n\n"
+        "https://example.org/notes/graphs\n"
+        "https://example.org/notes/trees\n"
+        "https://example.org/notes/paths\n\n"
+        "Read the chapters before the lecture.\n"
+    )
+
+    topics = _analyze(llm, sample).analysis.topics
+
+    assert not {"https", "example", "org"} & set(" ".join(topics).split())
+
+
+@pytest.mark.parametrize(
+    ("sample", "topic"),
+    [
+        (
+            "# Car maintenance\n\nA car battery lasts about five years. Check the car battery "
+            "before winter, and the tyres before a long trip.",
+            "car battery",
+        ),
+        (
+            "Choosing a font\n\nA font sets the shape of every letter. Pick a font size that "
+            "is easy to read, and a font with clear letter shapes.",
+            "font",
+        ),
+    ],
+    ids=["car", "font"],
+)
+def test_english_words_spelled_like_french_function_words_can_be_topics(
+    llm: MockLLMProvider, sample: str, topic: str
+) -> None:
+    assert topic in _analyze(llm, sample).analysis.topics
+
+
 def test_french_topics_leave_out_function_words_and_elided_articles(
     llm: MockLLMProvider,
 ) -> None:

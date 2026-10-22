@@ -621,15 +621,18 @@ def _distinct_topics(
 ) -> list[str]:
     """The first candidates that say something new, at most TOPIC_COUNT of them.
 
-    A candidate says nothing new when all its words begin like the words of a topic
-    already taken, or when it holds all of one's words. Each is written as its heading
-    writes it, else in its most frequent form.
+    A candidate says nothing new when most of its words begin like the words of a topic
+    already taken, as the overlapping phrases of a longer repeated term do, or when it
+    holds all of one's words. Each is written as its heading writes it, else in its most
+    frequent form.
     """
     topics: list[str] = []
     taken: list[frozenset[str]] = []
     for phrase in candidates:
         beginnings = frozenset(stem[:TOPIC_SAME_WORD_CHARS] for stem in phrase)
-        if any(beginnings <= other or other <= beginnings for other in taken):
+        if any(
+            2 * len(beginnings & other) > len(beginnings) or other <= beginnings for other in taken
+        ):
             continue
         label = labels.get(phrase) or forms[phrase].most_common(1)[0][0]
         topics.append(shorten(label, TOPIC_MAX_LENGTH))
