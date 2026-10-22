@@ -26,6 +26,9 @@ UPLOAD_CHUNK_BYTES: Final = 64 * 1024
 # make "notes<U+202E>fdp.txt" display as "notestxt.pdf"; and lone surrogates, which a body
 # charset such as UTF-7 can put into a name and PostgreSQL cannot store.
 _STRIPPED_CATEGORIES: Final = frozenset({"Cc", "Cf", "Cs"})
+# Browsers escape exactly these in a multipart file name (WHATWG multipart/form-data). A name
+# that really contained "%22" cannot be told apart, so it gets a quote as well.
+_BROWSER_ESCAPES: Final = (("%22", '"'), ("%0D", "\r"), ("%0A", "\n"))
 
 _UNSUPPORTED_FILE_TYPE_MESSAGE: Final = (
     "Only PDF, Markdown (.md) and plain text (.txt) files can be uploaded."
@@ -74,7 +77,10 @@ def content_type_for(filename: str) -> DocumentContentType:
 
 def sanitize_filename(raw: str) -> str:
     """Turn a client-supplied file name into a display name; it never becomes a path."""
-    name = raw.replace("\\", "/").rpartition("/")[2]
+    name = raw
+    for escaped, character in _BROWSER_ESCAPES:
+        name = name.replace(escaped, character)
+    name = name.replace("\\", "/").rpartition("/")[2]
     name = "".join(char for char in name if unicodedata.category(char) not in _STRIPPED_CATEGORIES)
     name = unicodedata.normalize("NFC", " ".join(name.split()))
     stem, extension = _split_extension(name)

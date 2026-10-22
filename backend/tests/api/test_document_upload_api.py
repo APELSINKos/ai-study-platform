@@ -354,6 +354,23 @@ def test_a_surrogate_smuggled_in_by_the_body_charset_is_dropped_from_the_name(
     assert document.original_filename == "notes.txt"
 
 
+def test_quotes_a_browser_escaped_in_the_name_are_restored_for_the_download(
+    user_client: TestClient,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+
+    # Browsers send a double quote in a multipart file name as %22.
+    response = _upload_named(user_client, workspace_id, b"Lecture %22Intro%22.md")
+
+    assert response.status_code == HTTPStatus.ACCEPTED, response.text
+    document = response.json()
+    assert document["original_filename"] == 'Lecture "Intro".md'
+    download = user_client.get(f"/api/v1/documents/{document['id']}/file")
+    assert download.headers["content-disposition"] == (
+        "attachment; filename*=utf-8''Lecture%20%22Intro%22.md"
+    )
+
+
 # --- duplicates and per-user caps ---------------------------------------------
 
 
