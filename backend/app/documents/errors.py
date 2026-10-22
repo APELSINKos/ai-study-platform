@@ -17,5 +17,7 @@ class DocumentProcessingError(Exception):
 
 
 # Named after Celery's SoftTimeLimitExceeded, which it stands in for and is handled with.
-class ProcessingDeadlineExceeded(Exception):  # noqa: N818
+# Unlike that one it is not an Exception, so code that swallows every Exception, as pypdf
+# does while it repairs a file, lets it through.
+class ProcessingDeadlineExceeded(BaseException):
     """A processing run reached its own deadline, set to end before the task time limit."""

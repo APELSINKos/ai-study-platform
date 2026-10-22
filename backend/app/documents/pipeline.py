@@ -6,10 +6,15 @@ run, writes nothing more and is skipped. Every database step is a short transact
 own, one after another, and none is open while the file is read or a provider works.
 """
 
+import signal
+import sys
+import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from types import FrameType
 from typing import Final, Literal, Self
 
 import structlog
@@ -183,13 +188,14 @@ class _Run:
         if not path.is_file():
             raise DocumentProcessingError("file_missing", _FILE_MISSING_MESSAGE)
         settings = self.settings
-        extracted = extract(
-            path,
-            self.document.content_type,
-            max_pdf_pages=settings.max_pdf_pages,
-            max_chars=settings.max_document_chars,
-            check_deadline=self._check_deadline,
-        )
+        with _deadline_alarm(self._seconds_left()):
+            extracted = extract(
+                path,
+                self.document.content_type,
+                max_pdf_pages=settings.max_pdf_pages,
+                max_chars=settings.max_document_chars,
+                check_deadline=self._check_deadline,
+            )
         text, pages = _cleaned(extracted)
         check_text(text, max_chars=settings.max_document_chars)
         size, overlap = settings.chunk_size_chars, settings.chunk_overlap_chars
@@ -338,6 +344,36 @@ class _Run:
     def _check_deadline(self) -> None:
         if self.clock() >= self.claimed_at + _RUN_TIME_LIMIT:
             raise ProcessingDeadlineExceeded
+
+    def _seconds_left(self) -> float:
+        return (self.claimed_at + _RUN_TIME_LIMIT - self.clock()).total_seconds()
+
+
+@contextmanager
+def _deadline_alarm(seconds: float) -> Iterator[None]:
+    """Raise ProcessingDeadlineExceeded once seconds have passed, whatever code is running.
+
+    pypdf checks no deadline while it repairs a damaged file, which can take minutes. A
+    signal handler can still raise there; it needs a POSIX system and the main thread, the
+    one a worker child runs its tasks in. Elsewhere only the deadline checks remain.
+    """
+    if seconds <= 0:
+        raise ProcessingDeadlineExceeded
+    if sys.platform == "win32" or threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = signal.signal(signal.SIGALRM, _raise_deadline_exceeded)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        # Off before the previous handler is back: by default the signal ends the process.
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _raise_deadline_exceeded(_signum: int, _frame: FrameType | None) -> None:
+    raise ProcessingDeadlineExceeded
 
 
 def _saved_analysis(document: ClaimedDocument) -> NormalizedAnalysis | None:

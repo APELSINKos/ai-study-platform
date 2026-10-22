@@ -56,7 +56,7 @@ class _Deadline:
         self,
         *,
         fails_at_check: int | None = None,
-        error: type[Exception] = ProcessingDeadlineExceeded,
+        error: type[BaseException] = ProcessingDeadlineExceeded,
     ) -> None:
         self.checks = 0
         self._fails_at_check = fails_at_check
@@ -290,7 +290,7 @@ def test_a_deadline_passed_inside_a_form_still_stops_extraction(tmp_path: Path) 
     assert deadline.checks == 3
 
 
-def _failing_extract_text(error: Exception) -> Callable[..., str]:
+def _failing_extract_text(error: BaseException) -> Callable[..., str]:
     def extract_text(self: PageObject, *args: Any, **kwargs: Any) -> str:
         raise error
 
@@ -348,7 +348,7 @@ def test_any_failure_inside_the_pdf_library_makes_the_pdf_unreadable_and_is_logg
     "error", [SoftTimeLimitExceeded(), ProcessingDeadlineExceeded()], ids=["soft-limit", "deadline"]
 )
 def test_a_time_limit_inside_the_pdf_library_is_not_mistaken_for_an_unreadable_pdf(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: BaseException
 ) -> None:
     path = _write(tmp_path, "slow.pdf", text_pdf([["Slow."]]))
     monkeypatch.setattr(PageObject, "extract_text", _failing_extract_text(error))
@@ -359,7 +359,7 @@ def test_a_time_limit_inside_the_pdf_library_is_not_mistaken_for_an_unreadable_p
 
 @pytest.mark.parametrize("error", [SoftTimeLimitExceeded, ProcessingDeadlineExceeded])
 def test_a_time_limit_from_the_deadline_check_is_not_mistaken_for_an_unreadable_pdf(
-    tmp_path: Path, error: type[Exception]
+    tmp_path: Path, error: type[BaseException]
 ) -> None:
     path = _write(tmp_path, "slow.pdf", text_pdf([["Slow."]]))
 

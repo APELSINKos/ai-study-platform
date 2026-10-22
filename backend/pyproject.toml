@@ -54,6 +54,8 @@ known-third-party = ["alembic"]
 
 [tool.mypy]
 python_version = "3.13"
+# The backend runs on Linux, so its POSIX-only calls are checked on any host too.
+platform = "linux"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["app", "tests"]

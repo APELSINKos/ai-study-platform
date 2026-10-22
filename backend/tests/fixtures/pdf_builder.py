@@ -59,6 +59,20 @@ def broken_pdf() -> bytes:
     return b"%PDF-1.7\n" + b"\x8f garbage that ends nowhere " * 20
 
 
+def slow_to_repair_pdf(size: int) -> bytes:
+    """A damaged PDF of about size bytes that pypdf takes seconds to open.
+
+    It has no cross-reference table, so pypdf rebuilds one by reading every object, and each
+    object opens a string that never closes, so each read runs on to the end of the file.
+    """
+    objects: list[bytes] = []
+    total = 0
+    while total < size:
+        objects.append(b"%d 0 obj (" % (len(objects) + 1))
+        total += len(objects[-1])
+    return _HEADER + b"".join(objects) + b"\nstartxref\n0\n%%EOF\n"
+
+
 def inflating_pdf(inflated_bytes: int) -> bytes:
     """One page whose compressed content stream inflates to exactly inflated_bytes."""
     data = zlib.compress(filler(inflated_bytes), level=9)

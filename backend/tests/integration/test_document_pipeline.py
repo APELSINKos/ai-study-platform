@@ -3,6 +3,8 @@ import io
 import json
 import math
 import re
+import signal
+import sys
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -59,11 +61,11 @@ from app.models.document_chunk import (
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.repositories.document_chunks import DocumentChunkRepository
-from app.repositories.documents import DocumentRepository
+from app.repositories.documents import ClaimedDocument, DocumentRepository
 from app.repositories.users import UserRepository
 from app.repositories.workspaces import WorkspaceRepository
 from app.workers.celery_app import DOCUMENT_TASK_SOFT_TIME_LIMIT_SECONDS
-from tests.fixtures.pdf_builder import broken_pdf, text_pdf
+from tests.fixtures.pdf_builder import broken_pdf, slow_to_repair_pdf, text_pdf
 
 pytestmark = pytest.mark.integration
 
@@ -77,6 +79,11 @@ _BUSY: Final = "The AI provider is busy or failing: HTTP 503."
 # How long after its claim a run may go on before it stops itself.
 _RUN_TIME_LIMIT: Final = timedelta(
     seconds=DOCUMENT_TASK_SOFT_TIME_LIMIT_SECONDS - DEADLINE_MARGIN_SECONDS
+)
+# pypdf takes about ten seconds to open a damaged file this big, without a deadline check.
+_SLOW_TO_REPAIR_PDF_BYTES: Final = 48 * 1024
+_NEEDS_ALARM: Final = pytest.mark.skipif(
+    sys.platform == "win32", reason="the deadline alarm uses SIGALRM, which Windows lacks"
 )
 # Savepoints, which mark each session's transaction here, and the start of other statements.
 _RECORDED_STATEMENT: Final = re.compile(
@@ -1019,6 +1026,58 @@ def test_a_run_that_reaches_its_deadline_while_reading_a_pdf_fails_as_a_timeout(
 
     assert outcome == PipelineOutcome.failed("processing_timeout")
     assert llm.calls == 0
+
+
+def _leave_a_second_after_the_claim(monkeypatch: pytest.MonkeyPatch, clock: _FakeClock) -> None:
+    """Move the clock to a second before the deadline as soon as a run claims its document."""
+    claim = DocumentRepository.claim_for_processing
+
+    def claim_then_wait(
+        repository: DocumentRepository, document_id: uuid.UUID, now: datetime
+    ) -> ClaimedDocument | None:
+        claimed = claim(repository, document_id, now)
+        clock.advance(_RUN_TIME_LIMIT - timedelta(seconds=1))
+        return claimed
+
+    monkeypatch.setattr(DocumentRepository, "claim_for_processing", claim_then_wait)
+
+
+@_NEEDS_ALARM
+def test_a_damaged_pdf_that_keeps_the_pdf_library_busy_stops_at_the_deadline(
+    db_session: Session, runner: _Runner, clock: _FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # While pypdf repairs a damaged file it checks no deadline and swallows every Exception,
+    # Celery's soft time limit included.
+    document = runner.store(slow_to_repair_pdf(_SLOW_TO_REPAIR_PDF_BYTES), "damaged.pdf")
+    _leave_a_second_after_the_claim(monkeypatch, clock)
+    handler = signal.getsignal(signal.SIGALRM)
+
+    outcome = runner.run(document.id)
+
+    assert outcome == PipelineOutcome.failed("processing_timeout")
+    db_session.refresh(document)
+    assert (document.status, document.error_code) == ("failed", "processing_timeout")
+    # The alarm is off and the signal is handled as before.
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+    assert signal.getsignal(signal.SIGALRM) == handler
+
+
+@_NEEDS_ALARM
+def test_the_deadline_alarm_is_off_once_the_file_is_read(
+    runner: _Runner, clock: _FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Left on, it would go off in the middle of a later step.
+    document = runner.store(_MARKDOWN.encode(), "sorting.md")
+    _leave_a_second_after_the_claim(monkeypatch, clock)
+    handler = signal.getsignal(signal.SIGALRM)
+    alarms: list[tuple[float, float]] = []
+    llm = _FakeLLM(before_call=lambda: alarms.append(signal.getitimer(signal.ITIMER_REAL)))
+
+    outcome = runner.run(document.id, llm=llm)
+
+    assert outcome == PipelineOutcome.ready(chunk_count=3)
+    assert alarms == [(0.0, 0.0)]
+    assert signal.getsignal(signal.SIGALRM) == handler
 
 
 @pytest.mark.parametrize("stage", ["analysis", "embeddings"])
