@@ -48,6 +48,26 @@ def test_unknown_environment_is_rejected(monkeypatch: pytest.MonkeyPatch) -> Non
         Settings()
 
 
+def test_a_settings_error_never_repeats_the_values_it_was_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A key pasted into the wrong variable is one field's error...
+    monkeypatch.setenv("LLM_PROVIDER", CHAT_API_KEY)
+    with pytest.raises(ValidationError) as field_error:
+        Settings()
+    # ...and a key set next to a URL it may not go to fails the settings as a whole.
+    monkeypatch.setenv("LLM_PROVIDER", "auto")
+    monkeypatch.setenv("OPENAI_API_KEY", CHAT_API_KEY)
+    monkeypatch.setenv("EMBEDDING_BASE_URL", LOCAL_BASE_URL)
+    with pytest.raises(ValidationError) as settings_error:
+        Settings()
+
+    for error in (field_error.value, settings_error.value):
+        assert "input_value" not in str(error)
+        assert CHAT_API_KEY[:8] not in str(error)
+        assert CHAT_API_KEY[-8:] not in str(error)
+
+
 def test_get_settings_returns_one_shared_instance() -> None:
     assert get_settings() is get_settings()
 

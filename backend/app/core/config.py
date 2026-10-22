@@ -59,7 +59,8 @@ class ProviderEndpoint:
 class Settings(BaseSettings):
     """Application settings, read from environment variables (case-insensitive)."""
 
-    model_config = SettingsConfigDict(extra="ignore")
+    # An error names the variable but never echoes its value, which may be a misplaced key.
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
     app_name: str = "AI Study Platform"
     environment: Environment = "development"
