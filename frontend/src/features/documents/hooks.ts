@@ -107,6 +107,8 @@ export function useDocumentChunks(document: DocumentOut) {
     getNextPageParam: nextPageAfter,
     // The fragments are stored in the last step of processing, all at once.
     enabled: document.status === "ready",
+    // A ready document's fragments never change, so loaded pages are never asked for again.
+    staleTime: Infinity,
     select: allChunks,
   });
 }

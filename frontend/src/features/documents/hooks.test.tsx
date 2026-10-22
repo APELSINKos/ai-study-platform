@@ -482,4 +482,27 @@ describe("useDocumentChunks", () => {
     );
     expect(result.current.hasNextPage).toBe(false);
   });
+
+  it("never asks for the loaded pages again when the user comes back to the tab", async () => {
+    const firstFifty = Array.from({ length: 50 }, (_, index) => chunkFixture(index));
+    apiFetchMock.mockImplementation(async (path) =>
+      path === FIRST_CHUNKS_PATH
+        ? chunkPageFixture(firstFifty, { total: 51 })
+        : chunkPageFixture([chunkFixture(50)], { page: 2, total: 51 }),
+    );
+    const { result } = renderChunks(readyDocumentFixture(1));
+    await pass(0);
+    await act(() => result.current.fetchNextPage());
+    await pass(0);
+    expect(requests()).toBe(2);
+
+    // Long after any usual freshness window, the tab is shown again.
+    await pass(60_000);
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
+    });
+    await pass(0);
+
+    expect(requests()).toBe(2);
+  });
 });
