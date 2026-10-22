@@ -99,8 +99,9 @@ _FRONT_MATTER_START: Final = "---"
 _FRONT_MATTER_ENDS: Final = ("---", "...")
 _FRONT_MATTER_TITLE_KEY: Final = "title"
 _QUOTES: Final = "\"'"
-# A line of an HTML block, such as a centred logo, or a row of a table: markup, not prose.
-_MARKUP_LINE_RE: Final = re.compile(r"[ \t]*+(?:<[A-Za-z/!]|\|)")
+# A line of an HTML block, such as a centred logo, a row of a table or the definition of a
+# link reference ("[docs]: https://…"): markup, not prose.
+_MARKUP_LINE_RE: Final = re.compile(r"[ \t]*+(?:<[A-Za-z/!]|\||\[[^\[\]]*+\]:)")
 _EXCERPT_SEPARATOR_LINE: Final = EXCERPT_SEPARATOR.strip()
 _TITLE_LINE_ENDINGS: Final = (".", "!", "?", "…", ":", ";", ",")
 _SENTENCE_END_CHARS: Final = ".!?…"
@@ -112,15 +113,26 @@ _VOWEL_GROUP_RE: Final = re.compile(r"[aeiouyаеёиоуыэюя]++", re.IGNORE
 # Markdown list markers and the bullets that text extracted from PDF slides starts lines with.
 # Dashes are left out: in wrapped text a line may start with a dash mid-sentence.
 _LIST_ITEM_RE: Final = re.compile(r"(?:[-*+•◦▪‣]|\d{1,9}[.)])[ \t]++")
-# Images go, and badges with them, which are images inside links; other links keep their
-# text. Runs of emphasis and code marks at the edges of words go, while those inside words
-# (snake_case, 2*3, x**2) stay. A run of marks can match only from its first mark: "_" is a
-# word character, so without that anchor a run between two letters would be scanned again
-# from each of its marks.
+# Where an image or a badge leads: an address in parentheses, or a reference in brackets
+# that a definition elsewhere in the text gives the address of.
+_IMAGE_TARGET: Final = r"(?:\([^()\s]*+\)|\[[^\[\]]*+\])"
+# Markup is dropped as a reader of the rendered text would not see it. Code spans keep their
+# text as it is, tags and marks included. Images go, and badges with them, which are images
+# inside links; other links keep their text. HTML tags and comments go and the text between
+# them stays, while an address in angle brackets is a link that shows itself. Stray
+# backticks go, and so do runs of emphasis marks at the edges of words, while those inside
+# words (snake_case, 2*3, x**2) stay. A run of marks can match only from its first mark: "_"
+# is a word character, so without that anchor a run between two letters would be scanned
+# again from each of its marks.
 _INLINE_MARKUP_RE: Final = re.compile(
-    r"\[!\[[^\[\]]*+\]\([^()\s]*+\)\]\([^()\s]*+\)|!\[[^\[\]]*+\]\([^()\s]*+\)"
-    r"|\[([^\[\]]*+)\]\([^()\s]*+\)|`++|(?<![\w*~])[*_~]++|(?<![*_~])[*_~]++(?!\w)"
+    rf"`([^`]++)`|\[!\[[^\[\]]*+\]{_IMAGE_TARGET}\]{_IMAGE_TARGET}"
+    rf"|!\[[^\[\]]*+\]{_IMAGE_TARGET}|\[([^\[\]]*+)\]\([^()\s]*+\)"
+    r"|</?([A-Za-z][A-Za-z0-9-]*+)(?:[\s/][^<>]*+)?>|<![^<>]*+>"
+    r"|`++|(?<![\w*~])[*_~]++|(?<![*_~])[*_~]++(?!\w)"
 )
+# Tags that break the line or stand apart from the text around them leave a space; other
+# tags, such as those of H<sub>2</sub>O, leave the letters on both sides together.
+_SPACING_TAGS: Final = frozenset({"br", "hr", "img", "p", "div", "li"})
 # A web address names no topic, although its parts look like words; it ends a phrase as
 # punctuation does.
 _WEB_ADDRESS_RE: Final = re.compile(r"\b(?:https?://|www\.)\S++", re.IGNORECASE)
@@ -369,14 +381,27 @@ def _is_title_like(text: str) -> bool:
 def _front_matter(lines: list[str]) -> tuple[str | None, int]:
     """The title in the front matter that the lines start with, and where the text begins.
 
-    Without a closed front matter block, there is no title and the text begins at once.
+    Front matter is lines of YAML between a first line "---" and a line "---" or "...", or
+    the separator of an excerpt that cut it short. Without it, as when a thematic break
+    stands above a paragraph, there is no title and the text begins at once.
     """
     if not lines or lines[0].rstrip() != _FRONT_MATTER_START:
         return None, 0
     for end in range(1, len(lines)):
-        if lines[end].rstrip() in _FRONT_MATTER_ENDS:
+        line = lines[end].rstrip()
+        if line in _FRONT_MATTER_ENDS:
             return _front_matter_title(lines[1:end]), end + 1
+        if line.strip() == _EXCERPT_SEPARATOR_LINE:
+            return _front_matter_title(lines[1:end]), end
+        if not _is_front_matter_line(line):
+            break
     return None, 0
+
+
+def _is_front_matter_line(line: str) -> bool:
+    """Whether a line can be one of front matter: blank, indented, a list item or a key."""
+    key, colon, _ = line.partition(":")
+    return not line.strip() or line.startswith((" ", "\t", "- ")) or bool(colon and key.strip())
 
 
 def _front_matter_title(block: list[str]) -> str | None:
@@ -430,8 +455,21 @@ def _body_text(line: str) -> tuple[str, bool]:
 
 
 def _plain(text: str) -> str:
-    unmarked = _INLINE_MARKUP_RE.sub(lambda match: match.group(1) or "", text)
-    return " ".join(unmarked.split())
+    return " ".join(_INLINE_MARKUP_RE.sub(_shown_text, text).split())
+
+
+def _shown_text(markup: re.Match[str]) -> str:
+    """What a reader sees of a piece of inline markup.
+
+    That is the text of a code span or a link, a space for a tag that breaks the line, and
+    nothing of the rest.
+    """
+    code, link_text, tag = markup.groups()
+    if code is not None:
+        return code
+    if link_text is not None:
+        return link_text
+    return " " if tag is not None and tag.casefold() in _SPACING_TAGS else ""
 
 
 def _has_letter(text: str) -> bool:

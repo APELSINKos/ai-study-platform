@@ -29,9 +29,24 @@ from app.llm.schemas import NormalizedAnalysis, normalize_analysis
 
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
-# Markup that the analysis reads past: badges, images, links, lines of HTML and tables,
-# front matter fences and web addresses.
-MARKUP_UNITS: Final = ("[![a](b)](", "![a](", "[a](", "<a", "|", "---\n", "https://", "www.")
+# Markup that the analysis reads past: badges, images, links, tags, code spans, lines of
+# HTML and tables, front matter fences and web addresses.
+MARKUP_UNITS: Final = (
+    "[![a](b)](",
+    "[![a][b]][",
+    "![a](",
+    "![a][",
+    "[a](",
+    "[a]:",
+    "<a",
+    ".<b ",
+    ".<!",
+    "`a",
+    "|",
+    "---\n",
+    "https://",
+    "www.",
+)
 # Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
 EMPHASIS_MARKS: Final = ("_", "*", "~")
@@ -397,7 +412,12 @@ def test_yaml_front_matter_gives_the_title_and_stays_out_of_the_rest(llm: MockLL
         "---\n"
         'title: "Linear Algebra"\n'
         "date: 2024-09-01\n"
-        "tags: [math, algebra, vectors]\n"
+        "\n"
+        "tags:\n"
+        "- math\n"
+        "- algebra\n"
+        "aliases:\n"
+        "  - vectors\n"
         "---\n"
         "\n"
         "A vector is an ordered list of numbers that describes a point in space.\n"
@@ -409,7 +429,8 @@ def test_yaml_front_matter_gives_the_title_and_stays_out_of_the_rest(llm: MockLL
     assert analysis.summary == (
         "A vector is an ordered list of numbers that describes a point in space."
     )
-    assert not {"date", "tags", "algebra"} & set(" ".join(analysis.topics).split())
+    words_of_topics = set(" ".join(analysis.topics).split())
+    assert not {"date", "tags", "math", "algebra", "aliases", "vectors"} & words_of_topics
 
 
 @pytest.mark.parametrize(
@@ -431,6 +452,44 @@ def test_front_matter_without_a_title_leaves_the_title_to_the_text(
     llm: MockLLMProvider, sample: str, title: str
 ) -> None:
     assert _analyze(llm, sample).analysis.title == title
+
+
+def test_a_thematic_break_at_the_top_is_no_front_matter(llm: MockLLMProvider) -> None:
+    sample = (
+        "---\n"
+        "Recursion is when a function calls itself to solve a smaller copy of a problem.\n"
+        "Every recursive function needs a base case that stops the calls.\n"
+        "\n"
+        "---\n"
+        "\n"
+        "Iteration repeats a block of code with a loop instead of calling the function again.\n"
+    )
+
+    analysis = _analyze(llm, sample).analysis
+
+    assert analysis.title == (
+        "Recursion is when a function calls itself to solve a smaller copy of a problem"
+    )
+    assert analysis.summary == (
+        "Recursion is when a function calls itself to solve a smaller copy of a problem. Every "
+        "recursive function needs a base case that stops the calls. Iteration repeats a block "
+        "of code with a loop instead of calling the function again."
+    )
+
+
+def test_front_matter_cut_short_by_an_excerpt_ends_where_the_excerpt_does(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "---\ntitle: Graphs\ntags: [math, graphs]"
+        + EXCERPT_SEPARATOR
+        + "A tree is a connected graph without cycles.\n"
+    )
+
+    analysis = _analyze(llm, sample).analysis
+
+    assert analysis.title == "Graphs"
+    assert analysis.summary == "A tree is a connected graph without cycles."
 
 
 def test_html_blocks_and_badges_stay_out_of_the_title_summary_and_topics(
@@ -457,6 +516,75 @@ def test_html_blocks_and_badges_stay_out_of_the_title_summary_and_topics(
         "https://graphs.example.org/guide explains every graph method."
     )
     assert not {"https", "build", "pypi", "logo", "diagram"} & set(analysis.topics)
+
+
+def test_inline_html_tags_stay_out_of_the_title_and_topics(llm: MockLLMProvider) -> None:
+    sample = (
+        '# Color Helpers <img src="https://cssdb.org/images/css.svg" alt="for CSS" width="90" '
+        'height="90" align="right">\n'
+        "\n"
+        "Color helpers convert <b>colors</b> between the formats that style sheets use.<br>\n"
+    )
+
+    analysis = _analyze(llm, sample, filename="README.md").analysis
+
+    assert analysis.title == "Color Helpers"
+    assert analysis.summary == (
+        "Color helpers convert colors between the formats that style sheets use."
+    )
+    words_of_topics = set(" ".join(analysis.topics).split())
+    assert not {"img", "src", "alt", "width", "height", "align"} & words_of_topics
+
+
+def test_a_line_break_tag_parts_the_text_and_other_tags_leave_it_together(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "Water, written H<sub>2</sub>O, dissolves <b>salt</b> and sugar.<br>Oil does not mix "
+        "with it at all.\n"
+    )
+
+    summary = _analyze(llm, sample).analysis.summary
+
+    assert summary == (
+        "Water, written H2O, dissolves salt and sugar. Oil does not mix with it at all."
+    )
+
+
+def test_badges_given_by_reference_and_reference_definitions_stay_out_of_the_text(
+    llm: MockLLMProvider,
+) -> None:
+    sample = (
+        "# array-includes <sup>[![Version Badge][npm-version-svg]][package-url]</sup>\n"
+        "\n"
+        "[![dependency status][deps-svg]][deps-url] ![downloads][downloads-image]\n"
+        "\n"
+        "An ES spec-compliant Array.prototype.includes shim that works as far down as ES3.\n"
+        "Its docs live at <https://example.org/array-includes> for every version.<!-- docs -->\n"
+        "\n"
+        "[package-url]: https://npmjs.org/package/array-includes\n"
+        "[npm-version-svg]: https://versionbadg.es/es-shims/array-includes.svg\n"
+    )
+
+    analysis = _analyze(llm, sample, filename="README.md").analysis
+
+    assert analysis.title == "array-includes"
+    assert analysis.summary == (
+        "An ES spec-compliant Array.prototype.includes shim that works as far down as ES3. "
+        "Its docs live at <https://example.org/array-includes> for every version."
+    )
+
+
+def test_code_spans_keep_their_text_tags_and_marks_included(llm: MockLLMProvider) -> None:
+    sample = (
+        "# The `<div>` element\n\nA `<div>` groups other elements, and `__init__` sets up "
+        "a new object.\n"
+    )
+
+    analysis = _analyze(llm, sample).analysis
+
+    assert analysis.title == "The <div> element"
+    assert analysis.summary == "A <div> groups other elements, and __init__ sets up a new object."
 
 
 def test_table_rows_stay_out_of_the_summary(llm: MockLLMProvider) -> None:
