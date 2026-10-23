@@ -30,6 +30,10 @@ x-backend: &backend
   volumes:
     - ./backend:/app
     - uploads:/data/uploads
+  # Docker Desktop names the host this way by itself; on Linux this entry gives a model
+  # server running on the host, such as Ollama, the same address.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
 
 services:
   migrate:
