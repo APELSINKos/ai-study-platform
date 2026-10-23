@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import type * as MotionModule from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,10 +29,29 @@ describe("HowItWorks", () => {
 
     expect(screen.getAllByRole("heading", { level: 3 }).map((step) => step.textContent)).toEqual([
       "1Your file becomes passages",
-      "2Passages are mapped by meaning",
-      "3Your question finds its neighbours",
-      "4The answer cites them",
+      "2Each passage gets a place on a map",
+      "3Your question will find its neighbours",
+      "4The answer will cite them",
     ]);
+  });
+
+  it.each([
+    ["en", "Coming next"],
+    ["ru", "Скоро"],
+  ] as const)("marks the steps Recall does not take yet as coming next (%s)", (locale, label) => {
+    renderWithIntl(<HowItWorks />, { locale });
+
+    const marked = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((title) => within(title.closest("li") as HTMLElement).queryByText(label) !== null);
+    expect(marked).toEqual([false, false, true, true]);
+  });
+
+  it("does not claim that the built-in model maps passages by meaning", () => {
+    renderWithIntl(<HowItWorks />);
+
+    expect(screen.queryByText(/by meaning/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/use the same words/)).toBeInTheDocument();
   });
 
   it("starts the story at the first step with the answer not yet written", async () => {
@@ -56,7 +75,7 @@ describe("HowItWorks", () => {
     );
     expect(screen.getByTestId("answer-card")).toHaveAttribute("data-shown", "true");
     expect(screen.getByRole("listitem", { current: "step" })).toHaveTextContent(
-      "The answer cites them",
+      "The answer will cite them",
     );
   });
 

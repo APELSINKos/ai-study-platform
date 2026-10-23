@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 
+import { ComingNext } from "../coming-next";
 import { LazyMount } from "../lazy-mount";
 import { FlashcardDemo } from "./flashcard-demo";
 
@@ -17,6 +18,7 @@ export function Practice() {
           <h2 id="practice-title" className="font-display text-headline font-semibold text-balance">
             {t("title")}
           </h2>
+          <ComingNext className="mt-3" />
           <p className="text-ink-soft mt-4 max-w-[46ch] text-lg leading-8">{t("body")}</p>
         </div>
         <div className="relative max-w-md lg:order-1">

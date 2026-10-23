@@ -1,6 +1,10 @@
 import { useTranslations } from "next-intl";
 
+import { ComingNext } from "../coming-next";
 import { STEPS, type Step } from "./timeline";
+
+/** Questions and cited answers are not built yet: their steps say so. */
+const COMING_NEXT_STEPS: ReadonlySet<Step> = new Set(["search", "answer"]);
 
 /**
  * The four numbered steps beside the map. The current one gets its number circled in pen. Where
@@ -25,6 +29,7 @@ export function StepList({ active }: { active: Step }) {
               <StepNumber number={index + 1} isActive={isActive} />
               {t(`${step}.title`)}
             </h3>
+            {COMING_NEXT_STEPS.has(step) ? <ComingNext className="mt-1.5" /> : null}
             <p className="text-ink-soft mt-2 max-w-[48ch] leading-7">{t(`${step}.body`)}</p>
           </li>
         );

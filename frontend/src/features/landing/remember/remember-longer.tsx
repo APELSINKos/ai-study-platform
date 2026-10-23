@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 
 import { cn } from "@/lib/utils";
 
+import { ComingNext } from "../coming-next";
 import { LazyMount } from "../lazy-mount";
 import { CHART_HEIGHT, CHART_WIDTH, xOf } from "./curve";
 import { ForgettingCurve } from "./forgetting-curve";
@@ -21,9 +22,12 @@ export function RememberLonger() {
   return (
     <section aria-labelledby="remember-title" className="notebook-row mt-32 sm:mt-44">
       <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
-        <h2 id="remember-title" className="font-display text-headline font-semibold text-balance">
-          {t("title")}
-        </h2>
+        <div>
+          <h2 id="remember-title" className="font-display text-headline font-semibold text-balance">
+            {t("title")}
+          </h2>
+          <ComingNext className="mt-3" />
+        </div>
         <div className="text-ink-soft max-w-[56ch] space-y-4 text-lg leading-8">
           <p>{t("body")}</p>
           <p>{t("weakTopics")}</p>
