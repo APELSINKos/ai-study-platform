@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
 
+import { newAccount, registerThroughUi } from "./account";
+
 const MIB = 1024 * 1024;
 const UPLOAD_LIMIT_BYTES = 20 * MIB;
 // Holds far more text than one document may have, yet passes the upload limit.
@@ -12,17 +14,7 @@ const CSRF_HEADER = "X-CSRF-Token";
 const WORKSPACE_URL = /\/workspaces\/[0-9a-f-]{36}$/;
 const DOCUMENT_URL = /\/documents\/[0-9a-f-]{36}$/;
 
-function uniqueEmail(): string {
-  const random = Math.random().toString(36).slice(2, 8);
-  return `e2e-documents-${Date.now()}-${random}@example.com`;
-}
-
-const ACCOUNT = {
-  displayName: "E2E Reader",
-  email: uniqueEmail(),
-  password: "correct horse battery staple",
-};
-
+const ACCOUNT = newAccount("documents", "E2E Reader");
 const WORKSPACE_NAME = "Memory and learning";
 
 // The offline analysis titles a file after its first heading and sums it up with its first
@@ -128,13 +120,7 @@ test.describe.serial("documents from upload to deletion", () => {
   });
 
   test("registers a new account", async () => {
-    await page.goto("/register");
-    await page.getByLabel("Name").fill(ACCOUNT.displayName);
-    await page.getByLabel("Email").fill(ACCOUNT.email);
-    await page.getByLabel("Password").fill(ACCOUNT.password);
-    await page.getByRole("button", { name: "Create account" }).click();
-
-    await expect(page).toHaveURL(/\/dashboard$/);
+    await registerThroughUi(page, ACCOUNT);
   });
 
   test("creates a workspace from the dashboard", async () => {

@@ -1,18 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { newAccount, registerThroughUi } from "./account";
+
 const REGISTER_ENDPOINT = "/api/v1/auth/register";
-
-function uniqueEmail(): string {
-  const random = Math.random().toString(36).slice(2, 8);
-  return `e2e-${Date.now()}-${random}@example.com`;
-}
-
-const CREDENTIALS = {
-  displayName: "E2E Tester",
-  email: uniqueEmail(),
-  password: "correct horse battery staple",
-  wrongPassword: "not the right password",
-};
+const ACCOUNT = newAccount("auth", "E2E Tester");
+const WRONG_PASSWORD = "not the right password";
 
 // Registration is rate-limited per IP, so this suite creates exactly one
 // account and reuses it for every step of the lifecycle below.
@@ -28,14 +20,9 @@ test.describe.serial("account lifecycle", () => {
   });
 
   test("registers through the UI and lands on the dashboard", async () => {
-    await page.goto("/register");
-    await page.getByLabel("Name").fill(CREDENTIALS.displayName);
-    await page.getByLabel("Email").fill(CREDENTIALS.email);
-    await page.getByLabel("Password").fill(CREDENTIALS.password);
-    await page.getByRole("button", { name: "Create account" }).click();
+    await registerThroughUi(page, ACCOUNT);
 
-    await expect(page).toHaveURL(/\/dashboard$/);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(CREDENTIALS.displayName);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(ACCOUNT.displayName);
   });
 
   test("signs out from the user menu", async () => {
@@ -51,15 +38,15 @@ test.describe.serial("account lifecycle", () => {
   });
 
   test("rejects the wrong password with an alert", async () => {
-    await page.getByLabel("Email").fill(CREDENTIALS.email);
-    await page.getByLabel("Password").fill(CREDENTIALS.wrongPassword);
+    await page.getByLabel("Email").fill(ACCOUNT.email);
+    await page.getByLabel("Password").fill(WRONG_PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page.getByText("Incorrect email or password.")).toHaveAttribute("role", "alert");
   });
 
   test("signs in with the right password and returns to the dashboard", async () => {
-    await page.getByLabel("Password").fill(CREDENTIALS.password);
+    await page.getByLabel("Password").fill(ACCOUNT.password);
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page).toHaveURL(/\/dashboard$/);
@@ -69,7 +56,7 @@ test.describe.serial("account lifecycle", () => {
     await page.context().clearCookies({ name: "recall_access" });
     await page.reload();
 
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(CREDENTIALS.displayName);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(ACCOUNT.displayName);
     const cookies = await page.context().cookies();
     expect(cookies.some((cookie) => cookie.name === "recall_access")).toBe(true);
   });
