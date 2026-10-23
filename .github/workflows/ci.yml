@@ -47,7 +47,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --locked
       - name: Lint
         run: uv run ruff check . && uv run ruff format --check .
       - name: Type check
@@ -92,7 +92,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Export the OpenAPI schema
         working-directory: backend
-        run: uv sync --frozen && uv run python -m app.export_openapi ../frontend/openapi.json
+        run: uv sync --locked && uv run python -m app.export_openapi ../frontend/openapi.json
       - name: Regenerate types and compare
         working-directory: frontend
         run: |
