@@ -117,8 +117,8 @@ flowchart TD
     subgraph indexing ["Worker: indexing"]
         embed["Embed: 1,536 dimensions, 64 passages a request"] --> save[("Store the passages with HNSW and full-text indexes")]
     end
-    stored --> extract
-    analyse --> embed
+    request --> reading
+    reading --> indexing
     save --> ready(["ready"])
     ready -.-> retrieve["Retrieve: vector and full-text results merged by rank (planned)"]
     retrieve -.-> answer["Answer with citations (planned)"]
