@@ -128,7 +128,7 @@ flowchart TD
 2. **Extract.** PDF files are read page by page, so every passage knows its pages; Markdown and text files are decoded as UTF-8.
 3. **Clean.** The text is normalised to NFC; ligatures, non-breaking and zero-width characters, soft hyphens, words hyphenated across lines or pages, running headers and footers, and page-number lines are dealt with one by one. Lines that the PDF layout wrapped are joined into paragraphs, while headings, list items and code keep their own lines.
 4. **Chunk.** Whole sentences are packed into passages of about 1,200 characters, each starting with up to 200 characters of the previous passage's last sentences, so text at a boundary keeps its context. Markdown is split by sections first and every passage keeps its heading path; PDF passages keep their page range.
-5. **Analyse.** The model sees the file name and at most 12,000 characters: a short file whole, a longer one as an outline of its headings, its beginning and three windows further on. It returns a title, a summary, topics and a difficulty. The estimated study time is computed rather than guessed: 200 words a minute, times 1.0, 1.3 or 1.6 by difficulty.
+5. **Analyse.** The model sees the file name and at most 12,000 characters: a short file whole, a longer one as its beginning and three windows further on, after an outline of its headings when it is Markdown. It returns a title, a summary, topics and a difficulty. The estimated study time is computed rather than guessed: 200 words a minute, times 1.0, 1.3 or 1.6 by difficulty.
 6. **Embed and store.** Passages are embedded in batches into 1,536-dimensional vectors, then stored in the same transaction that marks the document `ready`.
 
 The statuses form a small state machine:
@@ -373,7 +373,7 @@ Screenshots will be added once the study features have their finished interface.
 
 ## Limitations
 
-- The offline analysis is heuristic: the title comes from the front matter, the first heading or a first line that stands alone; the summary from the first sentences; the topics from the headings the text returns to and its repeated phrases, then from word frequencies; and the difficulty from a readability score. The offline embeddings match shared words, not meaning. Real models need an API key.
+- The offline analysis is heuristic: the title comes from the front matter, the first heading or first lines that stand alone like a title; the summary from the first sentences; the topics from the headings the text returns to and its repeated phrases, then from word frequencies; and the difficulty from a readability score. Code blocks, HTML blocks, tables, images and badges are left out. The offline embeddings match shared words, not meaning. Real models need an API key.
 - There is no OCR: a scanned PDF without a text layer fails with `no_text`.
 - The interface is in English and Russian only.
 - It is a single-node setup: one Compose stack, with uploaded files on a local volume shared by the API and the worker, and no object storage or replicas. The per-IP rate limits assume a reverse proxy that sets `X-Forwarded-For` (see Authentication).
