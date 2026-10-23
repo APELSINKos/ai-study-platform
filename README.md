@@ -30,7 +30,7 @@ Recall is a self-hosted web application for preparing for exams from your own ma
 - PDF, Markdown (`.md`) and plain-text (`.txt`) files of up to 20 MiB, uploaded by drag and drop or the file picker. The browser checks each file against the limits from `GET /api/v1/meta` before sending it; the API checks again: the extension, the `%PDF-` signature, strict UTF-8 for text files (no UTF-16 or UTF-32 byte-order mark, no NUL bytes), the size, and a SHA-256 duplicate check within the workspace.
 - Per-user limits: 10 documents in processing at once, 1 GiB of stored files, 60 uploads and 30 retries an hour.
 - Processing limits: 500 PDF pages, 2,000,000 characters of text and 5,000 passages per document, capped PDF decompression, 768 MiB of memory for each worker process, and a 9-minute deadline per run, which holds even while the PDF library opens or repairs a file.
-- Every file shows where its processing stands on a status rail: uploaded, processing, indexing, ready, or failed with the reason in the interface language. The list asks for news every 2 seconds while a file is on its way and stops once all of them are ready or failed.
+- Every file shows where its processing stands on a status rail: uploaded, processing, indexing, ready, or failed with the reason in the interface language. The list and the document page ask for news every 2 seconds while a file is on its way, every 15 seconds once every file on its way has stalled, and stop once all of them are ready or failed, or when the API turns the request down.
 - Retry for a failed document, and for one that has not changed status for 15 minutes ("This is taking longer than usual").
 - A document page with the title, summary, topics, difficulty, estimated study time, page, word and passage counts, processing time and the model that analysed the file; the passages ("fragments") with their heading path and page range; download of the original file; deletion.
 
@@ -147,6 +147,12 @@ stateDiagram-v2
     indexing --> failed: error
     failed --> uploaded: Retry
     ready --> [*]
+    note left of uploaded
+        Retry also restarts
+        a document stuck for
+        15 minutes in uploaded,
+        processing or indexing
+    end note
 ```
 
 A model that is unavailable (a timeout, no connection, HTTP 408 or 409, a 429 rate limit, or a server error other than 501) is retried twice, after 30 and 60 seconds (longer if the provider asks, but at most 5 minutes); meanwhile the interface shows "Retrying soon", and a model still unavailable after that fails the document with `ai_unavailable`. Every other error is final, among them a spent quota (HTTP 402, or a 429 about the quota) and HTTP 501, which a compatible server answers to a request it does not support at all. An analysis the model refuses for good is replaced by the built-in one and the document still becomes ready; a final embedding error fails the document. A retry reuses an analysis that the same model saved in an earlier attempt instead of asking for it again, but not one the built-in analysis stood in for. A failed document carries one code from a closed set: file problems (`pdf_unreadable`, `pdf_encrypted`, `no_text`, `too_many_pages`, `text_too_long`, `file_missing`), model problems (`ai_unavailable`, `ai_quota_exceeded`, `ai_rejected`, `ai_invalid_output`, `embedding_dimension_mismatch`) and run problems (`processing_timeout`, `queue_unavailable`, `internal_error`). Retry puts a failed document back to `uploaded`, as it does a document stuck in an earlier status for 15 minutes.
@@ -373,7 +379,7 @@ Screenshots will be added once the study features have their finished interface.
 - The interface is in English and Russian only.
 - It is a single-node setup: one Compose stack, with uploaded files on a local volume shared by the API and the worker, and no object storage or replicas. The per-IP rate limits assume a reverse proxy that sets `X-Forwarded-For` (see Authentication).
 - The vector size is fixed at 1,536 dimensions, and documents processed before a change of embedding model keep their old vectors; there is no command to re-embed them yet.
-- Processing status is polled every 2 seconds rather than pushed, and an upload shows no percentage.
+- Processing status is polled rather than pushed, every 2 seconds or every 15 once the files on their way have stalled, and an upload shows no percentage.
 - Synchronous routes: FastAPI's thread pool bounds how many requests run at once.
 
 ## Future Improvements
