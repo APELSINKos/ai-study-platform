@@ -428,6 +428,48 @@ describe("DocumentList retry and delete", () => {
     expect(retry).toHaveFocus();
   });
 
+  it("keeps the focus on the row when a retry is refused because processing is under way", async () => {
+    let documents = [failed, ready];
+    apiFetchMock.mockImplementation(async (_path, init) => {
+      if (init?.method === "POST") {
+        // Retried elsewhere a moment earlier.
+        documents = [
+          { ...failed, status: "processing", error_code: null, can_retry: false },
+          ready,
+        ];
+        throw new ApiError({ status: 409, code: "document_not_retryable", message: "x" });
+      }
+      return documentPageFixture(documents);
+    });
+    renderList();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Retry lecture-1.pdf" }));
+
+    expect(
+      await within(rowOf("lecture-1.pdf")).findByText("Reading and analysing"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry lecture-1.pdf" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("link", { name: "lecture-1.pdf" })).toHaveFocus());
+  });
+
+  it("moves the focus to the list's heading when the document to retry is gone", async () => {
+    let documents = [failed, ready];
+    apiFetchMock.mockImplementation(async (_path, init) => {
+      if (init?.method === "POST") {
+        // Deleted elsewhere a moment earlier.
+        documents = [ready];
+        throw new ApiError({ status: 404, code: "document_not_found", message: "x" });
+      }
+      return documentPageFixture(documents);
+    });
+    renderList();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Retry lecture-1.pdf" }));
+
+    await waitFor(() => expect(rowNames()).toEqual(["Reaction mechanisms"]));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Documents" })).toHaveFocus());
+  });
+
   it("retries a stalled document", async () => {
     serve([documentFixture(1, { status: "processing", can_retry: true })]);
     renderList();

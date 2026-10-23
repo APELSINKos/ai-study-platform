@@ -5,10 +5,19 @@ import type { ReactElement, ReactNode, RefObject } from "react";
 
 import { AlertDialog } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { ApiError } from "@/lib/api/errors";
 import type { DocumentOut } from "@/lib/api/types";
 
-import { documentErrorMessage } from "./error-message";
+import {
+  DOCUMENT_NOT_FOUND_CODE,
+  DOCUMENT_NOT_RETRYABLE_CODE,
+  documentErrorMessage,
+} from "./error-message";
 import { useRetryDocument } from "./hooks";
+
+function hasCode(error: unknown, code: string): boolean {
+  return error instanceof ApiError && error.code === code;
+}
 
 interface RetryProcessingButtonProps {
   document: DocumentOut;
@@ -18,8 +27,13 @@ interface RetryProcessingButtonProps {
   /** Shown before the label while no retry is running. */
   icon?: ReactNode;
   className?: string;
-  /** Runs once a retry has put the document back on its way, which takes this button away. */
+  /**
+   * Runs once the document is on its way again, through this retry or another one, which takes
+   * this button away.
+   */
   onRetried: () => void;
+  /** Runs when the document turns out to be deleted, which takes this button away with it. */
+  onGone: () => void;
 }
 
 /**
@@ -33,6 +47,7 @@ export function RetryProcessingButton({
   icon,
   className,
   onRetried,
+  onGone,
 }: RetryProcessingButtonProps) {
   const tErrors = useTranslations("Documents.errors");
   const retry = useRetryDocument(document);
@@ -43,6 +58,14 @@ export function RetryProcessingButton({
       onSuccess: (updated) => {
         if (!updated.can_retry) {
           onRetried();
+        }
+      },
+      // These refusals take the button away too, once the refresh after every retry lands.
+      onError: (error) => {
+        if (hasCode(error, DOCUMENT_NOT_RETRYABLE_CODE)) {
+          onRetried();
+        } else if (hasCode(error, DOCUMENT_NOT_FOUND_CODE)) {
+          onGone();
         }
       },
     });

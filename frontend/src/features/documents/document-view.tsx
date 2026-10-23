@@ -63,7 +63,15 @@ export function DocumentView({ id }: { id: string }) {
     return <DocumentNotFound headingRef={headingRef} />;
   }
   if (document !== undefined) {
-    return <DocumentDetail document={document} headingRef={headingRef} onDeleting={setDeleting} />;
+    return (
+      <DocumentDetail
+        document={document}
+        headingRef={headingRef}
+        onDeleting={setDeleting}
+        // The page turns into Not found once the refresh lands, and its heading takes the focus.
+        onGone={focusHeadingOnArrival}
+      />
+    );
   }
   if (query.isPending) {
     return <DocumentSkeleton />;
@@ -86,9 +94,11 @@ interface DocumentDetailProps {
   document: DocumentOut;
   headingRef: HeadingRef;
   onDeleting: DeletingHandler;
+  /** Runs when a retry finds the document deleted. */
+  onGone: () => void;
 }
 
-function DocumentDetail({ document, headingRef, onDeleting }: DocumentDetailProps) {
+function DocumentDetail({ document, headingRef, onDeleting, onGone }: DocumentDetailProps) {
   return (
     <div className="notebook-row">
       <WorkspaceCrumb workspaceId={document.workspace_id} />
@@ -98,6 +108,7 @@ function DocumentDetail({ document, headingRef, onDeleting }: DocumentDetailProp
         <DocumentActions
           document={document}
           onRetried={() => headingRef.current?.focus()}
+          onGone={onGone}
           onDeleting={onDeleting}
           className="mt-5"
         />
@@ -181,8 +192,10 @@ function ProcessingState({ document, className }: { document: DocumentOut; class
 
 interface DocumentActionsProps {
   document: DocumentOut;
-  /** Runs once a retry has put the document back on its way, which takes Retry away. */
+  /** Runs once the document is on its way again, which takes Retry away. */
   onRetried: () => void;
+  /** Runs when a retry finds the document deleted. */
+  onGone: () => void;
   onDeleting: DeletingHandler;
   className?: string;
 }
@@ -191,7 +204,13 @@ interface DocumentActionsProps {
  * What can be done with the document, none of it the page's main action. A failure shows under
  * the buttons, apart from that of a delete, which the dialog shows.
  */
-function DocumentActions({ document, onRetried, onDeleting, className }: DocumentActionsProps) {
+function DocumentActions({
+  document,
+  onRetried,
+  onGone,
+  onDeleting,
+  className,
+}: DocumentActionsProps) {
   const t = useTranslations("Documents.detail");
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
@@ -201,6 +220,7 @@ function DocumentActions({ document, onRetried, onDeleting, className }: Documen
           label={t("retryProcessing")}
           icon={<ArrowClockwiseIcon aria-hidden />}
           onRetried={onRetried}
+          onGone={onGone}
         />
       ) : null}
       <DownloadButton document={document} />
@@ -303,7 +323,8 @@ function DocumentNotFound({ headingRef }: { headingRef: HeadingRef }) {
   return (
     <div className="notebook-row">
       <div className="max-w-3xl">
-        {/* Focusable from code only: it takes the focus when it arrives in place of Try again. */}
+        {/* Focusable from code only: it takes the focus when it arrives in place of Try again,
+            or of a document that a retry found deleted. */}
         <h1 ref={headingRef} tabIndex={-1} className="font-display text-title w-fit font-semibold">
           {t("title")}
         </h1>

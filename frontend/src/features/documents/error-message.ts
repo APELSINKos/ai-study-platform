@@ -11,6 +11,8 @@ const SECONDS_PER_MINUTE = 60;
 
 /** The answer for a document that does not exist or belongs to someone else. */
 export const DOCUMENT_NOT_FOUND_CODE = "document_not_found";
+/** The answer to a retry of a document that is neither failed nor stalled. */
+export const DOCUMENT_NOT_RETRYABLE_CODE = "document_not_retryable";
 
 /** The sentence for each reason processing can fail; a code the API adds breaks the build here. */
 export const DOCUMENT_ERROR_MESSAGES = {
@@ -105,7 +107,7 @@ export function documentErrorMessage(
         return t("workspaceNotFound");
       case DOCUMENT_NOT_FOUND_CODE:
         return t("documentNotFound");
-      case "document_not_retryable":
+      case DOCUMENT_NOT_RETRYABLE_CODE:
         return t("notRetryable");
       case "rate_limited":
         return rateLimitedMessage(t, error.retryAfterSeconds);

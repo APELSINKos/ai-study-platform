@@ -76,6 +76,7 @@ export function DocumentRow({ document, focusAfterDelete }: DocumentRowProps) {
           document={document}
           progress={progress}
           onRetried={() => linkRef.current?.focus()}
+          onGone={() => focusAfterDelete.current?.focus()}
         />
       </div>
       <DeleteDocumentButton document={document} focusAfterDelete={focusAfterDelete} />
@@ -126,10 +127,11 @@ interface ProgressNoteProps {
   document: DocumentOut;
   progress: DocumentProgress;
   onRetried: () => void;
+  onGone: () => void;
 }
 
 /** Why a document failed, or that it has stalled, with Retry when processing can start again. */
-function ProgressNote({ document, progress, onRetried }: ProgressNoteProps) {
+function ProgressNote({ document, progress, onRetried, onGone }: ProgressNoteProps) {
   const t = useTranslations("Documents.row");
   const tErrors = useTranslations("Documents.processingErrors");
 
@@ -154,6 +156,7 @@ function ProgressNote({ document, progress, onRetried }: ProgressNoteProps) {
           // Kept above the title link, which is stretched over the whole row.
           className="relative"
           onRetried={onRetried}
+          onGone={onGone}
         />
       ) : null}
     </div>

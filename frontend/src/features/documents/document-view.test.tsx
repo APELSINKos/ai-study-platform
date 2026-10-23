@@ -339,6 +339,49 @@ describe("DocumentView", () => {
     expect(retry).toHaveFocus();
   });
 
+  it("keeps the focus on the title when a retry is refused because processing is under way", async () => {
+    const answers = serve(FAILED, {
+      retry: async () => {
+        // Retried elsewhere a moment earlier.
+        answers.becomes(documentFixture(1, { status: "processing" }));
+        throw new ApiError({ status: 409, code: "document_not_retryable", message: "x" });
+      },
+    });
+    renderView();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Retry processing" }));
+
+    await expectStatus("Reading and analysing");
+    expect(screen.queryByRole("button", { name: "Retry processing" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: "lecture-1.pdf" })).toHaveFocus(),
+    );
+  });
+
+  it("puts the focus on the not-found heading when the document to retry is gone", async () => {
+    let gone = false;
+    apiFetchMock.mockImplementation(async (path, init) => {
+      if (path === META_PATH) {
+        return META;
+      }
+      if (path.startsWith("/workspaces/")) {
+        return WORKSPACE;
+      }
+      if (init?.method === "POST" || gone) {
+        // Deleted elsewhere a moment earlier.
+        gone = true;
+        throw new ApiError({ status: 404, code: "document_not_found", message: "x" });
+      }
+      return FAILED;
+    });
+    renderView();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Retry processing" }));
+
+    const heading = await screen.findByRole("heading", { level: 1, name: "Document not found" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
   it("notes that a stalled document is taking longer than usual, with Retry", async () => {
     serve(documentFixture(1, { status: "processing", can_retry: true }));
     renderView();
