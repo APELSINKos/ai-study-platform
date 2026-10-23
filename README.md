@@ -1,5 +1,7 @@
 # Recall — AI Study Platform
 
+[![CI](https://github.com/APELSINKos/ai-study-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/APELSINKos/ai-study-platform/actions/workflows/ci.yml)
+
 ## Overview
 
 Recall is a self-hosted web application for preparing for exams from your own material. You create a workspace for each course or exam and upload lecture notes or textbook chapters as PDF, Markdown or plain-text files. A background worker reads every file, cleans its text, splits it into passages, analyses it (title, summary, topics, difficulty and estimated study time) and stores a vector embedding for each passage in PostgreSQL with pgvector. Those passages are what the next features build on: answers with citations, quizzes and flashcards with spaced repetition. The whole stack starts with one Docker Compose command and needs no API key: built-in offline models stand in until an OpenAI-compatible endpoint is configured.
