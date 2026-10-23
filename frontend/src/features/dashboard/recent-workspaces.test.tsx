@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -92,6 +92,22 @@ describe("RecentWorkspaces", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     expect(await screen.findByRole("link", { name: "Workspace 1" })).toBeInTheDocument();
+    // Try again had the focus and the card took its place.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Recent workspaces" })).toHaveFocus(),
+    );
+  });
+
+  it("puts the focus on the invitation when Try again finds no workspaces", async () => {
+    apiFetchMock
+      .mockRejectedValueOnce(new ApiError({ status: 503, code: "http_error", message: "x" }))
+      .mockResolvedValueOnce(workspacePageFixture([], { pageSize: 3 }));
+    renderWithIntl(<RecentWorkspaces />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    const heading = await screen.findByRole("heading", { name: "Start with a workspace" });
+    await waitFor(() => expect(heading).toHaveFocus());
   });
 
   it("speaks Russian", async () => {

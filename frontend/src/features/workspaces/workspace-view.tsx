@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useId, useRef } from "react";
+import { useId, useRef, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { DocumentList } from "@/features/documents/document-list";
 import { UploadDropzone } from "@/features/documents/upload-dropzone";
 import { ApiError } from "@/lib/api/errors";
 import type { WorkspaceOut } from "@/lib/api/types";
+import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 
 import { workspaceErrorMessage, WORKSPACE_NOT_FOUND_CODE } from "./error-message";
 import { useExamCountdown } from "./exam-countdown";
@@ -28,13 +29,20 @@ function isMissingWorkspace(error: unknown): boolean {
 /** The page of one workspace, fetched in the browser: the server never sees the session. */
 export function WorkspaceView({ id }: { id: string }) {
   const workspace = useWorkspace(id);
-
+  // The page's one heading, in whichever state the page is.
+  const headingRef = useRef<HTMLHeadingElement>(null);
   // Checked before the data: a workspace deleted meanwhile is gone even if a copy is cached.
-  if (isMissingWorkspace(workspace.error)) {
-    return <WorkspaceNotFound />;
+  const isMissing = isMissingWorkspace(workspace.error);
+  const focusHeadingOnArrival = useFocusOnArrival(
+    isMissing ? "missing" : workspace.data === undefined ? "absent" : "shown",
+    headingRef,
+  );
+
+  if (isMissing) {
+    return <WorkspaceNotFound headingRef={headingRef} />;
   }
   if (workspace.data !== undefined) {
-    return <WorkspacePage workspace={workspace.data} />;
+    return <WorkspacePage workspace={workspace.data} headingRef={headingRef} />;
   }
   if (workspace.isPending) {
     return <WorkspaceSkeleton />;
@@ -43,17 +51,28 @@ export function WorkspaceView({ id }: { id: string }) {
     <WorkspaceLoadError
       error={workspace.error}
       isRetrying={workspace.isFetching}
-      onRetry={() => void workspace.refetch()}
+      onRetry={() => {
+        focusHeadingOnArrival();
+        void workspace.refetch();
+      }}
     />
   );
 }
 
-function WorkspacePage({ workspace }: { workspace: WorkspaceOut }) {
+type HeadingRef = RefObject<HTMLHeadingElement | null>;
+
+function WorkspacePage({
+  workspace,
+  headingRef,
+}: {
+  workspace: WorkspaceOut;
+  headingRef: HeadingRef;
+}) {
   return (
     <div className="notebook-row">
       <WorkspaceMarginNote workspace={workspace} />
       <div className="max-w-3xl">
-        <WorkspaceHeader workspace={workspace} />
+        <WorkspaceHeader workspace={workspace} headingRef={headingRef} />
         <WorkspaceDocuments workspace={workspace} className="mt-12" />
       </div>
     </div>
@@ -123,12 +142,15 @@ function WorkspaceSkeleton() {
   );
 }
 
-function WorkspaceNotFound() {
+function WorkspaceNotFound({ headingRef }: { headingRef: HeadingRef }) {
   const t = useTranslations("Workspaces.detail.notFound");
   return (
     <div className="notebook-row">
       <div className="max-w-3xl">
-        <h1 className="font-display text-title font-semibold">{t("title")}</h1>
+        {/* Focusable from code only: it takes the focus when it arrives in place of Try again. */}
+        <h1 ref={headingRef} tabIndex={-1} className="font-display text-title w-fit font-semibold">
+          {t("title")}
+        </h1>
         <p className="text-ink-soft mt-4 max-w-[58ch] text-lg leading-8">{t("lead")}</p>
         <Button asChild variant="primary" className="mt-8">
           <Link href="/workspaces">{t("back")}</Link>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { IndexCard } from "@/components/ui/index-card";
 import { isClientError } from "@/lib/api/errors";
 import type { DocumentOut } from "@/lib/api/types";
+import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 import { cn } from "@/lib/utils";
 
 import { DocumentRow } from "./document-row";
@@ -21,7 +22,10 @@ type DocumentsTranslator = ReturnType<typeof useTranslations<"Documents">>;
 
 interface DocumentListProps {
   workspaceId: string;
-  /** The list's heading, which takes the focus when a deleted document's row goes. */
+  /**
+   * The list's heading, which takes the focus when a deleted document's row goes, and when the
+   * rows arrive in place of Try again.
+   */
   headingRef: RefObject<HTMLElement | null>;
   className?: string;
 }
@@ -35,6 +39,12 @@ export function DocumentList({ workspaceId, headingRef, className }: DocumentLis
   // Checked before the data: after a refused request the cached rows are no longer refreshed,
   // so a document shown as processing would never move on.
   const loaded = isClientError(list.error) ? undefined : list.data;
+  const focusHeadingOnArrival = useFocusOnArrival(loaded !== undefined, headingRef);
+
+  function loadAgain() {
+    focusHeadingOnArrival();
+    void list.refetch();
+  }
 
   return (
     <div className={className}>
@@ -43,6 +53,7 @@ export function DocumentList({ workspaceId, headingRef, className }: DocumentLis
         list={list}
         documents={loaded?.documents}
         headingRef={headingRef}
+        onRetry={loadAgain}
         className="mt-6"
       />
     </div>
@@ -90,10 +101,11 @@ interface ListBodyProps {
   list: DocumentListQuery;
   documents: DocumentOut[] | undefined;
   headingRef: RefObject<HTMLElement | null>;
+  onRetry: () => void;
   className?: string;
 }
 
-function ListBody({ list, documents, headingRef, className }: ListBodyProps) {
+function ListBody({ list, documents, headingRef, onRetry, className }: ListBodyProps) {
   const t = useTranslations("Documents.list");
   const tErrors = useTranslations("Documents.errors");
 
@@ -123,7 +135,7 @@ function ListBody({ list, documents, headingRef, className }: ListBodyProps) {
       <p role="alert" className="text-ink-soft text-sm">
         {documentErrorMessage(list.error, "load", tErrors)}
       </p>
-      <Button variant="secondary" isLoading={list.isFetching} onClick={() => void list.refetch()}>
+      <Button variant="secondary" isLoading={list.isFetching} onClick={onRetry}>
         {t("retry")}
       </Button>
     </div>

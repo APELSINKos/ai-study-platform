@@ -289,6 +289,8 @@ describe("DocumentList", () => {
 
     expect(await screen.findByRole("link", { name: "Lecture 1" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Try again had the focus and the rows took its place.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Documents" })).toHaveFocus());
   });
 
   it("names a server failure without its English message", async () => {

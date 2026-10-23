@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IndexCard } from "@/components/ui/index-card";
 import type { WorkspaceOut } from "@/lib/api/types";
+import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 import { cn } from "@/lib/utils";
 
 import { CreateWorkspaceForm } from "./create-workspace-form";
@@ -27,6 +28,8 @@ export function WorkspaceList({ startWithForm = false }: { startWithForm?: boole
   const [isFormOpen, setIsFormOpen] = useState(startWithForm);
   // Set by Cancel, so that New workspace takes the focus back when it reappears.
   const returnFocusRef = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusHeadingOnArrival = useFocusOnArrival(list.data !== undefined, headingRef);
 
   const isEmpty = list.data?.length === 0;
   const showForm = isFormOpen || isEmpty;
@@ -43,13 +46,22 @@ export function WorkspaceList({ startWithForm = false }: { startWithForm?: boole
     }
   }
 
+  function loadAgain() {
+    focusHeadingOnArrival();
+    void list.refetch();
+  }
+
   return (
     <div className="notebook-row">
       <p className="margin-note">{t("marginNote")}</p>
       {/* The title row, the form and the list share one width, so their right edges line up. */}
       <div className="max-w-3xl">
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
-          <h1 className="font-display text-title font-semibold">{t("title")}</h1>
+          {/* Focusable from code only: it takes the focus when the list arrives in place of
+              Try again. */}
+          <h1 ref={headingRef} tabIndex={-1} className="font-display text-title font-semibold">
+            {t("title")}
+          </h1>
           {showForm || list.isPending ? null : (
             <Button ref={takeReturningFocus} variant="primary" onClick={() => setIsFormOpen(true)}>
               {t("newWorkspace")}
@@ -66,13 +78,19 @@ export function WorkspaceList({ startWithForm = false }: { startWithForm?: boole
             onCancel={isEmpty ? undefined : closeForm}
           />
         ) : null}
-        <ListBody list={list} className="mt-8" />
+        <ListBody list={list} onRetry={loadAgain} className="mt-8" />
       </div>
     </div>
   );
 }
 
-function ListBody({ list, className }: { list: WorkspaceListQuery; className?: string }) {
+interface ListBodyProps {
+  list: WorkspaceListQuery;
+  onRetry: () => void;
+  className?: string;
+}
+
+function ListBody({ list, onRetry, className }: ListBodyProps) {
   const t = useTranslations("Workspaces.list");
   const tErrors = useTranslations("Workspaces.errors");
 
@@ -87,7 +105,7 @@ function ListBody({ list, className }: { list: WorkspaceListQuery; className?: s
         <p role="alert" className="text-ink-soft text-sm">
           {workspaceErrorMessage(list.error, "load", tErrors)}
         </p>
-        <Button variant="secondary" isLoading={list.isFetching} onClick={() => void list.refetch()}>
+        <Button variant="secondary" isLoading={list.isFetching} onClick={onRetry}>
           {t("retry")}
         </Button>
       </div>

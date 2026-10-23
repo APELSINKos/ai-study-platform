@@ -297,10 +297,10 @@ describe("WorkspaceView", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Organic chemistry" }),
-    ).toBeInTheDocument();
+    const title = await screen.findByRole("heading", { level: 1, name: "Organic chemistry" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Try again had the focus and the workspace took its place.
+    await waitFor(() => expect(title).toHaveFocus());
   });
 
   it("names a server failure without its English message", async () => {

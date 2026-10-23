@@ -185,6 +185,10 @@ describe("ChunkList", () => {
 
     expect(await within(region()).findByText("Passage 0 of the lecture.")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Try again had the focus and the fragments took its place.
+    await waitFor(() =>
+      expect(within(region()).getByRole("heading", { name: "Fragments" })).toHaveFocus(),
+    );
   });
 
   it("names a server failure without its English message", async () => {

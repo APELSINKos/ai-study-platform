@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +6,7 @@ import type { Locale } from "@/i18n/config";
 import { apiFetch, type ApiRequestInit } from "@/lib/api/client";
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 import type { DocumentOut, MetaOut } from "@/lib/api/types";
+import { queryKeys } from "@/lib/query-keys";
 import { renderWithIntl } from "@/test/render";
 
 import { WORKSPACE_ID, documentFixture } from "./test-fixtures";
@@ -389,6 +390,38 @@ describe("UploadDropzone", () => {
     await waitFor(() => expect(button).toHaveFocus());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText(RULES_HINT)).toBeInTheDocument();
+  });
+
+  it("leaves the focus where the user has moved it when the limits arrive later", async () => {
+    let attempts = 0;
+    serve({
+      meta: async () => {
+        attempts += 1;
+        if (attempts <= 2) {
+          throw new ApiError({ status: 0, code: NETWORK_ERROR_CODE, message: "x" });
+        }
+        return META;
+      },
+    });
+    const { queryClient } = renderWithIntl(
+      <>
+        <UploadDropzone workspaceId={WORKSPACE_ID} />
+        <textarea aria-label="Notes" />
+      </>,
+    );
+    // Try again fails as well, and the user goes on writing elsewhere on the page.
+    await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(attempts).toBe(2));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Try again" })).not.toHaveAttribute("aria-busy"),
+    );
+    await userEvent.type(screen.getByLabelText("Notes"), "Chapter 6");
+
+    // The connection is back, and the limits are asked for again in the background.
+    await act(() => queryClient.refetchQueries({ queryKey: queryKeys.meta }));
+
+    expect(await screen.findByRole("button", { name: "Upload files" })).not.toHaveFocus();
+    expect(screen.getByLabelText("Notes")).toHaveFocus();
   });
 
   it("speaks Russian", async () => {

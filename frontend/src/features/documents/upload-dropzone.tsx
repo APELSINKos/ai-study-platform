@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useMeta } from "@/features/meta/hooks";
 import { formatBytes } from "@/lib/format";
+import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 import { cn } from "@/lib/utils";
 
 import { documentErrorMessage } from "./error-message";
@@ -45,8 +46,8 @@ export function UploadDropzone({ workspaceId, className }: UploadDropzoneProps) 
   const rulesId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  // Set by Try again, so that Upload files takes the focus once the limits arrive.
-  const focusUploadRef = useRef(false);
+  // Upload files takes the place of Try again once the limits arrive.
+  const focusUploadOnArrival = useFocusOnArrival(rules !== undefined, buttonRef);
   // Moving onto a child fires its dragenter before the zone's dragleave, so both are counted.
   const dragDepthRef = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -125,16 +126,8 @@ export function UploadDropzone({ workspaceId, className }: UploadDropzoneProps) 
     addFiles(files);
   }
 
-  function attachUploadButton(button: HTMLButtonElement | null) {
-    buttonRef.current = button;
-    if (button && focusUploadRef.current) {
-      focusUploadRef.current = false;
-      button.focus();
-    }
-  }
-
   function loadLimitsAgain() {
-    focusUploadRef.current = true;
+    focusUploadOnArrival();
     void meta.refetch();
   }
 
@@ -177,7 +170,7 @@ export function UploadDropzone({ workspaceId, className }: UploadDropzoneProps) 
           <>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Button
-                ref={attachUploadButton}
+                ref={buttonRef}
                 variant="primary"
                 isLoading={isBusy}
                 aria-describedby={rules === undefined ? undefined : rulesId}

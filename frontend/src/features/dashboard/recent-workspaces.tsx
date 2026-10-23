@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useId } from "react";
+import { useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { IndexCard, IndexCardBody, IndexCardHeader } from "@/components/ui/index-card";
 import { workspaceErrorMessage } from "@/features/workspaces/error-message";
 import { useRecentWorkspaces } from "@/features/workspaces/hooks";
 import { WorkspaceRow } from "@/features/workspaces/workspace-row";
+import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 import { cn } from "@/lib/utils";
 
 // The workspaces page opens its create form for this link (see app/(app)/workspaces/page.tsx).
@@ -21,7 +22,10 @@ export function RecentWorkspaces({ className }: { className?: string }) {
   const tWorkspaces = useTranslations("Workspaces");
   const tErrors = useTranslations("Workspaces.errors");
   const titleId = useId();
+  // The heading of whichever card arrives in place of Try again takes the focus.
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const recent = useRecentWorkspaces();
+  const focusHeadingOnArrival = useFocusOnArrival(recent.data !== undefined, headingRef);
 
   if (recent.isPending) {
     return (
@@ -51,7 +55,10 @@ export function RecentWorkspaces({ className }: { className?: string }) {
         <Button
           variant="secondary"
           isLoading={recent.isFetching}
-          onClick={() => void recent.refetch()}
+          onClick={() => {
+            focusHeadingOnArrival();
+            void recent.refetch();
+          }}
         >
           {tWorkspaces("list.retry")}
         </Button>
@@ -64,7 +71,9 @@ export function RecentWorkspaces({ className }: { className?: string }) {
     return (
       <IndexCard className={className}>
         <IndexCardHeader>
-          <h2 className="font-display text-lg font-semibold">{t("emptyTitle")}</h2>
+          <h2 ref={headingRef} tabIndex={-1} className="font-display w-fit text-lg font-semibold">
+            {t("emptyTitle")}
+          </h2>
         </IndexCardHeader>
         <IndexCardBody className="flex flex-col items-start gap-5">
           <p className="text-ink-soft max-w-[60ch] text-sm text-pretty">{t("emptyBody")}</p>
@@ -79,7 +88,12 @@ export function RecentWorkspaces({ className }: { className?: string }) {
   return (
     <section aria-labelledby={titleId} className={cn("index-card overflow-hidden", className)}>
       <IndexCardHeader>
-        <h2 id={titleId} className="font-display text-lg font-semibold">
+        <h2
+          ref={headingRef}
+          id={titleId}
+          tabIndex={-1}
+          className="font-display w-fit text-lg font-semibold"
+        >
           {t("recentTitle")}
         </h2>
       </IndexCardHeader>

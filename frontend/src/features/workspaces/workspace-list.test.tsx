@@ -189,6 +189,10 @@ describe("WorkspaceList", () => {
 
     expect(await screen.findByRole("link", { name: "Workspace 1" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Try again had the focus and the rows took its place.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: "Workspaces" })).toHaveFocus(),
+    );
   });
 
   it("names a server failure without its English message", async () => {

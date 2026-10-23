@@ -5,6 +5,7 @@ import { useEffect, useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { ChunkOut, DocumentOut } from "@/lib/api/types";
+import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 import { cn } from "@/lib/utils";
 
 import { documentErrorMessage } from "./error-message";
@@ -32,15 +33,29 @@ function pageRange(chunk: ChunkOut, t: ChunksTranslator): string | null {
 export function ChunkList({ document, className }: { document: DocumentOut; className?: string }) {
   const t = useTranslations("Documents.chunks");
   const headingId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const chunks = useDocumentChunks(document);
+  const focusHeadingOnArrival = useFocusOnArrival(chunks.data !== undefined, headingRef);
+
+  function loadAgain() {
+    focusHeadingOnArrival();
+    void chunks.refetch();
+  }
 
   return (
     <section aria-labelledby={headingId} className={className}>
-      <h2 id={headingId} className="font-display text-xl font-semibold">
+      {/* Focusable from code only: it takes the focus when the fragments arrive in place of
+          Try again. */}
+      <h2
+        ref={headingRef}
+        id={headingId}
+        tabIndex={-1}
+        className="font-display w-fit text-xl font-semibold"
+      >
         {t("title")}
       </h2>
       {document.status === "ready" ? (
-        <ChunksBody chunks={chunks} className="mt-4" />
+        <ChunksBody chunks={chunks} onRetry={loadAgain} className="mt-4" />
       ) : (
         // A failed document gets fragments only if a retry succeeds, so none are promised.
         <p className="text-ink-soft mt-3 text-sm">
@@ -51,7 +66,13 @@ export function ChunkList({ document, className }: { document: DocumentOut; clas
   );
 }
 
-function ChunksBody({ chunks, className }: { chunks: ChunksQuery; className?: string }) {
+interface ChunksBodyProps {
+  chunks: ChunksQuery;
+  onRetry: () => void;
+  className?: string;
+}
+
+function ChunksBody({ chunks, onRetry, className }: ChunksBodyProps) {
   const t = useTranslations("Documents.chunks");
   const tErrors = useTranslations("Documents.errors");
 
@@ -79,11 +100,7 @@ function ChunksBody({ chunks, className }: { chunks: ChunksQuery; className?: st
       <p role="alert" className="text-ink-soft text-sm">
         {documentErrorMessage(chunks.error, "loadFragments", tErrors)}
       </p>
-      <Button
-        variant="secondary"
-        isLoading={chunks.isFetching}
-        onClick={() => void chunks.refetch()}
-      >
+      <Button variant="secondary" isLoading={chunks.isFetching} onClick={onRetry}>
         {t("retry")}
       </Button>
     </div>

@@ -11,6 +11,7 @@ import { useWorkspace } from "@/features/workspaces/hooks";
 import { ApiError, isClientError } from "@/lib/api/errors";
 import type { DocumentOut } from "@/lib/api/types";
 import { formatBytes } from "@/lib/format";
+import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 import { cn } from "@/lib/utils";
 
 import { ChunkList } from "./chunk-list";
@@ -47,18 +48,22 @@ export function DocumentView({ id }: { id: string }) {
   // stops asking and shows it as it was until the workspace's page takes over.
   const [deleting, setDeleting] = useState<DocumentOut | null>(null);
   const query = useDocument(id, { enabled: deleting === null });
-
-  if (deleting !== null) {
-    return <DocumentDetail document={deleting} onDeleting={setDeleting} />;
-  }
-  if (isMissingDocument(query.error)) {
-    return <DocumentNotFound />;
-  }
+  // The page's one heading, in whichever state the page is.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const isMissing = deleting === null && isMissingDocument(query.error);
   // Checked before the data: a refused request stops the polling, so a cached copy shown as on
   // its way would never move on.
-  const document = isClientError(query.error) ? undefined : query.data;
+  const document = deleting ?? (isClientError(query.error) ? undefined : query.data);
+  const focusHeadingOnArrival = useFocusOnArrival(
+    isMissing ? "missing" : document === undefined ? "absent" : "shown",
+    headingRef,
+  );
+
+  if (isMissing) {
+    return <DocumentNotFound headingRef={headingRef} />;
+  }
   if (document !== undefined) {
-    return <DocumentDetail document={document} onDeleting={setDeleting} />;
+    return <DocumentDetail document={document} headingRef={headingRef} onDeleting={setDeleting} />;
   }
   if (query.isPending) {
     return <DocumentSkeleton />;
@@ -67,19 +72,23 @@ export function DocumentView({ id }: { id: string }) {
     <DocumentLoadError
       error={query.error}
       isRetrying={query.isFetching}
-      onRetry={() => void query.refetch()}
+      onRetry={() => {
+        focusHeadingOnArrival();
+        void query.refetch();
+      }}
     />
   );
 }
 
+type HeadingRef = RefObject<HTMLHeadingElement | null>;
+
 interface DocumentDetailProps {
   document: DocumentOut;
+  headingRef: HeadingRef;
   onDeleting: DeletingHandler;
 }
 
-function DocumentDetail({ document, onDeleting }: DocumentDetailProps) {
-  const headingRef = useRef<HTMLHeadingElement>(null);
-
+function DocumentDetail({ document, headingRef, onDeleting }: DocumentDetailProps) {
   return (
     <div className="notebook-row">
       <WorkspaceCrumb workspaceId={document.workspace_id} />
@@ -123,14 +132,15 @@ function WorkspaceCrumb({ workspaceId }: { workspaceId: string }) {
 
 interface DocumentHeaderProps {
   document: DocumentOut;
-  headingRef: RefObject<HTMLHeadingElement | null>;
+  headingRef: HeadingRef;
 }
 
 function DocumentHeader({ document, headingRef }: DocumentHeaderProps) {
   const locale = useLocale();
   return (
     <>
-      {/* Focusable from code only: it takes the focus when Retry goes away. */}
+      {/* Focusable from code only: it takes the focus when Retry goes away, and when the
+          document arrives in place of Try again. */}
       <h1
         ref={headingRef}
         tabIndex={-1}
@@ -288,12 +298,15 @@ function DocumentSkeleton() {
   );
 }
 
-function DocumentNotFound() {
+function DocumentNotFound({ headingRef }: { headingRef: HeadingRef }) {
   const t = useTranslations("Documents.detail.notFound");
   return (
     <div className="notebook-row">
       <div className="max-w-3xl">
-        <h1 className="font-display text-title font-semibold">{t("title")}</h1>
+        {/* Focusable from code only: it takes the focus when it arrives in place of Try again. */}
+        <h1 ref={headingRef} tabIndex={-1} className="font-display text-title w-fit font-semibold">
+          {t("title")}
+        </h1>
         <p className="text-ink-soft mt-4 max-w-[58ch] text-lg leading-8">{t("lead")}</p>
         <Button asChild variant="primary" className="mt-8">
           <Link href="/workspaces">{t("back")}</Link>

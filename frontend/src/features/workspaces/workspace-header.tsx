@@ -3,7 +3,7 @@
 import { PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 
 import { AlertDialog } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,12 @@ import { useDeleteWorkspace } from "./hooks";
  */
 export function WorkspaceHeader({
   workspace,
+  headingRef,
   className,
 }: {
   workspace: WorkspaceOut;
+  /** Lets the page move the focus to the name, its heading. */
+  headingRef?: RefObject<HTMLHeadingElement | null>;
   className?: string;
 }) {
   const t = useTranslations("Workspaces.detail");
@@ -51,7 +54,15 @@ export function WorkspaceHeader({
         className,
       )}
     >
-      <h1 className="font-display text-title font-semibold break-words">{workspace.name}</h1>
+      {/* Focusable from code only: it takes the focus when the page arrives in place of
+          Try again. */}
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="font-display text-title w-fit max-w-full font-semibold break-words"
+      >
+        {workspace.name}
+      </h1>
       {isEditing ? (
         <EditWorkspaceForm
           workspace={workspace}

@@ -429,10 +429,10 @@ describe("DocumentView", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Normal forms" }),
-    ).toBeInTheDocument();
+    const title = await screen.findByRole("heading", { level: 1, name: "Normal forms" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Try again had the focus and the document took its place.
+    await waitFor(() => expect(title).toHaveFocus());
   });
 
   it("names a server failure without its English message", async () => {
