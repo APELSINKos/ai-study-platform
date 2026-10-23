@@ -263,15 +263,17 @@ Every variable is optional: Compose reads it from the environment or a `.env` fi
 | `SECRET_KEY` | blank (a development key) | Signs access tokens; production requires at least 32 characters |
 | `COOKIE_SECURE` | blank | Blank means Secure cookies in production only |
 | `LLM_PROVIDER` | `auto` | `auto`, `mock` or `openai`; `auto` uses the API once `OPENAI_API_KEY` is set |
-| `OPENAI_API_KEY` | blank | Key for the analysis model |
+| `OPENAI_API_KEY` | blank | Key for the analysis model, and for embeddings unless they have an endpoint of their own |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible API, such as OpenRouter or a local Ollama server |
 | `LLM_MODEL` | `gpt-5.4-mini` | The model that analyses documents |
-| `EMBEDDING_PROVIDER` | `auto` | As `LLM_PROVIDER`, for embeddings |
+| `EMBEDDING_PROVIDER` | `auto` | As `LLM_PROVIDER`, for embeddings: `auto` uses the API once embeddings have a key (see below) |
 | `EMBEDDING_API_KEY` | blank | Key for an embeddings endpoint of its own |
 | `EMBEDDING_BASE_URL` | blank | That endpoint; needs `EMBEDDING_API_KEY` |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Must return 1,536-dimensional vectors |
 
-With no key set, the built-in models do the work: `mock-heuristic-v1` analyses documents and `mock-hashing-v1` embeds passages. Setting `OPENAI_API_KEY` switches both to the API at `LLM_BASE_URL`. Keys and URLs are paired, so a key only ever reaches the endpoint it was configured for: with `EMBEDDING_API_KEY` and `EMBEDDING_BASE_URL` both blank, embeddings use the `OPENAI_API_KEY` and `LLM_BASE_URL` pair; otherwise they use `EMBEDDING_API_KEY` with `EMBEDDING_BASE_URL` (OpenAI when blank) and never fall back to `OPENAI_API_KEY`. The API and the worker refuse to start with `EMBEDDING_BASE_URL` but no `EMBEDDING_API_KEY`, or with a provider forced to `openai` without a key; local servers accept any placeholder key. `GET /api/v1/meta` reports the models in use and whether the mode is `offline` or `live`, never keys or addresses.
+With no key set, the built-in models do the work: `mock-heuristic-v1` analyses documents and `mock-hashing-v1` embeds passages. Setting `OPENAI_API_KEY` switches both to the API at `LLM_BASE_URL`. Keys and URLs are paired, so a key only ever reaches the endpoint it was configured for: with `EMBEDDING_API_KEY` and `EMBEDDING_BASE_URL` both blank, embeddings use the `OPENAI_API_KEY` and `LLM_BASE_URL` pair; otherwise they use `EMBEDDING_API_KEY` with `EMBEDDING_BASE_URL` (OpenAI when blank) and never fall back to `OPENAI_API_KEY`. The API and the worker refuse to start with `EMBEDDING_BASE_URL` but no `EMBEDDING_API_KEY`, or with a provider forced to `openai` without a key; local servers accept any placeholder key. `GET /api/v1/meta` reports the models in use and the mode, `offline` while either of them is built in and `live` otherwise, never keys or addresses.
+
+A local server such as Ollama works the same way. Set `OPENAI_API_KEY` to any placeholder, since `auto` needs a key even where the server checks none, and `LLM_BASE_URL` to `http://host.docker.internal:11434/v1`, the host as the containers see it on every platform. Embeddings then go to that server as well and ask it for `text-embedding-3-small` unless `EMBEDDING_MODEL` names another model: set `EMBEDDING_PROVIDER=mock` to keep the built-in embeddings, or name a model there that returns 1,536-dimensional vectors.
 
 Limits such as the upload size are settings with fixed defaults in `backend/app/core/config.py`, not Compose variables; the upload limit is tied to `frontend/next.config.ts` (see Design Decisions).
 
