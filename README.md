@@ -34,7 +34,7 @@ Recall is a self-hosted web application for preparing for exams from your own ma
 - Retry for a failed document, and for one that has not changed status for 15 minutes ("This is taking longer than usual").
 - A document page with the title, summary, topics, difficulty, estimated study time, page, word and passage counts, processing time and the model that analysed the file; the passages ("fragments") with their heading path and page range; download of the original file; deletion.
 
-**Interface.** English and Russian, switched in the header and remembered in a cookie (the browser's language decides on the first visit); light, dark and system themes; layouts for phones and desktops; animations that respect reduced motion; a landing page and a system status page that checks the database and the task queue.
+**Interface.** English and Russian, switched in the header and remembered in a cookie (the browser's language decides on the first visit); light, dark and system themes; layouts for phones and desktops; animations that respect reduced motion; a landing page that shows what a file becomes today and marks the features still to come, such as answers, quizzes and flashcards, as coming next; and a system status page that checks the database and the task queue.
 
 **Operations.** Structured logs, JSON or console, with a request ID that follows an upload into the worker; Prometheus metrics for HTTP requests at `/metrics`; liveness and readiness probes; health checks on every long-running Compose service.
 
