@@ -221,9 +221,10 @@ class _Run:
     def _analyse(self, text: _DocumentText) -> tuple[NormalizedAnalysis, str]:
         """The document's analysis and the name of the model that made it.
 
-        An analysis that an earlier attempt saved with the same model is used again, so a
-        retry never pays for a second one. A model that refuses the document for good is
-        replaced by the heuristic analysis; one that is only unavailable is not.
+        An analysis that an earlier attempt saved with the same model is used again rather
+        than asked for twice; a heuristic one that stood in for the model is not. A model
+        that refuses the document for good is replaced by the heuristic analysis; one that
+        is only unavailable is not.
         """
         self._check_deadline()
         saved = _saved_analysis(self.document)
