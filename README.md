@@ -223,7 +223,7 @@ Primary keys are UUIDs and times are `timestamptz`. Enumerated columns are strin
 
 ## Local Development
 
-Requires Docker with Compose v2 for the stack, and Node 22 (`npm ci` in `frontend/`) for the frontend checks and `make e2e` (once: `npx playwright install chromium`).
+Requires Docker with Compose v2 for the stack, and Node 22, the version in `.nvmrc` (`npm ci` in `frontend/`), for the frontend checks and `make e2e` (once: `npx playwright install chromium`).
 
 ```bash
 docker compose up --build
@@ -289,7 +289,7 @@ Limits such as the upload size are settings with fixed defaults in `backend/app/
 - **Hostile input.** Text processing runs on untrusted files, so its regular expressions are written to stay linear, and timing tests feed it 2,000,000-character runs of the characters that would make a careless pattern backtrack.
 - **Frontend (Vitest, Testing Library).** Component and hook tests in jsdom, including keyboard use, polling and both languages.
 - **End to end (Playwright).** The landing and status pages, the account lifecycle, and a document's whole way: upload, processing to ready, the document page with its summary and passages, a duplicate turned down, a 12 MiB file that fails as too long, a file over 20 MiB turned down in the browser without a request, and the workspace's deletion. The two suites that need an account register one each, since registration is rate-limited, and the document suite first checks `GET /api/v1/meta` and stops unless the offline models are in use.
-- **CI (GitHub Actions)** on every push to `main` and every pull request: the backend job installs the dependencies locked in `uv.lock`, failing when the lock no longer matches `pyproject.toml`, and runs ruff, mypy and pytest with coverage against PostgreSQL with pgvector and Redis service containers; the frontend job runs ESLint, Prettier, TypeScript, Vitest and a production build on Node 22; a contract job regenerates the TypeScript API types from the backend's OpenAPI schema and fails on any difference.
+- **CI (GitHub Actions)** on every push to `main` and every pull request: the backend job installs the dependencies locked in `uv.lock`, failing when the lock no longer matches `pyproject.toml`, and runs ruff, mypy and pytest with coverage against PostgreSQL with pgvector and Redis service containers; the frontend job runs ESLint, Prettier, TypeScript, Vitest and a production build on the Node version in `.nvmrc`; a contract job regenerates the TypeScript API types from the backend's OpenAPI schema and fails on any difference.
 
 ## Evaluation
 
