@@ -66,15 +66,17 @@ function documentRow(page: Page, name: string) {
     .filter({ hasText: name });
 }
 
-/** Deletes a workspace the way the web app does: cookie session plus its CSRF token. */
+/** Deletes a workspace the way the web app does, and fails when the workspace is left behind. */
 async function deleteWorkspace(page: Page, id: string): Promise<void> {
   const cookies = await page.context().cookies();
   const csrf = cookies.find((cookie) => cookie.name === CSRF_COOKIE);
-  if (csrf !== undefined) {
-    await page.request.delete(`/api/v1/workspaces/${id}`, {
-      headers: { [CSRF_HEADER]: csrf.value },
-    });
+  if (csrf === undefined) {
+    throw new Error(`Workspace ${id} is left behind: the session has no ${CSRF_COOKIE} cookie.`);
   }
+  const response = await page.request.delete(`/api/v1/workspaces/${id}`, {
+    headers: { [CSRF_HEADER]: csrf.value },
+  });
+  expect(response.status(), `Workspace ${id} is left behind`).toBe(204);
 }
 
 // Registration is rate-limited per IP, so this suite creates exactly one account and walks
@@ -97,10 +99,13 @@ test.describe.serial("documents from upload to deletion", () => {
   test.afterAll(async () => {
     // The last step clears the id once it has deleted the workspace; after a failed step the
     // workspace and its files are removed here instead.
-    if (workspaceId !== null) {
-      await deleteWorkspace(page, workspaceId);
+    try {
+      if (workspaceId !== null) {
+        await deleteWorkspace(page, workspaceId);
+      }
+    } finally {
+      await page.close();
     }
-    await page.close();
   });
 
   test("runs against the built-in offline models", async () => {
@@ -197,10 +202,11 @@ test.describe.serial("documents from upload to deletion", () => {
     await page.getByRole("button", { name: "Delete workspace" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Delete workspace" }).click();
 
+    // The app leaves the workspace's page only once the deletion has succeeded.
     await expect(page).toHaveURL(/\/workspaces$/);
+    workspaceId = null;
     await expect(
       page.getByText("You have no workspaces yet. Start with the course you are studying now."),
     ).toBeVisible();
-    workspaceId = null;
   });
 });
