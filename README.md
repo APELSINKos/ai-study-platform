@@ -332,15 +332,17 @@ Lists take `?page=1&page_size=20` (at most 100) and return `{"items": [...], "to
 
 | Status | Codes |
 | --- | --- |
-| 401 | `not_authenticated`, `token_expired`, `invalid_token` |
+| 401 | `not_authenticated`, `token_expired`, `invalid_token`, `invalid_credentials`, `invalid_refresh_token` |
 | 403 | `csrf_failed` |
 | 404 | `workspace_not_found`, `document_not_found`, `document_file_missing` |
-| 409 | `duplicate_document`, `document_not_retryable`, `storage_quota_exceeded` |
+| 409 | `email_taken`, `duplicate_document`, `document_not_retryable`, `storage_quota_exceeded` |
 | 413 | `payload_too_large` |
 | 415 | `unsupported_file_type` |
 | 422 | `validation_error`, `invalid_text_encoding`, `empty_file` |
 | 429 | `rate_limited`, `too_many_active_documents`, with `Retry-After` |
 | 500 | `internal_error`, without internals; the `request_id` finds it in the logs |
+
+Other errors, such as an unknown route or a method a route does not take, carry a generic code for their status: `bad_request`, `permission_denied`, `not_found`, `method_not_allowed`, `unsupported_media_type`, or `http_error` for any status without a code of its own.
 
 ### Authentication
 
