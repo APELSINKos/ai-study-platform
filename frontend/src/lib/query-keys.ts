@@ -1,7 +1,8 @@
 /**
- * The query keys of the workspaces, the documents and /meta; the signed-in user's key lives with
- * the auth hooks. A key belongs either to `useQuery` or to `useInfiniteQuery`, never to both,
- * because the two cache differently shaped data under it. Keys nest, and invalidating or removing
+ * The query keys of the workspaces, the documents and /meta. Keys that only one feature uses, such
+ * as the signed-in user's or the readiness check's, live with that feature's hooks. A key belongs
+ * either to `useQuery` or to `useInfiniteQuery`, never to both, because the two cache differently
+ * shaped data under it. Keys nest, and invalidating or removing
  * a prefix reaches every key below it: `workspaces` takes in the lists, each workspace and its
  * document list, but not a document's own page and fragments, which sit under `documents`.
  */
