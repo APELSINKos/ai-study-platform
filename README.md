@@ -248,10 +248,12 @@ Compose starts PostgreSQL and Redis, applies the migrations with a one-off `migr
 
 | Command | What it does |
 | --- | --- |
-| `make up` / `make down` | Start or stop the stack |
-| `make test` | Backend tests (with PostgreSQL and Redis) and frontend tests |
-| `make lint`, `make typecheck` | ruff, mypy, ESLint, Prettier, TypeScript |
-| `make e2e` | Playwright tests against the running stack |
+| `make up` / `make down` | Build and start the stack, or stop it |
+| `make logs` / `make ps` | Follow the logs of every service, or show their health |
+| `make test` | Backend tests in the container, with PostgreSQL and Redis, then the frontend unit and component tests |
+| `make lint` | ruff, ruff format, ESLint, Prettier |
+| `make typecheck` | mypy in strict mode, TypeScript |
+| `make e2e` | Playwright against the running stack at http://localhost:3000 |
 | `make migrate` | Apply database migrations |
 | `make api-types` | Regenerate the frontend API types from the backend OpenAPI schema |
 
@@ -287,12 +289,7 @@ Limits such as the upload size are settings with fixed defaults in `backend/app/
 
 ## Running Tests
 
-| Command | What runs |
-| --- | --- |
-| `make test` | Backend tests in the container, with PostgreSQL and Redis, then the frontend unit and component tests |
-| `make lint` | ruff, ruff format, ESLint, Prettier |
-| `make typecheck` | mypy in strict mode, TypeScript |
-| `make e2e` | Playwright against the running stack at http://localhost:3000 |
+`make test`, `make lint`, `make typecheck` and `make e2e` (see Local Development) run the checks below; CI runs all of them except the end-to-end tests.
 
 - **Backend (pytest).** Unit tests for the text processing, the providers and the settings; API tests through the whole application; integration tests on real PostgreSQL and Redis. The fixtures create a separate `study_test` database, migrate it with Alembic and use Redis database 15, so development data is never touched. Every warning is an error.
 - **No network, no paid model.** Tests use the offline providers or fakes, and the Celery task runs in-process without a broker.
