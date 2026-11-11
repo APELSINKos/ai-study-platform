@@ -87,3 +87,9 @@ class RateLimitedError(AppError):
     status_code = HTTPStatus.TOO_MANY_REQUESTS
     code = "rate_limited"
     message = "Too many attempts. Try again later."
+
+
+class ServiceUnavailableError(AppError):
+    status_code = HTTPStatus.SERVICE_UNAVAILABLE
+    code = "service_unavailable"
+    message = "The service is temporarily unavailable. Try again later."

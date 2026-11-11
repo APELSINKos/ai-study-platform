@@ -158,6 +158,33 @@ def test_provider_settings_default_to_the_offline_models() -> None:
     assert settings.embedding_endpoint is None
 
 
+def test_search_settings_default_to_the_documented_limits() -> None:
+    settings = Settings()
+
+    assert settings.search_min_similarity == 0.05
+    assert settings.searches_per_minute == 30
+    assert settings.search_embedding_timeout_seconds == 10
+
+
+@pytest.mark.parametrize("similarity", [0, 1])
+def test_the_minimum_search_similarity_may_be_zero_or_one(similarity: float) -> None:
+    assert Settings(search_min_similarity=similarity).search_min_similarity == similarity
+
+
+@pytest.mark.parametrize("similarity", [-0.01, 1.01])
+def test_the_minimum_search_similarity_lies_between_zero_and_one(similarity: float) -> None:
+    with pytest.raises(ValidationError, match="search_min_similarity"):
+        Settings(search_min_similarity=similarity)
+
+
+@pytest.mark.parametrize("variable", ["SEARCHES_PER_MINUTE", "SEARCH_EMBEDDING_TIMEOUT_SECONDS"])
+def test_search_limits_must_be_positive(monkeypatch: pytest.MonkeyPatch, variable: str) -> None:
+    monkeypatch.setenv(variable, "0")
+
+    with pytest.raises(ValidationError, match=variable.lower()):
+        Settings()
+
+
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_blank_pass_through_variables_fall_back_to_the_defaults(
     monkeypatch: pytest.MonkeyPatch, blank: str

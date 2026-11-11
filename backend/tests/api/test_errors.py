@@ -10,6 +10,7 @@ from app.core.exceptions import (
     ConflictError,
     NotFoundError,
     PayloadTooLargeError,
+    ServiceUnavailableError,
     UnprocessableContentError,
     UnsupportedMediaTypeError,
 )
@@ -52,6 +53,16 @@ def client(app: FastAPI) -> Iterator[TestClient]:
     @app.get("/test/empty-file")
     def empty_file() -> None:
         raise UnprocessableContentError("The file is empty.", code="empty_file")
+
+    @app.get("/test/unavailable")
+    def unavailable() -> None:
+        raise ServiceUnavailableError()
+
+    @app.get("/test/search-unavailable")
+    def search_unavailable() -> None:
+        raise ServiceUnavailableError(
+            "Search is unavailable.", code="search_unavailable", headers={"Retry-After": "30"}
+        )
 
     @app.post("/test/items")
     def create_item(item: _Item) -> _Item:
@@ -124,6 +135,31 @@ def test_unprocessable_content_keeps_its_status_under_a_specific_code(
     error = response.json()["error"]
     assert error["code"] == "empty_file"
     assert error["message"] == "The file is empty."
+
+
+def test_service_unavailable_falls_back_to_its_defaults_without_a_retry_hint(
+    client: TestClient,
+) -> None:
+    response = client.get("/test/unavailable")
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "service_unavailable"
+    assert error["message"] == ServiceUnavailableError.message
+    assert error["request_id"] == response.headers["X-Request-ID"]
+    assert "retry-after" not in response.headers
+
+
+def test_service_unavailable_keeps_its_status_under_a_specific_code_and_retry_hint(
+    client: TestClient,
+) -> None:
+    response = client.get("/test/search-unavailable")
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "search_unavailable"
+    assert error["message"] == "Search is unavailable."
+    assert response.headers["retry-after"] == "30"
 
 
 def test_validation_errors_list_every_invalid_field(client: TestClient) -> None:
