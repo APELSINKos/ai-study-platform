@@ -15,6 +15,7 @@ from app.llm.factory import (
     ModelChoice,
     build_embedding_provider,
     build_llm_provider,
+    build_query_embedder,
     get_openai_client,
     selected_models,
 )
@@ -54,6 +55,12 @@ def _chat_provider(settings: Settings) -> OpenAILLMProvider:
 
 def _embedding_provider(settings: Settings) -> OpenAIEmbeddingProvider:
     provider = build_embedding_provider(settings)
+    assert isinstance(provider, OpenAIEmbeddingProvider)
+    return provider
+
+
+def _query_embedder(settings: Settings) -> OpenAIEmbeddingProvider:
+    provider = build_query_embedder(settings)
     assert isinstance(provider, OpenAIEmbeddingProvider)
     return provider
 
@@ -101,6 +108,7 @@ def test_building_the_offline_providers_creates_no_api_client(
 
     build_llm_provider(settings)
     build_embedding_provider(settings)
+    build_query_embedder(settings)
 
 
 def test_an_openai_key_selects_the_chat_model_with_explicit_limits() -> None:
@@ -221,6 +229,108 @@ def test_one_client_serves_every_document_on_the_same_endpoint() -> None:
     assert _embedding_provider(settings).client is _embedding_provider(settings).client
     # The same key and URL with other limits get a client of their own.
     assert _chat_provider(settings).client is not _embedding_provider(settings).client
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {},
+        {
+            "embedding_provider": "mock",
+            "openai_api_key": SecretStr(CHAT_API_KEY),
+            "embedding_api_key": SecretStr(EMBEDDING_API_KEY),
+        },
+        {"openai_api_key": SecretStr(CHAT_API_KEY), "embedding_provider": "mock"},
+    ],
+    ids=["no-keys", "forced-offline", "offline-embeddings"],
+)
+def test_without_an_embeddings_endpoint_queries_get_the_built_in_embeddings(
+    values: dict[str, Any],
+) -> None:
+    assert isinstance(build_query_embedder(_settings(**values)), HashingEmbeddingProvider)
+
+
+def test_a_query_is_embedded_with_the_search_timeout_and_no_retries() -> None:
+    settings = _settings(
+        openai_api_key=SecretStr(CHAT_API_KEY),
+        search_embedding_timeout_seconds=7.5,
+        llm_max_retries=3,
+    )
+
+    provider = _query_embedder(settings)
+
+    assert provider.model_name == settings.embedding_model
+    assert provider.client.timeout == Timeout(7.5, connect=CONNECT_TIMEOUT_SECONDS)
+    # Each retry would wait for another timeout, past the web app's proxy limit.
+    assert provider.client.max_retries == 0
+
+
+@pytest.mark.parametrize(
+    ("values", "endpoint"),
+    [
+        (
+            {"openai_api_key": SecretStr(CHAT_API_KEY), "llm_base_url": CHAT_BASE_URL},
+            (CHAT_API_KEY, CHAT_BASE_URL),
+        ),
+        (
+            {
+                "openai_api_key": SecretStr(CHAT_API_KEY),
+                "llm_base_url": CHAT_BASE_URL,
+                "embedding_api_key": SecretStr(EMBEDDING_API_KEY),
+            },
+            (EMBEDDING_API_KEY, DEFAULT_OPENAI_BASE_URL),
+        ),
+        (
+            {
+                "openai_api_key": SecretStr(CHAT_API_KEY),
+                "embedding_api_key": SecretStr(EMBEDDING_API_KEY),
+                "embedding_base_url": EMBEDDING_BASE_URL,
+            },
+            (EMBEDDING_API_KEY, EMBEDDING_BASE_URL),
+        ),
+    ],
+    ids=["chat-endpoint", "embedding-key-to-openai", "custom-endpoint"],
+)
+def test_queries_go_to_the_endpoint_that_embeds_the_documents(
+    values: dict[str, Any], endpoint: tuple[str, str]
+) -> None:
+    settings = _settings(**values)
+
+    assert _endpoint(_query_embedder(settings).client) == endpoint
+    assert _endpoint(_embedding_provider(settings).client) == endpoint
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {},
+        {"openai_api_key": SecretStr(CHAT_API_KEY)},
+        {
+            "embedding_api_key": SecretStr(EMBEDDING_API_KEY),
+            "embedding_base_url": EMBEDDING_BASE_URL,
+            "embedding_model": "local-embedding-model",
+        },
+    ],
+    ids=["offline", "openai", "custom-endpoint"],
+)
+def test_queries_are_embedded_by_the_model_that_embeds_the_documents(
+    values: dict[str, Any],
+) -> None:
+    settings = _settings(**values)
+
+    model = build_query_embedder(settings).model_name
+
+    assert model == build_embedding_provider(settings).model_name
+    assert model == selected_models(settings).embedding.model
+
+
+def test_searches_share_one_client_with_limits_of_its_own() -> None:
+    settings = _settings(openai_api_key=SecretStr(CHAT_API_KEY))
+
+    client = _query_embedder(settings).client
+
+    assert _query_embedder(settings).client is client
+    assert _embedding_provider(settings).client is not client
 
 
 def _provider_of(provider: LLMProvider | EmbeddingProvider) -> ResolvedProvider:

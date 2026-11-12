@@ -21,6 +21,9 @@ from app.llm.structured import ChatOptions
 logger = structlog.get_logger(__name__)
 
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
+# A search waits for its query's embedding, and a retry would wait for another timeout: the
+# web app's proxy gives up after 30 s.
+QUERY_EMBEDDING_MAX_RETRIES: Final = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,19 +70,28 @@ def build_llm_provider(settings: Settings) -> LLMProvider:
 
 def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
     """The embeddings model the settings select, or the offline hashing embeddings."""
-    _log_selection(settings)
-    endpoint = _embedding_endpoint(settings)
-    if endpoint is None:
-        return HashingEmbeddingProvider()
-    client = _client(endpoint, settings.embedding_timeout_seconds, settings.llm_max_retries)
-    return OpenAIEmbeddingProvider(client=client, model=settings.embedding_model)
+    return _embedding_provider(
+        settings, settings.embedding_timeout_seconds, settings.llm_max_retries
+    )
+
+
+def build_query_embedder(settings: Settings) -> EmbeddingProvider:
+    """The embeddings model of build_embedding_provider, held to a search's time limits.
+
+    A search waits for its query's embedding, so each call gets the shorter
+    search_embedding_timeout_seconds and is never retried.
+    """
+    return _embedding_provider(
+        settings, settings.search_embedding_timeout_seconds, QUERY_EMBEDDING_MAX_RETRIES
+    )
 
 
 @lru_cache
 def get_openai_client(
     api_key: str, base_url: str, timeout_seconds: float, max_retries: int
 ) -> OpenAI:
-    """One client per endpoint and limits, so its connections are reused between documents.
+    """One client per endpoint and limits, so its connections are reused between documents
+    and between searches.
 
     Keyed by plain values because Settings are not hashable. A client is made on first use,
     never at import, so each forked worker process makes its own. The key and URL are always
@@ -118,6 +130,18 @@ def _embedding_endpoint(settings: Settings) -> ProviderEndpoint | None:
     return settings.embedding_endpoint
 
 
+def _embedding_provider(
+    settings: Settings, timeout_seconds: float, max_retries: int
+) -> EmbeddingProvider:
+    """The model that embeds chunks and queries alike, with these limits on each call."""
+    _log_selection(settings)
+    endpoint = _embedding_endpoint(settings)
+    if endpoint is None:
+        return HashingEmbeddingProvider()
+    client = _client(endpoint, timeout_seconds, max_retries)
+    return OpenAIEmbeddingProvider(client=client, model=settings.embedding_model)
+
+
 def _client(endpoint: ProviderEndpoint, timeout_seconds: float, max_retries: int) -> OpenAI:
     return get_openai_client(
         endpoint.api_key.get_secret_value(), endpoint.base_url, timeout_seconds, max_retries
@@ -128,8 +152,8 @@ def _log_selection(settings: Settings) -> None:
     _log_once(selected_models(settings))
 
 
-# Cached so that a process logs its providers once, not for every document. Keys and URLs
-# are never logged.
+# Cached so that a process logs its providers once, not for every document or search. Keys
+# and URLs are never logged.
 @cache
 def _log_once(selection: ModelSelection) -> None:
     logger.info(

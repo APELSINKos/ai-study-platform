@@ -13,6 +13,8 @@ from app.core.request_auth import authenticate_request, check_csrf
 from app.db.session import get_session_factory
 from app.documents.queue import CeleryDocumentQueue, DocumentQueue
 from app.documents.storage import FileStorage
+from app.llm.base import EmbeddingProvider
+from app.llm.factory import build_query_embedder
 from app.models.user import User
 from app.services.auth import AuthService
 from app.services.documents import DocumentService
@@ -79,6 +81,15 @@ def get_document_service(
 
 
 DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
+
+
+def get_query_embedder(settings: SettingsDep) -> EmbeddingProvider:
+    # Built for each request, since Settings cannot be a cache key: the client behind a live
+    # model is cached by get_openai_client, and the built-in embedder costs nothing to make.
+    return build_query_embedder(settings)
+
+
+QueryEmbedderDep = Annotated[EmbeddingProvider, Depends(get_query_embedder)]
 
 # tokenUrl points Swagger's "Authorize" dialog at /api/v1/auth/token; auto_error is
 # disabled because a missing bearer token is not necessarily a failure here, the
