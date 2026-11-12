@@ -46,9 +46,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Upload limits, accepted file types and the AI models in use
-         * @description Public, so the web app can check a file before it is sent. Names the models in use,
-         *     never their keys or addresses.
+         * Upload and search limits, accepted file types and the AI models in use
+         * @description Public, so the web app can check a file or a query before it is sent. Names the models
+         *     in use, never their keys or addresses.
          */
         get: operations["get_meta_api_v1_meta_get"];
         put?: never;
@@ -304,6 +304,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the ready documents of a workspace for the passages that match a query
+         * @description When the query cannot be embedded, a hybrid search looks for its words alone and
+         *     answers with semantic_available false, and a vector search is a 503 with the error code
+         *     search_unavailable.
+         */
+        get: operations["search_api_v1_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -551,6 +573,8 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** @enum {string} */
+        MatchKind: "keyword" | "semantic";
         /** MetaOut */
         MetaOut: {
             /**
@@ -579,6 +603,7 @@ export interface components {
              */
             max_storage_bytes_per_user: number;
             ai: components["schemas"]["AiInfo"];
+            search: components["schemas"]["SearchInfo"];
         };
         /** ReadinessResponse */
         ReadinessResponse: {
@@ -604,6 +629,99 @@ export interface components {
             /** Display Name */
             display_name: string;
         };
+        /** SearchHit */
+        SearchHit: {
+            /**
+             * Chunk Id
+             * Format: uuid
+             */
+            chunk_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Document Title
+             * @description The title of the document, or its file name while it has none.
+             */
+            document_title: string;
+            /**
+             * Chunk Index
+             * @description Position of the passage in its document, from 0.
+             */
+            chunk_index: number;
+            /**
+             * Heading
+             * @description The headings above the passage, outermost first, joined with ' › '.
+             */
+            heading: string | null;
+            /**
+             * Page Start
+             * @description First PDF page of the passage; null for text files.
+             */
+            page_start: number | null;
+            /**
+             * Page End
+             * @description Last PDF page of the passage; null for text files.
+             */
+            page_end: number | null;
+            /**
+             * Snippet
+             * @description Words of the passage in reading order, as plain text parts.
+             */
+            snippet: components["schemas"]["SnippetPart"][];
+            /**
+             * Score
+             * @description Reciprocal Rank Fusion score; results come highest first.
+             */
+            score: number;
+            /**
+             * Matched By
+             * @description What found the passage: keyword, the words of the query; semantic, the similarity of its embedding to the query's.
+             */
+            matched_by: components["schemas"]["MatchKind"][];
+            /**
+             * Similarity
+             * @description Cosine similarity of the passage's embedding to the query's; null when the passage was not found by its embedding.
+             */
+            similarity: number | null;
+        };
+        /** SearchInfo */
+        SearchInfo: {
+            /**
+             * Max Query Chars
+             * @description The longest query a search accepts, not counting surrounding spaces.
+             */
+            max_query_chars: number;
+        };
+        /** @enum {string} */
+        SearchMode: "hybrid" | "vector" | "keyword";
+        /** SearchResults */
+        SearchResults: {
+            /** Results */
+            results: components["schemas"]["SearchHit"][];
+            /**
+             * Semantic Available
+             * @description Whether the query was embedded and compared with the embeddings of the passages; false when only its words were looked for.
+             */
+            semantic_available: boolean;
+            /**
+             * Searched Document Count
+             * @description Ready documents of the workspace: the ones searched.
+             */
+            searched_document_count: number;
+            /**
+             * Stale Document Count
+             * @description Ready documents embedded by another model than the current one: only their words are searched until they are re-indexed.
+             */
+            stale_document_count: number;
+            /**
+             * Pending Document Count
+             * @description Documents still waiting for, or going through, processing: not searched yet.
+             */
+            pending_document_count: number;
+        };
         /** SessionOut */
         SessionOut: {
             user: components["schemas"]["UserOut"];
@@ -620,6 +738,16 @@ export interface components {
              * @description Access token lifetime in seconds.
              */
             expires_in: number;
+        };
+        /** SnippetPart */
+        SnippetPart: {
+            /** Text */
+            text: string;
+            /**
+             * Highlighted
+             * @description Whether the part is a word that the query matched.
+             */
+            highlighted: boolean;
         };
         /** TokenOut */
         TokenOut: {
@@ -1784,6 +1912,80 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    search_api_v1_search_get: {
+        parameters: {
+            query: {
+                /** @description The workspace to search. */
+                workspace_id: string;
+                /** @description What to look for. Among its words, quoted ones form a phrase, "or" joins words of which one is enough, and a word after "-" must not occur. */
+                q: string;
+                /** @description The most passages to return. */
+                limit?: number;
+                /** @description hybrid: the query's words and similar embeddings together; vector: similar embeddings only; keyword: the words only. */
+                mode?: components["schemas"]["SearchMode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResults"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

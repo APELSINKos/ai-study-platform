@@ -4,7 +4,8 @@ from app.api.deps import SettingsDep
 from app.core.config import Settings
 from app.documents.validation import ALLOWED_EXTENSIONS
 from app.llm.factory import selected_models
-from app.schemas.meta import AiInfo, MetaOut
+from app.schemas.meta import AiInfo, MetaOut, SearchInfo
+from app.schemas.search import QUERY_MAX_CHARS
 
 router = APIRouter(prefix="/meta", tags=["meta"])
 
@@ -20,10 +21,10 @@ def _ai_info(settings: Settings) -> AiInfo:
     )
 
 
-@router.get("", summary="Upload limits, accepted file types and the AI models in use")
+@router.get("", summary="Upload and search limits, accepted file types and the AI models in use")
 def get_meta(settings: SettingsDep) -> MetaOut:
-    """Public, so the web app can check a file before it is sent. Names the models in use,
-    never their keys or addresses."""
+    """Public, so the web app can check a file or a query before it is sent. Names the models
+    in use, never their keys or addresses."""
     return MetaOut(
         max_upload_bytes=settings.max_upload_bytes,
         allowed_extensions=list(ALLOWED_EXTENSIONS),
@@ -31,4 +32,5 @@ def get_meta(settings: SettingsDep) -> MetaOut:
         max_active_documents_per_user=settings.max_active_documents_per_user,
         max_storage_bytes_per_user=settings.max_storage_bytes_per_user,
         ai=_ai_info(settings),
+        search=SearchInfo(max_query_chars=QUERY_MAX_CHARS),
     )

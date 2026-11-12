@@ -24,6 +24,7 @@ const META: MetaOut = {
   max_active_documents_per_user: 10,
   max_storage_bytes_per_user: 1024 * MIB,
   ai: { mode: "offline", chat_model: "mock-heuristic-v1", embedding_model: "mock-hashing-v1" },
+  search: { max_query_chars: 200 },
 };
 const UPLOAD_PATH = `/workspaces/${WORKSPACE_ID}/documents`;
 const RULES_HINT = "You can upload .pdf, .md, and .txt files up to 20 MB each.";

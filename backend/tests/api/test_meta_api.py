@@ -8,6 +8,7 @@ from pydantic import SecretStr
 
 from app.core.config import MIB, Settings
 from app.main import create_app
+from app.schemas.search import QUERY_MAX_CHARS
 
 _META_PATH: Final = "/api/v1/meta"
 _CHAT_KEY: Final = "sk-chat-key-used-only-in-tests-0123456789abcdef"
@@ -49,7 +50,20 @@ def test_meta_needs_no_sign_in_and_describes_the_upload_rules(
             "chat_model": _OFFLINE_CHAT_MODEL,
             "embedding_model": _OFFLINE_EMBEDDING_MODEL,
         },
+        "search": {"max_query_chars": QUERY_MAX_CHARS},
     }
+
+
+def test_meta_gives_the_longest_query_that_a_search_accepts(client: TestClient) -> None:
+    search = client.get(_META_PATH).json()["search"]
+    schema = client.get("/openapi.json").json()
+
+    [query] = [
+        parameter
+        for parameter in schema["paths"]["/api/v1/search"]["get"]["parameters"]
+        if parameter["name"] == "q"
+    ]
+    assert search == {"max_query_chars": query["schema"]["maxLength"]}
 
 
 def test_meta_follows_the_settings(tmp_path: Path) -> None:
@@ -183,3 +197,7 @@ def test_openapi_documents_meta_as_a_public_route(client: TestClient) -> None:
     assert meta["properties"]["ai"]["$ref"] == "#/components/schemas/AiInfo"
     assert schemas["AiInfo"]["properties"]["mode"]["$ref"] == "#/components/schemas/AiMode"
     assert schemas["AiMode"]["enum"] == ["offline", "live"]
+    assert meta["properties"]["search"]["$ref"] == "#/components/schemas/SearchInfo"
+    search = schemas["SearchInfo"]
+    assert search["required"] == ["max_query_chars"]
+    assert search["properties"]["max_query_chars"]["description"]

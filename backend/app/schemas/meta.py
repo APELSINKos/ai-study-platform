@@ -14,6 +14,12 @@ class AiInfo(BaseModel):
     embedding_model: str = Field(description="The model that embeds chunks for search.")
 
 
+class SearchInfo(BaseModel):
+    max_query_chars: int = Field(
+        description="The longest query a search accepts, not counting surrounding spaces."
+    )
+
+
 class MetaOut(BaseModel):
     max_upload_bytes: int = Field(description="The largest file that can be uploaded.")
     allowed_extensions: list[str] = Field(
@@ -26,3 +32,4 @@ class MetaOut(BaseModel):
     )
     max_storage_bytes_per_user: int = Field(description="The total size of a user's files.")
     ai: AiInfo
+    search: SearchInfo

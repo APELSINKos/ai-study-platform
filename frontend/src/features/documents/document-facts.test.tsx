@@ -32,6 +32,7 @@ function metaIn(mode: AiMode): MetaOut {
       mode === "offline"
         ? { mode, chat_model: "mock-heuristic-v1", embedding_model: "mock-hashing-v1" }
         : { mode, chat_model: "gpt-5.4-mini", embedding_model: "text-embedding-3-small" },
+    search: { max_query_chars: 200 },
   };
 }
 
