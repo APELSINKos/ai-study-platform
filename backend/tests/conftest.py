@@ -143,6 +143,19 @@ def db_session(db_connection: Connection) -> Iterator[Session]:
 
 
 @pytest.fixture
+def fresh_vector_index(db_session: Session) -> None:
+    """The HNSW index of chunk embeddings, rebuilt inside the test's transaction.
+
+    Chunks that earlier tests inserted and rolled back stay in the index until a vacuum, and
+    many entries for the same vectors can cut its graph, so that a scan misses live rows; the
+    planner may scan the index even for a few rows. Rebuilt, it holds only the rows that this
+    transaction can see, and the rebuild is rolled back with the test. REINDEX locks the index
+    until the test ends, so a test that opens a second database connection must not use this.
+    """
+    db_session.execute(text("REINDEX INDEX ix_document_chunks_embedding_hnsw"))
+
+
+@pytest.fixture
 def session_factory(db_connection: Connection) -> sessionmaker[Session]:
     """Sessions like the worker's, each in a savepoint of the test's connection.
 
