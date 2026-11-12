@@ -940,6 +940,7 @@ def test_searches_past_the_limit_of_a_minute_are_rate_limited(
 # --- logs and metrics -----------------------------------------------------------
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_each_search_logs_one_line_with_its_sizes_and_times(
     user_client: TestClient,
     db_session: Session,
@@ -954,19 +955,22 @@ def test_each_search_logs_one_line_with_its_sizes_and_times(
 
     _results(user_client, workspace_id, "photosynthesis  light")
     _results(user_client, workspace_id, "chloroplasts", mode="keyword")
+    _results(user_client, workspace_id, "chloroplasts", mode="vector")
 
-    hybrid, keyword = _events(capsys.readouterr().out, "search_completed")
+    hybrid, keyword, vector = _events(capsys.readouterr().out, "search_completed")
     fields = {
         *_LOG_KEYS,
         "workspace_id",
         "mode",
         "query_chars",
         "result_count",
+        "keyword_results",
+        "semantic_results",
         "semantic_available",
         "embedding_ms",
         "retrieval_ms",
     }
-    assert set(hybrid) == set(keyword) == fields
+    assert set(hybrid) == set(keyword) == set(vector) == fields
     assert (hybrid["level"], hybrid["workspace_id"], hybrid["mode"]) == (
         "info",
         workspace_id,
@@ -977,6 +981,8 @@ def test_each_search_logs_one_line_with_its_sizes_and_times(
         1,
         True,
     )
+    # How many of the passages returned each list found: both lists found the one passage.
+    assert (hybrid["keyword_results"], hybrid["semantic_results"]) == (1, 1)
     assert hybrid["embedding_ms"] >= 0
     assert hybrid["retrieval_ms"] >= 0
     assert (keyword["mode"], keyword["query_chars"], keyword["result_count"]) == (
@@ -984,8 +990,14 @@ def test_each_search_logs_one_line_with_its_sizes_and_times(
         len("chloroplasts"),
         1,
     )
+    assert (keyword["keyword_results"], keyword["semantic_results"]) == (1, 0)
     assert (keyword["semantic_available"], keyword["embedding_ms"]) == (False, None)
     assert keyword["retrieval_ms"] >= 0
+    assert (vector["result_count"], vector["keyword_results"], vector["semantic_results"]) == (
+        2,
+        0,
+        2,
+    )
 
 
 @pytest.mark.usefixtures("fresh_vector_index")

@@ -107,6 +107,9 @@ class SearchService:
             mode=mode,
             query_chars=len(query),
             result_count=len(chunks),
+            # How many of the passages returned each list found.
+            keyword_results=sum(1 for chunk in chunks if "keyword" in chunk.matched_by),
+            semantic_results=sum(1 for chunk in chunks if "semantic" in chunk.matched_by),
             semantic_available=vector is not None,
             embedding_ms=embedding_ms,
             retrieval_ms=to_ms(retrieval_seconds),
