@@ -184,23 +184,29 @@ def test_equal_scores_go_to_the_lower_chunk_id() -> None:
 
 
 def test_equal_scores_go_first_to_the_chunk_with_the_better_rank_in_a_single_list() -> None:
-    # 1/64 = 1/128 + 1/128: fourth in one list scores exactly what 68th in both lists does.
-    in_one_list, in_both_lists = _id(2), _id(1)
-    keyword = [
-        *(_id(100 + number) for number in range(3)),
-        in_one_list,
-        *(_id(200 + number) for number in range(63)),
-        in_both_lists,
+    # 1/63 + 1/84 = 1/72 + 1/72, in floats too: third and 24th score what twelfth in both
+    # lists does.
+    third_and_24th, twelfth_twice = _id(2), _id(1)
+    vector = [
+        *(_id(100 + number) for number in range(2)),
+        third_and_24th,
+        *(_id(200 + number) for number in range(8)),
+        twelfth_twice,
     ]
-    vector = [*(_id(300 + number) for number in range(67)), in_both_lists]
+    keyword = [
+        *(_id(300 + number) for number in range(11)),
+        twelfth_twice,
+        *(_id(400 + number) for number in range(11)),
+        third_and_24th,
+    ]
 
     fused = fuse_ranks(vector, keyword)
 
     scores = dict(fused)
-    assert scores[in_one_list] == scores[in_both_lists] == 1 / 64
+    assert scores[third_and_24th] == scores[twelfth_twice]
     order = [chunk_id for chunk_id, _ in fused]
-    # The lower id would have put the chunk found by both lists first.
-    assert order.index(in_one_list) < order.index(in_both_lists)
+    # The lower id would have put the chunk ranked twelfth twice first.
+    assert order.index(third_and_24th) < order.index(twelfth_twice)
 
 
 def test_hybrid_mode_fuses_both_lists_and_tells_what_found_each_chunk() -> None:

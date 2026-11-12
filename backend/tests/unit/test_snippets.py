@@ -61,6 +61,24 @@ def test_passages_are_joined_by_an_ellipsis_between_spaces() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            f"light{DELIMITER}{START}reaction{STOP} ends",
+            [_plain("light … "), _marked("reaction"), _plain(" ends")],
+        ),
+        (f"{START}light{STOP}{DELIMITER}reaction", [_marked("light"), _plain(" … reaction")]),
+    ],
+    ids=["before-a-highlight", "after-a-highlight"],
+)
+def test_a_passage_break_beside_a_highlighted_word_stays_plain(
+    raw: str, expected: list[SnippetPart]
+) -> None:
+    # What ts_headline writes when a passage begins or ends with a word that the query matched.
+    assert parse_headline(raw) == expected
+
+
 def test_every_run_of_whitespace_becomes_one_space() -> None:
     assert parse_headline("Chapter 3.\n\nThe  light \t reaction\r\nends") == [
         _plain("Chapter 3. The light reaction ends")
@@ -118,20 +136,18 @@ def test_a_mark_without_its_partner_is_dropped(raw: str, expected: list[SnippetP
     assert parse_headline(raw) == expected
 
 
-def test_any_mix_of_marks_spaces_and_letters_keeps_every_word_and_no_mark() -> None:
+def test_any_mix_of_marks_spaces_and_letters_reads_as_its_passages_joined_by_an_ellipsis() -> None:
     rng = random.Random(_SEED)  # noqa: S311 -- reproducible test headlines, not secrets
     for _ in range(2_000):
         raw = "".join(rng.choices(_MIXED_ALPHABET, k=rng.randrange(30)))
 
         parts = parse_headline(raw)
 
-        text = _text(parts)
-        assert not any(mark in text for mark in (START, STOP, DELIMITER))
-        # A dropped start or stop joins the texts around it; a delimiter separates them.
-        words = raw.replace(START, "").replace(STOP, "").replace(DELIMITER, " ").split()
-        assert [word for word in text.split() if word != "…"] == words
-        assert text == text.strip()
-        assert "  " not in text
+        # Starts and stops leave no trace in the text; each delimiter ends a passage, and
+        # passages without words are left out.
+        unmarked = raw.replace(START, "").replace(STOP, "")
+        passages = (" ".join(passage.split()) for passage in unmarked.split(DELIMITER))
+        assert _text(parts) == " … ".join(passage for passage in passages if passage)
         assert all(part.text for part in parts)
         assert all(part.text == part.text.strip() for part in parts if part.highlighted)
         assert all(left.highlighted != right.highlighted for left, right in pairwise(parts))
