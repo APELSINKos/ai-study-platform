@@ -170,10 +170,6 @@ def _crowded_neighbourhood(session: Session) -> tuple[uuid.UUID, list[float], li
     Many chunks of another workspace lie much closer to the query, so the first candidates
     of an HNSW scan are all theirs. The vectors are seeded: every run gets the same ones.
     """
-    # Rows that earlier tests inserted and rolled back stay in the HNSW graph until a vacuum,
-    # and many copies of the same vectors cut it into parts that a scan cannot leave. Built
-    # again inside this transaction, the index holds only the rows that it can see.
-    session.execute(text(f"REINDEX INDEX {_HNSW_INDEX}"))
     rng = random.Random(_SEED)  # noqa: S311 -- reproducible test vectors, not secrets
     query = _unit([rng.gauss(0.0, 1.0) for _ in range(EMBEDDING_DIMENSIONS)])
     tested = _workspace(session, "Biology")
@@ -206,6 +202,7 @@ def _index_scan(plan: dict[str, Any], index_name: str) -> dict[str, Any]:
     pytest.fail(f"The query plan does not scan {index_name}.")
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_every_query_keeps_to_its_workspace(db_session: Session) -> None:
     store = VectorStore(db_session)
     mine = _workspace(db_session)
@@ -227,6 +224,7 @@ def test_every_query_keeps_to_its_workspace(db_session: Session) -> None:
     )
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 @pytest.mark.parametrize("status", ["uploaded", "processing", "indexing", "failed"])
 def test_chunks_of_a_document_that_is_not_ready_are_not_searched(
     db_session: Session, status: DocumentStatus
@@ -241,6 +239,7 @@ def test_chunks_of_a_document_that_is_not_ready_are_not_searched(
     assert store.matching(workspace.id, "photosynthesis", limit=_LIMIT) == []
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_a_document_embedded_by_another_model_is_searched_by_its_words_only(
     db_session: Session,
 ) -> None:
@@ -281,6 +280,7 @@ def test_scope_counts_the_ready_stale_and_pending_documents_of_the_workspace(
     )
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_a_document_filter_keeps_every_query_to_those_documents(db_session: Session) -> None:
     store = VectorStore(db_session)
     workspace = _workspace(db_session)
@@ -301,6 +301,7 @@ def test_a_document_filter_keeps_every_query_to_those_documents(db_session: Sess
     )
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_an_empty_document_filter_matches_nothing(db_session: Session) -> None:
     store = VectorStore(db_session)
     workspace = _workspace(db_session)
@@ -318,6 +319,7 @@ def test_an_empty_document_filter_matches_nothing(db_session: Session) -> None:
     )
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_nearest_puts_the_closest_chunks_first_and_breaks_ties_by_id(db_session: Session) -> None:
     store = VectorStore(db_session)
     workspace = _workspace(db_session)
@@ -588,6 +590,7 @@ def test_the_iterative_scan_setting_ends_with_its_transaction(db_connection: Con
         assert _iterative_scan(session) == "off"
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_an_iterative_index_scan_goes_past_the_candidates_of_other_workspaces(
     db_session: Session,
 ) -> None:
@@ -617,6 +620,7 @@ def test_an_iterative_index_scan_goes_past_the_candidates_of_other_workspaces(
     assert plan["Node Type"] == "Sort"
 
 
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_without_a_forced_index_the_nearest_chunks_come_back_exactly(db_session: Session) -> None:
     workspace_id, query, targets = _crowded_neighbourhood(db_session)
 
