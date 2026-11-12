@@ -1926,7 +1926,7 @@ export interface operations {
             query: {
                 /** @description The workspace to search. */
                 workspace_id: string;
-                /** @description What to look for. Among its words, quoted ones form a phrase, "or" joins words of which one is enough, and a word after "-" must not occur. */
+                /** @description What to look for. Among its words, quoted ones form a phrase, "or" joins words of which one is enough, and a word after "-" must not occur. A query that excludes words is matched by its words alone, not by embeddings. */
                 q: string;
                 /** @description The most passages to return. */
                 limit?: number;

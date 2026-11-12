@@ -59,6 +59,8 @@ _PIGMENT: Final = (
 # embeddings compare.
 _STROMA: Final = "Each chloroplast holds stacks of thylakoid membranes."
 _MITOCHONDRIA: Final = "Mitochondria release the energy stored in glucose."
+_PLANT_CELLS: Final = "Plant cells capture light for photosynthesis in their chloroplasts."
+_ANIMAL_CELLS: Final = "Animal cells divide by mitosis and have no chloroplasts at all."
 # Made-up words, so that no other text of a test can contain them.
 _PRIVATE_QUERY: Final = "quorvex zanthoplasm"
 _PRIVATE_WORDS: Final = ("quorvex", "zanthoplasm")
@@ -568,6 +570,66 @@ def test_the_query_is_cleaned_like_document_text_before_it_is_searched(
     [hit] = body["results"]
     assert hit["chunk_id"] == chunk
     assert _highlighted(hit) == ["Photosynthesis", "light"]
+
+
+@pytest.mark.usefixtures("fresh_vector_index")
+def test_a_query_of_excluded_words_alone_finds_nothing_in_any_mode(
+    user_client: TestClient, db_session: Session, embedder: _FakeQueryEmbedder
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(
+        db_session,
+        _add_document(db_session, workspace_id),
+        _row(0, _LEAF),
+        _row(1, _REPEATED),
+        _row(2, _PIGMENT),
+    )
+
+    bodies = [
+        _results(user_client, workspace_id, "-photosynthesis", mode=mode) for mode in _SEARCH_MODES
+    ]
+
+    for body in bodies:
+        assert (body["results"], body["semantic_available"]) == ([], False)
+    # Its embedding would find the very passages about photosynthesis.
+    assert embedder.calls == []
+
+
+@pytest.mark.usefixtures("fresh_vector_index")
+def test_a_query_that_excludes_words_is_matched_by_its_words_alone(
+    user_client: TestClient, db_session: Session, embedder: _FakeQueryEmbedder
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _, animal_cells, _ = _add_chunks(
+        db_session,
+        _add_document(db_session, workspace_id),
+        _row(0, _PLANT_CELLS),
+        _row(1, _ANIMAL_CELLS),
+        _row(2, _LEAF),
+    )
+
+    body = _results(user_client, workspace_id, "cells -photosynthesis")
+
+    # No passage with "photosynthesis" comes back, however similar its embedding.
+    assert [(hit["chunk_id"], hit["matched_by"]) for hit in body["results"]] == [
+        (animal_cells, ["keyword"])
+    ]
+    assert body["semantic_available"] is False
+    assert embedder.calls == []
+
+
+def test_a_query_that_excludes_no_word_is_still_embedded(
+    user_client: TestClient, db_session: Session, embedder: _FakeQueryEmbedder
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, _ANIMAL_CELLS))
+    # A "-" inside a word, or two in a row that cancel out, exclude nothing.
+    queries = ["cells", "photo-synthesis", "--cells"]
+
+    bodies = [_results(user_client, workspace_id, q) for q in queries]
+
+    assert [body["semantic_available"] for body in bodies] == [True, True, True]
+    assert embedder.calls == [[q] for q in queries]
 
 
 @pytest.mark.parametrize(

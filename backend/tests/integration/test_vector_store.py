@@ -505,6 +505,36 @@ def test_minus_signs_inside_a_word_exclude_nothing(db_session: Session) -> None:
     assert _ids(found) == [together]
 
 
+@pytest.mark.parametrize(
+    ("text", "excludes"),
+    [
+        ("-photosynthesis", True),
+        ("cells -photosynthesis", True),
+        ("light or -eye", True),
+        ('"-cells"', False),
+        ("--cells", False),
+        ("photo-synthesis", False),
+        ("cells", False),
+        ("", False),
+    ],
+    ids=[
+        "excluded-word-alone",
+        "word-and-excluded-word",
+        "either-or-excluded-word",
+        "quoted-minus-sign",
+        "two-minus-signs",
+        "hyphenated-word",
+        "word",
+        "empty",
+    ],
+)
+def test_a_query_excludes_words_as_matching_reads_it(
+    db_session: Session, text: str, excludes: bool
+) -> None:
+    # A "-" in quotes or inside a word is part of the text, and two in a row cancel out.
+    assert VectorStore(db_session).excludes_words(text) is excludes
+
+
 @pytest.mark.no_cover
 @pytest.mark.parametrize("unit", ["x", " ", "-", "- ", "-!", '"', "light "])
 def test_a_hostile_query_of_two_million_characters_is_answered_quickly(

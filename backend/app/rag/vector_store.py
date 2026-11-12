@@ -12,7 +12,19 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from sqlalchemy import CTE, ColumnElement, Select, case, cast, func, literal, select, text, true
+from sqlalchemy import (
+    CTE,
+    ColumnElement,
+    Select,
+    Text,
+    case,
+    cast,
+    func,
+    literal,
+    select,
+    text,
+    true,
+)
 from sqlalchemy.dialects.postgresql import TSQUERY
 from sqlalchemy.orm import Session
 
@@ -149,6 +161,14 @@ def matching_statement(
         .order_by(rank.desc(), DocumentChunk.id)
         .limit(limit)
     )
+
+
+def excludes_words_statement(text: str) -> Select[bool]:
+    """The query of VectorStore.excludes_words."""
+    query = _keyword_query(text)
+    # querytree() leaves a query's excluded words out, so it differs from the query exactly
+    # when the query excludes some.
+    return select(func.querytree(query.c.q) != cast(query.c.q, Text))
 
 
 def hits_statement(
@@ -312,6 +332,10 @@ class VectorStore:
             KeywordCandidate(chunk_id=row.id, document_id=row.document_id, rank=row.rank)
             for row in self._session.execute(statement)
         ]
+
+    def excludes_words(self, text: str) -> bool:
+        """Whether the text, read as matching reads it, excludes a word with "-"."""
+        return self._session.execute(excludes_words_statement(text)).scalar_one()
 
     def hits(
         self, workspace_id: uuid.UUID, chunk_ids: Sequence[uuid.UUID], text: str

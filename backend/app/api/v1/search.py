@@ -41,7 +41,8 @@ def search(  # noqa: PLR0913, PLR0917 -- FastAPI dependency injection, not real 
         AfterValidator(reject_nul),
         Query(
             description='What to look for. Among its words, quoted ones form a phrase, "or"'
-            ' joins words of which one is enough, and a word after "-" must not occur.'
+            ' joins words of which one is enough, and a word after "-" must not occur. A query'
+            " that excludes words is matched by its words alone, not by embeddings."
         ),
     ],
     current_user: CurrentUser,

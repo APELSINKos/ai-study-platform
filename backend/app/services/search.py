@@ -64,8 +64,9 @@ class SearchService:
 
         hybrid looks for the query's words and for passages whose embeddings are similar to
         the query's; vector only for the latter, keyword only for the former. The query is
-        embedded only when some ready document was embedded by the current model. When the
-        model fails, a hybrid search goes on with the words alone, and a vector search is
+        embedded only when some ready document was embedded by the current model, and never
+        when it excludes words: such a query is matched by its words alone. When the model
+        fails, a hybrid search goes on with the words alone, and a vector search is
         unavailable.
         """
         # Another user's workspace is reported exactly like a missing one, before any work.
@@ -73,16 +74,22 @@ class SearchService:
             raise workspace_not_found()
         model = self._embedder.model_name
         scope = self._store.scope(workspace_id, embedding_model=model)
+        query = normalize_query(text)
+        # A query that cleaning left empty matches no words, and the OpenAI embedder would
+        # refuse it as blank.
+        embed_query = (
+            bool(query) and mode != "keyword" and scope.ready_documents > scope.stale_documents
+        )
+        if embed_query:
+            # An embedding cannot leave words out.
+            embed_query = not self._store.excludes_words(query)
         # No transaction stays open while the query is embedded. commit() rather than
         # rollback(), which would expire the loaded user, and reading it again would start a
         # transaction again.
         self._session.commit()
-        query = normalize_query(text)
         vector: list[float] | None = None
         embedding_ms: float | None = None
-        # A query that cleaning left empty matches no words, and the OpenAI embedder would
-        # refuse it as blank.
-        if query and mode != "keyword" and scope.ready_documents > scope.stale_documents:
+        if embed_query:
             started = time.perf_counter()
             vector = self._embed(query, mode)
             embedding_ms = to_ms(time.perf_counter() - started)
