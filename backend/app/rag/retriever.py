@@ -96,7 +96,7 @@ class Retriever:
         self._source = source
         self._min_similarity = min_similarity
 
-    def retrieve(  # noqa: PLR0913 -- the parts of one search; all but the query keyword-only
+    def retrieve(  # noqa: PLR0913 -- one search's inputs; the options are keyword-only
         self,
         workspace_id: uuid.UUID,
         text: str,

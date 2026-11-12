@@ -123,7 +123,8 @@ class _FakeSource:
 
 
 def _store_is_a_source(store: VectorStore) -> CandidateSource:
-    # Checked by mypy: the store's methods must take the parameters that the protocol names.
+    # mypy checks that VectorStore fits the protocol; names of positional parameters are not
+    # compared.
     return store
 
 

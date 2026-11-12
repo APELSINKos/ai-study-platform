@@ -41,8 +41,8 @@ def parse_headline(raw: str) -> list[SnippetPart]:
     """The parts of a headline: the words that the query matched highlighted, the rest plain.
 
     Every run of whitespace becomes one space, passages are joined by an ellipsis, and a
-    mark without its partner is dropped. A snippet longer than MAX_SNIPPET_CHARS is cut
-    before the first word that does not fit and ends with an ellipsis.
+    mark without its partner is dropped. A snippet longer than MAX_SNIPPET_CHARS ends with
+    an ellipsis, cut before the first word (a run between spaces or marks) that does not fit.
     """
     words: list[_Word] = []
     length = 0
@@ -50,7 +50,7 @@ def parse_headline(raw: str) -> list[SnippetPart]:
         words.append(word)
         length += word.length
         if length > MAX_SNIPPET_CHARS:
-            # The snippet has to be cut, so the rest of the headline is not read.
+            # The snippet has to be cut, so the rest of the headline is not turned into words.
             return _parts(_cut(words))
     return _parts(words)
 
@@ -62,11 +62,14 @@ def _words(raw: str) -> Iterator[_Word]:
     right after it. Other starts and stops leave no trace.
     """
     # Texts and marks alternate, with a text first and last: text, mark, text, ..., text.
+    # So the texts stand at even indexes, each between the marks before and after it.
     pieces = _MARK_RE.split(raw)
-    texts, marks = pieces[::2], pieces[1::2]
     gap = ""
     first = True
-    for before, text, after in zip(["", *marks], texts, [*marks, ""], strict=True):
+    for index in range(0, len(pieces), 2):
+        before = pieces[index - 1] if index > 0 else ""
+        text = pieces[index]
+        after = pieces[index + 1] if index + 1 < len(pieces) else ""
         if before == FRAGMENT_DELIMITER:
             gap = _PASSAGE_BREAK
         if not text:
@@ -102,18 +105,13 @@ def _cut(words: list[_Word]) -> list[_Word]:
 
 def _parts(words: list[_Word]) -> list[SnippetPart]:
     """The words as parts: gaps are plain, and neighbours of the same kind make one part."""
-    texts: list[str] = []
-    highlights: list[bool] = []
+    parts: list[SnippetPart] = []
     for word in words:
         for text, highlighted in ((word.gap, False), (word.text, word.highlighted)):
             if not text:
                 continue
-            if highlights and highlights[-1] == highlighted:
-                texts[-1] += text
+            if parts and parts[-1].highlighted == highlighted:
+                parts[-1].text += text
             else:
-                texts.append(text)
-                highlights.append(highlighted)
-    return [
-        SnippetPart(text=text, highlighted=highlighted)
-        for text, highlighted in zip(texts, highlights, strict=True)
-    ]
+                parts.append(SnippetPart(text=text, highlighted=highlighted))
+    return parts
