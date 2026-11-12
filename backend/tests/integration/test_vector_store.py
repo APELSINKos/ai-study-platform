@@ -569,6 +569,39 @@ def test_hits_mark_the_words_of_the_query_only_in_chunks_that_they_match(
         assert content.startswith(headline)
 
 
+def test_hits_mark_nothing_for_a_query_that_matching_would_not_search(
+    db_session: Session,
+) -> None:
+    store = VectorStore(db_session)
+    workspace = _workspace(db_session)
+    content = "The reaction of an eye to light is fast."
+    (chunk,) = _texts(db_session, _document(db_session, workspace), content)
+    # Either "light" or anything without "eye": a query that would match nearly every chunk.
+    query = "light or -eye"
+
+    (hit,) = store.hits(workspace.id, [chunk], query)
+
+    assert store.matching(workspace.id, query, limit=_LIMIT) == []
+    assert _marked(hit.headline) == []
+    assert content.startswith(hit.headline)
+
+
+def test_hits_never_mark_an_excluded_word(db_session: Session) -> None:
+    store = VectorStore(db_session)
+    workspace = _workspace(db_session)
+    (chunk,) = _texts(
+        db_session, _document(db_session, workspace), "The reaction of an eye to light is fast."
+    )
+    # The chunk has "eye", so it matches through "fast" alone.
+    query = "reaction -eye or fast"
+
+    (hit,) = store.hits(workspace.id, [chunk], query)
+
+    assert _ids(store.matching(workspace.id, query, limit=_LIMIT)) == [chunk]
+    # The query's words that the chunk contains, without the excluded one.
+    assert _marked(hit.headline) == ["reaction", "fast"]
+
+
 def test_nearest_turns_iterative_index_scans_on_for_the_rest_of_the_transaction(
     db_session: Session,
 ) -> None:

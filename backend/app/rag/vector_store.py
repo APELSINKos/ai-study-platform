@@ -28,8 +28,8 @@ MAX_KEYWORD_QUERY_CHARS: Final = 256
 # spaces or the signs !&|()< between, is as many NOTs waiting for one word, and the
 # parser fails beyond 32 of those. Two NOTs cancel out, so a run becomes one or none.
 _NOT_RUN_RE: Final = re.compile(r'(?<![^\s!&|()<"])-[-\s!&|()<]*+')
-# querytree() is '' for a query without words and 'T' for one that only excludes words,
-# which would otherwise match every chunk without them.
+# querytree() is '' for a query without words, and 'T' for one that matches a chunk without
+# any of its words, such as "-light" or "light or -eye": nearly every chunk would match it.
 _UNSEARCHABLE_QUERY_TREES: Final = ("", "T")
 # The HNSW index stops after hnsw.ef_search (40) candidates, before the workspace and
 # status filters; an iterative scan goes on until enough rows pass them. strict_order can
@@ -77,9 +77,9 @@ class ChunkHit:
     page_end: int | None
     content: str
     char_count: int
-    # Passages of the content, the words that the query matches between HIGHLIGHT_START and
-    # HIGHLIGHT_STOP, the passages joined by FRAGMENT_DELIMITER; the first words of the
-    # content, unmarked, when the query's words do not match the chunk.
+    # Passages of the content, joined by FRAGMENT_DELIMITER. The query's words in them stand
+    # between HIGHLIGHT_START and HIGHLIGHT_STOP; excluded words are never marked. A chunk
+    # that the query does not match shows its first words, unmarked.
     headline: str
 
 
@@ -142,7 +142,7 @@ def matching_statement(
         .where(
             # It depends on the query alone, so PostgreSQL checks it once and, when it
             # fails, reads no chunk at all.
-            func.querytree(query.c.q).not_in(_UNSEARCHABLE_QUERY_TREES),
+            _searchable(query),
             _matches(query),
             *_ready_chunks(workspace_id, document_ids),
         )
@@ -156,9 +156,14 @@ def hits_statement(
 ) -> Select[uuid.UUID, uuid.UUID, str, int, str | None, int | None, int | None, str, int, str]:
     """The query of VectorStore.hits."""
     query = _keyword_query(text)
-    # Given the query itself, ts_headline would mark its words, even the excluded ones, in
-    # a chunk that they do not match, such as one found by its embedding alone.
-    marked_words = case((_matches(query), query.c.q), else_=cast(literal(""), TSQUERY))
+    # ts_headline marks each word of the query it gets, even an excluded one, in any chunk.
+    # So it gets the words only for a chunk that matching would find, and without the
+    # excluded ones (querytree); other chunks, such as one found by its embedding alone,
+    # show their first words unmarked.
+    marked_words = case(
+        (_searchable(query) & _matches(query), cast(func.querytree(query.c.q), TSQUERY)),
+        else_=cast(literal(""), TSQUERY),
+    )
     headline = func.ts_headline(
         TEXT_SEARCH_CONFIG, DocumentChunk.content, marked_words, HEADLINE_OPTIONS
     )
@@ -245,6 +250,10 @@ def _cut_to_limit(text: str) -> str:
 
 def _one_not_or_none(run: re.Match[str]) -> str:
     return "-" if run.group().count("-") % 2 else " "
+
+
+def _searchable(query: CTE) -> ColumnElement[bool]:
+    return func.querytree(query.c.q).not_in(_UNSEARCHABLE_QUERY_TREES)
 
 
 def _matches(query: CTE) -> ColumnElement[bool]:
