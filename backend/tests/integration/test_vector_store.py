@@ -1,5 +1,6 @@
 import hashlib
 import math
+import random
 import re
 import time
 import uuid
@@ -8,8 +9,10 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 import pytest
-from sqlalchemy import Connection, event, select, text
+from sqlalchemy import ClauseElement, Connection, Executable, Select, event, select, text
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.compiler import SQLCompiler
 
 from app.models.document import Document, DocumentStatus
 from app.models.document_chunk import EMBEDDING_DIMENSIONS, DocumentChunk
@@ -24,6 +27,7 @@ from app.rag.vector_store import (
     SearchScope,
     VectorCandidate,
     VectorStore,
+    nearest_statement,
 )
 from app.repositories.document_chunks import ChunkRow, DocumentChunkRepository
 from app.repositories.documents import DocumentRepository
@@ -47,6 +51,29 @@ _MARKED_RE: Final = re.compile(
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 # Timed with coverage's tracer paused (no_cover): tracing multiplies the time of every step.
 HOSTILE_TIME_LIMIT_SECONDS: Final = 2.0
+_SEED: Final = 20261111
+# Noise as a share of the query vector's length: the decoys lie at a cosine distance of
+# about 0.04 from the query, the three chunks searched for at about 0.22, 0.29 and 0.36.
+_DECOY_COUNT: Final = 150
+_DECOY_NOISE: Final = 0.3
+_TARGET_NOISES: Final = (0.8, 1.0, 1.2)
+# hnsw.ef_search, left at its default: the most candidates that a single HNSW scan yields.
+_EF_SEARCH: Final = 40
+_HNSW_INDEX: Final = "ix_document_chunks_embedding_hnsw"
+
+
+class _ExplainAnalyze(Executable, ClauseElement):
+    """EXPLAIN (ANALYZE, FORMAT JSON) of a statement, run with the statement's own values."""
+
+    inherit_cache = False
+
+    def __init__(self, statement: Select[uuid.UUID, uuid.UUID, float]) -> None:
+        self.statement = statement
+
+
+@compiles(_ExplainAnalyze)
+def _compile_explain_analyze(element: _ExplainAnalyze, compiler: SQLCompiler, **kwargs: Any) -> str:
+    return "EXPLAIN (ANALYZE, FORMAT JSON) " + compiler.process(element.statement, **kwargs)
 
 
 def _workspace(session: Session, name: str = "Biology") -> Workspace:
@@ -129,6 +156,54 @@ def _marked(headline: str) -> list[str]:
 
 def _iterative_scan(session: Session) -> str | None:
     return session.execute(text("SELECT current_setting('hnsw.iterative_scan', true)")).scalar()
+
+
+def _noisy(rng: random.Random, base: Sequence[float], noise: float) -> list[float]:
+    """A unit vector near base: base plus gaussian noise of about this length, normalised."""
+    sigma = noise / math.sqrt(EMBEDDING_DIMENSIONS)
+    return _unit([component + rng.gauss(0.0, sigma) for component in base])
+
+
+def _crowded_neighbourhood(session: Session) -> tuple[uuid.UUID, list[float], list[uuid.UUID]]:
+    """A workspace, a query, and the workspace's three chunks, nearest to the query first.
+
+    Many chunks of another workspace lie much closer to the query, so the first candidates
+    of an HNSW scan are all theirs. The vectors are seeded: every run gets the same ones.
+    """
+    # Rows that earlier tests inserted and rolled back stay in the HNSW graph until a vacuum,
+    # and many copies of the same vectors cut it into parts that a scan cannot leave. Built
+    # again inside this transaction, the index holds only the rows that it can see.
+    session.execute(text(f"REINDEX INDEX {_HNSW_INDEX}"))
+    rng = random.Random(_SEED)  # noqa: S311 -- reproducible test vectors, not secrets
+    query = _unit([rng.gauss(0.0, 1.0) for _ in range(EMBEDDING_DIMENSIONS)])
+    tested = _workspace(session, "Biology")
+    other = _workspace(session, "Chemistry")
+    decoys = [
+        _row(index, f"Decoy {index}.", embedding=_noisy(rng, query, _DECOY_NOISE))
+        for index in range(_DECOY_COUNT)
+    ]
+    _store(session, _document(session, other), *decoys)
+    targets = [
+        _row(index, f"Target {index}.", embedding=_noisy(rng, query, noise))
+        for index, noise in enumerate(_TARGET_NOISES)
+    ]
+    ids = _store(session, _document(session, tested), *targets)
+    distances = [
+        1 - sum(a * b for a, b in zip(row.embedding, query, strict=True)) for row in targets
+    ]
+    nearest_first = [chunk_id for _, chunk_id in sorted(zip(distances, ids, strict=True))]
+    return tested.id, query, nearest_first
+
+
+def _index_scan(plan: dict[str, Any], index_name: str) -> dict[str, Any]:
+    """The node of a JSON query plan that scans the index; fails the test if there is none."""
+    nodes = [plan]
+    while nodes:
+        node = nodes.pop()
+        if node.get("Index Name") == index_name:
+            return node
+        nodes.extend(node.get("Plans", []))
+    pytest.fail(f"The query plan does not scan {index_name}.")
 
 
 def test_every_query_keeps_to_its_workspace(db_session: Session) -> None:
@@ -511,3 +586,42 @@ def test_the_iterative_scan_setting_ends_with_its_transaction(db_connection: Con
         session.commit()
 
         assert _iterative_scan(session) == "off"
+
+
+def test_an_iterative_index_scan_goes_past_the_candidates_of_other_workspaces(
+    db_session: Session,
+) -> None:
+    workspace_id, query, targets = _crowded_neighbourhood(db_session)
+    # The query plan that PostgreSQL picks for a large table, forced on this small one.
+    for setting in ("enable_seqscan", "enable_bitmapscan", "enable_sort"):
+        db_session.execute(text(f"SET LOCAL {setting} = off"))
+    db_session.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
+    statement = nearest_statement(workspace_id, query, embedding_model=_MODEL, limit=_LIMIT)
+
+    db_session.execute(text("SET LOCAL hnsw.iterative_scan = off"))
+    without_iterations = db_session.execute(statement).all()
+    found = VectorStore(db_session).nearest(
+        workspace_id, query, embedding_model=_MODEL, limit=_LIMIT
+    )
+    plan: dict[str, Any] = db_session.execute(_ExplainAnalyze(statement)).scalar_one()[0]["Plan"]
+
+    # A single scan stops after ef_search candidates, all of the other workspace.
+    assert without_iterations == []
+    # How far an approximate scan gets may differ between runs; whatever it finds must be
+    # the workspace's own chunks, in the order of their distances.
+    found_ids = _ids(found)
+    assert found_ids
+    assert found_ids == [target for target in targets if target in found_ids]
+    assert _index_scan(plan, _HNSW_INDEX)["Rows Removed by Filter"] > _EF_SEARCH
+    # The rows are sorted again after the scan instead of being kept in the order it gave.
+    assert plan["Node Type"] == "Sort"
+
+
+def test_without_a_forced_index_the_nearest_chunks_come_back_exactly(db_session: Session) -> None:
+    workspace_id, query, targets = _crowded_neighbourhood(db_session)
+
+    found = VectorStore(db_session).nearest(
+        workspace_id, query, embedding_model=_MODEL, limit=_LIMIT
+    )
+
+    assert _ids(found) == targets
