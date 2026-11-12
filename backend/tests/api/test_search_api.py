@@ -1,5 +1,6 @@
 import hashlib
 import json
+import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import replace
@@ -12,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_query_embedder
@@ -28,6 +29,8 @@ from app.llm.base import (
 from app.llm.mock_provider import MOCK_EMBEDDING_MODEL, HashingEmbeddingProvider
 from app.models.document import Document, DocumentStatus
 from app.models.document_chunk import DocumentChunk
+from app.models.user import User
+from app.rag.vector_store import SearchScope, VectorStore
 from app.repositories.document_chunks import ChunkRow, DocumentChunkRepository
 from app.repositories.documents import DocumentRepository
 from app.schemas.search import DEFAULT_LIMIT, MAX_LIMIT, QUERY_MAX_CHARS
@@ -64,6 +67,7 @@ _LONGEST_QUERY: Final = ("chlorophyll " * 17)[:QUERY_MAX_CHARS]
 _LOG_KEYS: Final = {"event", "level", "logger", "timestamp", "request_id"}
 _SEARCH_MODES: Final = ("hybrid", "vector", "keyword")
 _EMBEDDING_OUTCOMES: Final = ("ok", "error")
+_QUERY_EMBEDDING_OK: Final = {"operation": "query_embedding", "outcome": "ok"}
 
 
 class _FakeQueryEmbedder:
@@ -71,7 +75,7 @@ class _FakeQueryEmbedder:
 
     Records every call, with whether the database session had a transaction open at the
     time. Like the OpenAI embedder it refuses blank text with a plain ValueError, and it
-    fails like an unreachable or refusing provider when given an error to raise.
+    raises the error it is given, such as an unreachable or refusing provider's.
     """
 
     def __init__(self, session: Session) -> None:
@@ -80,7 +84,7 @@ class _FakeQueryEmbedder:
         self.calls: list[list[str]] = []
         self.in_transaction: list[bool] = []
         self.vector: list[float] | None = None
-        self.error: ProviderError | None = None
+        self.error: Exception | None = None
 
     @property
     def model_name(self) -> str:
@@ -219,6 +223,11 @@ def _timing_counts() -> dict[str, float]:
     }
     # A label set that has never been observed has no sample yet.
     return {name: count or 0.0 for name, count in counts.items()}
+
+
+def _seconds_timed(histogram: str, labels: dict[str, str]) -> float:
+    """The seconds that the API process has recorded in a histogram under these labels."""
+    return REGISTRY.get_sample_value(f"{histogram}_sum", labels) or 0.0
 
 
 # --- results --------------------------------------------------------------------
@@ -360,6 +369,31 @@ def test_a_vector_search_finds_passages_by_their_embeddings_alone(
     assert [hit["matched_by"] for hit in body["results"]] == [["semantic"], ["semantic"]]
     assert body["semantic_available"] is True
     assert embedder.calls == [["chloroplasts"]]
+
+
+@pytest.mark.usefixtures("fresh_vector_index")
+def test_the_least_similarity_that_a_search_keeps_comes_from_the_settings(
+    user_client: TestClient,
+    db_session: Session,
+    embedder: _FakeQueryEmbedder,
+    integration_settings: Settings,
+) -> None:
+    integration_settings.search_min_similarity = 0.9
+    workspace_id = _create_workspace(user_client)
+    embedder.vector = _vector(1.0)
+    same, _ = _add_chunks(
+        db_session,
+        _add_document(db_session, workspace_id),
+        _row(0, _LEAF, embedding=_vector(1.0)),
+        _row(1, _PIGMENT, embedding=_vector(0.8, 0.6)),
+    )
+
+    body = _results(user_client, workspace_id, "chlorophyll", mode="vector")
+
+    # Similarities of 1.0 and 0.8: the default of 0.05 would keep both.
+    assert [(hit["chunk_id"], hit["similarity"]) for hit in body["results"]] == [
+        (same, pytest.approx(1.0))
+    ]
 
 
 def test_a_keyword_search_never_embeds_the_query(
@@ -624,6 +658,43 @@ def test_no_database_transaction_is_open_while_the_query_is_embedded(
     assert embedder.in_transaction == [False, False]
 
 
+def test_the_signed_in_user_stays_loaded_while_the_query_is_embedded(
+    user_client: TestClient,
+    db_session: Session,
+    embedder: _FakeQueryEmbedder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, _LEAF))
+    users_expired: list[list[bool]] = []
+    embed = embedder.embed
+
+    def embed_and_look_at_the_loaded_users(texts: Sequence[str]) -> list[list[float]]:
+        loaded = db_session.identity_map.values()
+        users_expired.append([inspect(user).expired for user in loaded if isinstance(user, User)])
+        return embed(texts)
+
+    monkeypatch.setattr(embedder, "embed", embed_and_look_at_the_loaded_users)
+
+    _results(user_client, workspace_id, "photosynthesis")
+
+    # One user, loaded and fresh. rollback() would expire it and close() would let it go;
+    # either way, reading it again would open a transaction.
+    assert users_expired == [[False]]
+
+
+def test_no_database_transaction_is_left_open_after_a_search(
+    user_client: TestClient, db_session: Session, embedder: _FakeQueryEmbedder
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, _LEAF))
+
+    for mode in _SEARCH_MODES:
+        _results(user_client, workspace_id, "photosynthesis", mode=mode)
+
+        assert not db_session.in_transaction(), mode
+
+
 @pytest.mark.parametrize(
     "error",
     [
@@ -687,6 +758,28 @@ def test_a_vector_search_that_the_provider_refuses_is_unavailable_without_a_retr
     assert "retry-after" not in response.headers
 
 
+def test_an_embedder_that_fails_for_another_reason_is_an_internal_error(
+    user_client: TestClient,
+    db_session: Session,
+    embedder: _FakeQueryEmbedder,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, _LEAF))
+    # A bug, not a provider failure: no search should go on as if the model were down.
+    embedder.error = RuntimeError("The embedder has a bug.")
+
+    response = _search(user_client, workspace_id, _PRIVATE_QUERY)
+
+    _assert_error(response, HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error")
+    output = capsys.readouterr().out
+    assert _events(output, "search_embedding_failed") == []
+    assert len(_events(output, "unhandled_exception")) == 1
+    for word in _PRIVATE_WORDS:
+        assert word not in output.lower()
+
+
 # --- access ---------------------------------------------------------------------
 
 
@@ -712,6 +805,40 @@ def test_another_users_workspace_is_not_found_and_nothing_is_embedded(
         assert set(response.json()) == {"error"}
     assert embedder.calls == []
     assert _found(_results(user_client, workspace_id, "photosynthesis")) != {}
+
+
+def test_another_users_workspace_is_refused_before_its_documents_are_counted(
+    user_client: TestClient,
+    other_user_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, _LEAF))
+    counted: list[uuid.UUID] = []
+    scope = VectorStore.scope
+
+    def count_and_scope(
+        store: VectorStore,
+        workspace_id: uuid.UUID,
+        *,
+        embedding_model: str,
+        document_ids: Sequence[uuid.UUID] | None = None,
+    ) -> SearchScope:
+        counted.append(workspace_id)
+        return scope(
+            store, workspace_id, embedding_model=embedding_model, document_ids=document_ids
+        )
+
+    monkeypatch.setattr(VectorStore, "scope", count_and_scope)
+
+    refused = _search(other_user_client, workspace_id, "photosynthesis")
+    found = _search(user_client, workspace_id, "photosynthesis")
+
+    _assert_error(refused, HTTPStatus.NOT_FOUND, "workspace_not_found")
+    assert found.status_code == HTTPStatus.OK
+    # Only the owner's search counted the documents of the workspace.
+    assert counted == [uuid.UUID(workspace_id)]
 
 
 def test_searching_needs_a_signed_in_user(
@@ -869,6 +996,40 @@ def test_searches_are_timed_by_mode_and_query_embeddings_by_outcome(
     new_sum = REGISTRY.get_sample_value("retrieval_duration_seconds_sum", {"mode": "hybrid"})
     assert new_sum is not None
     assert new_sum > (hybrid_sum or 0.0)
+
+
+def test_the_retrieval_time_leaves_out_the_time_spent_embedding_the_query(
+    user_client: TestClient,
+    db_session: Session,
+    embedder: _FakeQueryEmbedder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, _LEAF))
+    # A clock that stands still, except that embedding the query takes 5 seconds.
+    now = 1000.0
+
+    def clock() -> float:
+        return now
+
+    embed = embedder.embed
+
+    def embed_in_five_seconds(texts: Sequence[str]) -> list[list[float]]:
+        nonlocal now
+        now += 5.0
+        return embed(texts)
+
+    monkeypatch.setattr(time, "perf_counter", clock)
+    monkeypatch.setattr(embedder, "embed", embed_in_five_seconds)
+    retrieval_before = _seconds_timed("retrieval_duration_seconds", {"mode": "hybrid"})
+    embedding_before = _seconds_timed("llm_request_duration_seconds", _QUERY_EMBEDDING_OK)
+
+    _results(user_client, workspace_id, "photosynthesis")
+
+    retrieval = _seconds_timed("retrieval_duration_seconds", {"mode": "hybrid"})
+    embedding = _seconds_timed("llm_request_duration_seconds", _QUERY_EMBEDDING_OK)
+    assert retrieval - retrieval_before < 5.0
+    assert embedding - embedding_before == pytest.approx(5.0)
 
 
 # --- OpenAPI --------------------------------------------------------------------
