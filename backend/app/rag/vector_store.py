@@ -241,10 +241,9 @@ def _cut_to_limit(text: str) -> str:
         return text
     cut = text[:MAX_KEYWORD_QUERY_CHARS]
     if not (cut[-1].isspace() or text[MAX_KEYWORD_QUERY_CHARS].isspace()):
-        # A word longer than the limit is cut through rather than dropped.
-        parts = cut.rsplit(maxsplit=1)
-        if len(parts) > 1:
-            cut = parts[0]
+        # rsplit drops the word that the limit falls in, unless it is the only one: a single
+        # word longer than the limit is cut through rather than dropped.
+        cut = cut.rsplit(maxsplit=1)[0]
     return cut
 
 

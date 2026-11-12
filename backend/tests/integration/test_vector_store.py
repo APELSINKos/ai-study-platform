@@ -154,6 +154,21 @@ def _marked(headline: str) -> list[str]:
     return _MARKED_RE.findall(headline)
 
 
+def _sent_texts(session: Session, word: str) -> list[str]:
+    """A list that collects every text with this word that the session sends from now on."""
+    sent: list[str] = []
+
+    def record(**event_args: Any) -> None:
+        sent.extend(
+            value
+            for value in event_args["parameters"].values()
+            if isinstance(value, str) and word in value
+        )
+
+    event.listen(session.connection(), "before_cursor_execute", record, named=True)
+    return sent
+
+
 def _iterative_scan(session: Session) -> str | None:
     return session.execute(text("SELECT current_setting('hnsw.iterative_scan', true)")).scalar()
 
@@ -368,6 +383,17 @@ def test_matching_ranks_chunks_by_their_words_and_breaks_ties_by_id(db_session: 
     assert _ids(first) == [three_times]
 
 
+def test_matching_ranks_by_cover_density(db_session: Session) -> None:
+    store = VectorStore(db_session)
+    workspace = _workspace(db_session)
+    _texts(db_session, _document(db_session, workspace), "Light and water.")
+
+    (found,) = store.matching(workspace.id, "light", limit=_LIMIT)
+
+    # ts_rank_cd weighs one occurrence of the query's only word 0.1; ts_rank gives about 0.06.
+    assert found.rank == pytest.approx(0.1)
+
+
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
@@ -416,16 +442,7 @@ def test_a_long_query_is_cut_before_the_word_that_the_limit_falls_in(db_session:
     # 2,100 characters: one word repeated past the limit, then a word that no chunk has,
     # which would make the query match nothing if it were kept.
     query = "photosynthesis " * 20 + "zebra " * 300
-    sent: list[str] = []
-
-    def record_query_text(**event_args: Any) -> None:
-        sent.extend(
-            value
-            for value in event_args["parameters"].values()
-            if isinstance(value, str) and "photosynthesis" in value
-        )
-
-    event.listen(db_session.connection(), "before_cursor_execute", record_query_text, named=True)
+    sent = _sent_texts(db_session, "photosynthesis")
 
     found = store.matching(workspace.id, query, limit=_LIMIT)
     (hit,) = store.hits(workspace.id, [chunk], query)
@@ -436,6 +453,25 @@ def test_a_long_query_is_cut_before_the_word_that_the_limit_falls_in(db_session:
     for value in sent:
         assert len(value) <= MAX_KEYWORD_QUERY_CHARS
         assert value.split() == ["photosynthesis"] * 17
+
+
+def test_a_word_longer_than_the_limit_is_cut_through_at_the_limit(db_session: Session) -> None:
+    long_word = ("photosynthesis" * 22)[:300]
+    sent = _sent_texts(db_session, "photosynthesis")
+
+    VectorStore(db_session).matching(uuid.uuid4(), long_word, limit=_LIMIT)
+
+    assert sent == [long_word[:MAX_KEYWORD_QUERY_CHARS]]
+
+
+def test_a_word_that_ends_before_the_limit_is_kept(db_session: Session) -> None:
+    # 17 words and their spaces fill 255 characters; the limit falls on the "z" of "zebra".
+    query = "photosynthesis " * 17 + " zebra" * 100
+    sent = _sent_texts(db_session, "photosynthesis")
+
+    VectorStore(db_session).matching(uuid.uuid4(), query, limit=_LIMIT)
+
+    assert [value.split() for value in sent] == [["photosynthesis"] * 17]
 
 
 @pytest.mark.parametrize(
@@ -454,6 +490,19 @@ def test_minus_signs_in_a_row_cancel_out_in_pairs(db_session: Session, signs: st
 
     assert _ids(even) == [with_sugar]
     assert _ids(odd) == [with_water]
+
+
+def test_minus_signs_inside_a_word_exclude_nothing(db_session: Session) -> None:
+    store = VectorStore(db_session)
+    workspace = _workspace(db_session)
+    together, _ = _texts(
+        db_session, _document(db_session, workspace), "Light sugar.", "Light and sugar."
+    )
+
+    # Only a "-" that starts a word means NOT: "light--sugar" is a phrase, not "light sugar".
+    found = store.matching(workspace.id, "light--sugar", limit=_LIMIT)
+
+    assert _ids(found) == [together]
 
 
 @pytest.mark.no_cover

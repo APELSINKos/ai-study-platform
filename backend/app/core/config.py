@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     # texts score 0 and a single shared word in a long passage about 0.05.
     search_min_similarity: Annotated[float, Field(ge=0, le=1)] = 0.05
     searches_per_minute: PositiveInt = 30
-    # Embedding a query must end well before the web app's proxy gives up after 30 s.
+    # Kept well below the 30 s after which the web app's proxy gives up.
     search_embedding_timeout_seconds: PositiveFloat = 10.0
 
     @field_validator("cors_origins", mode="before")
