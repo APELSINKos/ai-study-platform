@@ -90,9 +90,8 @@ class SearchService:
         vector: list[float] | None = None
         embedding_ms: float | None = None
         if embed_query:
-            started = time.perf_counter()
-            vector = self._embed(query, mode)
-            embedding_ms = to_ms(time.perf_counter() - started)
+            vector, embedding_seconds = self._embed(query, mode)
+            embedding_ms = to_ms(embedding_seconds)
         started = time.perf_counter()
         chunks = self._retriever.retrieve(
             workspace_id, query, vector, embedding_model=model, mode=mode, limit=limit
@@ -116,27 +115,30 @@ class SearchService:
         )
         return _results(chunks, scope, semantic_available=vector is not None)
 
-    def _embed(self, query: str, mode: SearchMode) -> list[float] | None:
-        """The query's embedding, or None in hybrid mode when the model fails.
+    def _embed(self, query: str, mode: SearchMode) -> tuple[list[float] | None, float]:
+        """The query's embedding, or None in hybrid mode when the model fails, and the seconds
+        that the model took.
 
-        A vector search has nothing to go on without it and is unavailable then.
+        A vector search has nothing to go on without the embedding and is unavailable then.
         """
         started = time.perf_counter()
         try:
             [vector] = self._embedder.embed([query])
         except ProviderError as error:
-            _observe_query_embedding("error", started)
+            seconds = time.perf_counter() - started
+            _observe_query_embedding("error", seconds)
             logger.warning("search_embedding_failed", error_code=error.code)
             if mode == "hybrid":
-                return None
+                return None, seconds
             raise _search_unavailable(error) from error
-        _observe_query_embedding("ok", started)
-        return vector
+        seconds = time.perf_counter() - started
+        _observe_query_embedding("ok", seconds)
+        return vector, seconds
 
 
-def _observe_query_embedding(outcome: Literal["ok", "error"], started: float) -> None:
+def _observe_query_embedding(outcome: Literal["ok", "error"], seconds: float) -> None:
     LLM_REQUEST_DURATION.labels(operation=QUERY_EMBEDDING_OPERATION, outcome=outcome).observe(
-        time.perf_counter() - started
+        seconds
     )
 
 
