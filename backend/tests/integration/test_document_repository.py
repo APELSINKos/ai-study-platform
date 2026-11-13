@@ -22,6 +22,11 @@ pytestmark = pytest.mark.integration
 
 _NOW: Final = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
 _EARLIER: Final = _NOW - timedelta(minutes=5)
+# The embedding model of a ready document below unless it names another, and the models of
+# an earlier configuration.
+_CURRENT_EMBEDDING_MODEL: Final = "mock-hashing-v1"
+_OLDER_EMBEDDING_MODEL: Final = "text-embedding-3-small"
+_CHAT_MODEL: Final = "gpt-5.4-mini"
 # Fields a row in this status must carry to pass the documents table's CHECKs.
 _STATUS_FIELDS: Final[dict[DocumentStatus, dict[str, object]]] = {
     "ready": {"chunk_count": 2, "embedding_model": "mock-hashing-v1", "processed_at": _NOW},
@@ -533,6 +538,154 @@ def test_owner_usage_counts_active_documents_and_every_stored_byte(db_session: S
     assert usage == OwnerUsage(active_count=3, storage_bytes=1500)
     assert type(usage.storage_bytes) is int
     assert repository.owner_usage(_user(db_session, "new@example.com").id) == (0, 0)
+
+
+def test_list_embedded_by_another_model_lists_every_owners_ready_documents_oldest_first(
+    db_session: Session,
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    strangers = _workspace(db_session, _user(db_session, "stranger@example.com"))
+    newest = _document(
+        db_session,
+        workspace,
+        "ready",
+        embedding_model=_OLDER_EMBEDDING_MODEL,
+        attempts=1,
+        created_at=_NOW,
+    )
+    oldest = _document(
+        db_session,
+        strangers,
+        "ready",
+        embedding_model=_OLDER_EMBEDDING_MODEL,
+        attempts=3,
+        created_at=_NOW - timedelta(days=2),
+    )
+    tied = [
+        _document(
+            db_session, workspace, "ready", embedding_model="older-model-v0", created_at=_EARLIER
+        )
+        for _ in range(2)
+    ]
+    # Embedded by the current model already, or not ready: whatever model they name.
+    _document(db_session, workspace, "ready", created_at=_EARLIER)
+    statuses: tuple[DocumentStatus, ...] = ("uploaded", "processing", "indexing", "failed")
+    for status in statuses:
+        _document(
+            db_session,
+            workspace,
+            status,
+            embedding_model=_OLDER_EMBEDDING_MODEL,
+            created_at=_EARLIER,
+        )
+
+    candidates = DocumentRepository(db_session).list_embedded_by_another_model(
+        _CURRENT_EMBEDDING_MODEL, _CHAT_MODEL
+    )
+
+    tied_by_id = sorted(tied, key=lambda document: document.id)
+    assert [(candidate.id, candidate.attempts) for candidate in candidates] == [
+        (oldest.id, 3),
+        (tied_by_id[0].id, 0),
+        (tied_by_id[1].id, 0),
+        (newest.id, 1),
+    ]
+
+
+def test_list_embedded_by_another_model_tells_whose_saved_analysis_the_next_run_reuses(
+    db_session: Session,
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+
+    def stale(minutes_ago: int, **analysis: object) -> Document:
+        return _document(
+            db_session,
+            workspace,
+            "ready",
+            embedding_model=_OLDER_EMBEDDING_MODEL,
+            created_at=_NOW - timedelta(minutes=minutes_ago),
+            **analysis,
+        )
+
+    same_model = stale(4, analysis_model=_CHAT_MODEL, difficulty="medium")
+    other_model = stale(3, analysis_model="mock-heuristic-v1", difficulty="medium")
+    incomplete = stale(2, analysis_model=_CHAT_MODEL, difficulty=None)
+    unnamed_model = stale(1, analysis_model=None, difficulty="easy")
+
+    candidates = DocumentRepository(db_session).list_embedded_by_another_model(
+        _CURRENT_EMBEDDING_MODEL, _CHAT_MODEL
+    )
+
+    assert [(candidate.id, candidate.reuses_analysis) for candidate in candidates] == [
+        (same_model.id, True),
+        (other_model.id, False),
+        (incomplete.id, False),
+        (unnamed_model.id, False),
+    ]
+
+
+def test_mark_for_reindex_sends_a_ready_document_of_another_model_back_to_uploaded(
+    db_session: Session,
+) -> None:
+    repository = DocumentRepository(db_session)
+    workspace = _workspace(db_session, _user(db_session))
+    # A ready document should hold no error; one left on it is cleared all the same.
+    document = _document(
+        db_session,
+        workspace,
+        "ready",
+        embedding_model=_OLDER_EMBEDDING_MODEL,
+        attempts=2,
+        error_code="queue_unavailable",
+        error_message="Not queued.",
+        updated_at=_EARLIER,
+    )
+
+    assert repository.mark_for_reindex(document.id, _CURRENT_EMBEDDING_MODEL, _NOW) is True
+    assert repository.mark_for_reindex(uuid.uuid4(), _CURRENT_EMBEDDING_MODEL, _NOW) is False
+
+    loaded = (document.status, document.error_code, document.error_message, document.updated_at)
+    db_session.expire_all()
+    stored = (document.status, document.error_code, document.error_message, document.updated_at)
+    assert loaded == stored == ("uploaded", None, None, _NOW)
+    # The next claim moves the run counter on; the new run replaces the rest.
+    assert (document.attempts, document.embedding_model, document.chunk_count) == (
+        2,
+        _OLDER_EMBEDDING_MODEL,
+        2,
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "embedding_model"),
+    [
+        ("ready", _CURRENT_EMBEDDING_MODEL),
+        ("uploaded", _OLDER_EMBEDDING_MODEL),
+        ("processing", _OLDER_EMBEDDING_MODEL),
+        ("indexing", _OLDER_EMBEDDING_MODEL),
+        ("failed", _OLDER_EMBEDDING_MODEL),
+    ],
+    ids=["ready-with-the-current-model", "uploaded", "processing", "indexing", "failed"],
+)
+def test_mark_for_reindex_leaves_a_document_that_is_not_a_ready_one_of_another_model(
+    db_session: Session, status: DocumentStatus, embedding_model: str
+) -> None:
+    workspace = _workspace(db_session, _user(db_session))
+    document = _document(
+        db_session, workspace, status, embedding_model=embedding_model, updated_at=_EARLIER
+    )
+
+    marked = DocumentRepository(db_session).mark_for_reindex(
+        document.id, _CURRENT_EMBEDDING_MODEL, _NOW
+    )
+
+    assert marked is False
+    db_session.expire_all()
+    assert (document.status, document.embedding_model, document.updated_at) == (
+        status,
+        embedding_model,
+        _EARLIER,
+    )
 
 
 def test_replace_for_document_stores_the_rows_in_chunk_order(db_session: Session) -> None:

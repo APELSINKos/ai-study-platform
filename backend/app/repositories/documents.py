@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import NamedTuple
 
-from sqlalchemy import BigInteger, ColumnElement, Update, cast, delete, func, select, update
+from sqlalchemy import BigInteger, ColumnElement, Update, and_, cast, delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.documents.status import retryable_condition
@@ -46,6 +46,20 @@ class ClaimedDocument:
     topics: list[str] | None
     difficulty: Difficulty | None
     analysis_model: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ReindexCandidate:
+    """A ready document that another embedding model embedded, as the re-index command needs it.
+
+    attempts is the run counter it is queued with: only a worker's claim moves it on.
+    reuses_analysis tells whether its next run uses the saved analysis again instead of
+    asking the chat model for a new one.
+    """
+
+    id: uuid.UUID
+    attempts: int
+    reuses_analysis: bool
 
 
 class DocumentRepository:
@@ -155,6 +169,51 @@ class DocumentRepository:
                 error_message=message,
                 updated_at=now,
             )
+        )
+        return self._update_returning(statement) is not None
+
+    def list_embedded_by_another_model(
+        self, embedding_model: str, chat_model: str
+    ) -> list[ReindexCandidate]:
+        """Every owner's ready documents that another embedding model embedded, oldest first.
+
+        Ties are broken by id. reuses_analysis follows the pipeline: a run uses the saved
+        analysis again when the current chat model made it and it is complete, which it is
+        once it has a difficulty.
+        """
+        # IS NOT DISTINCT FROM is false, not NULL, for a document without an analysis model.
+        reuses_analysis = and_(
+            Document.analysis_model.is_not_distinct_from(chat_model),
+            Document.difficulty.is_not(None),
+        )
+        statement = (
+            select(Document.id, Document.attempts, reuses_analysis.label("reuses_analysis"))
+            .where(
+                Document.status == "ready",
+                Document.embedding_model.is_distinct_from(embedding_model),
+            )
+            .order_by(Document.created_at, Document.id)
+        )
+        return [
+            ReindexCandidate(id=row.id, attempts=row.attempts, reuses_analysis=row.reuses_analysis)
+            for row in self._session.execute(statement)
+        ]
+
+    def mark_for_reindex(self, document_id: uuid.UUID, embedding_model: str, now: datetime) -> bool:
+        """Send a ready document that another model embedded back to uploaded; False if not.
+
+        A single compare-and-set UPDATE, so a document deleted, queued again or re-indexed
+        since it was listed is left alone. As in mark_for_retry, the run counter is left for
+        the next claim to move.
+        """
+        statement = (
+            update(Document)
+            .where(
+                Document.id == document_id,
+                Document.status == "ready",
+                Document.embedding_model.is_distinct_from(embedding_model),
+            )
+            .values(status="uploaded", error_code=None, error_message=None, updated_at=now)
         )
         return self._update_returning(statement) is not None
 
