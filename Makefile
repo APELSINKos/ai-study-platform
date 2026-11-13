@@ -1,7 +1,9 @@
 COMPOSE ?= docker compose
+# Extra arguments of reindex and check-ai, such as ARGS=--dry-run or ARGS=--chat.
+ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps migrate test test-backend test-frontend lint typecheck e2e api-types
+.PHONY: help up down logs ps migrate test test-backend test-frontend lint typecheck e2e api-types reindex check-ai
 
 help: ## List available commands
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-15s %s\n", $$1, $$2}'
@@ -43,3 +45,9 @@ e2e: ## Browser tests against the running stack
 api-types: ## Regenerate frontend API types from the backend schema
 	$(COMPOSE) run --rm --no-deps -v "$(CURDIR)/frontend:/out" backend python -m app.export_openapi /out/openapi.json
 	cd frontend && npm run api:types
+
+reindex: ## Re-index documents embedded by another model (ARGS=--dry-run only counts them)
+	$(COMPOSE) exec worker python -m app.reindex $(ARGS)
+
+check-ai: ## Check that the configured AI models answer (ARGS=--chat tries the chat model too)
+	$(COMPOSE) exec worker python -m app.check_ai $(ARGS)

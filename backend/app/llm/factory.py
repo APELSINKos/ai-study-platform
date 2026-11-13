@@ -45,10 +45,10 @@ class ModelSelection:
 def selected_models(settings: Settings) -> ModelSelection:
     """The models that the builders below pick for these settings, found without a client."""
     chat = ModelChoice("mock", MOCK_ANALYSIS_MODEL)
-    if _chat_endpoint(settings) is not None:
+    if chat_endpoint(settings) is not None:
         chat = ModelChoice("openai", settings.llm_model)
     embedding = ModelChoice("mock", MOCK_EMBEDDING_MODEL)
-    if _embedding_endpoint(settings) is not None:
+    if embedding_endpoint(settings) is not None:
         embedding = ModelChoice("openai", settings.embedding_model)
     return ModelSelection(chat=chat, embedding=embedding)
 
@@ -56,7 +56,7 @@ def selected_models(settings: Settings) -> ModelSelection:
 def build_llm_provider(settings: Settings) -> LLMProvider:
     """The chat model the settings select, or the offline heuristic analysis."""
     _log_selection(settings)
-    endpoint = _chat_endpoint(settings)
+    endpoint = chat_endpoint(settings)
     if endpoint is None:
         return MockLLMProvider()
     options = ChatOptions(
@@ -112,7 +112,7 @@ def get_openai_client(
     return client
 
 
-def _chat_endpoint(settings: Settings) -> ProviderEndpoint | None:
+def chat_endpoint(settings: Settings) -> ProviderEndpoint | None:
     """Where analysis requests go, or None for the offline analysis."""
     if settings.resolved_llm_provider == "mock" or settings.openai_api_key is None:
         return None
@@ -123,7 +123,7 @@ def _chat_endpoint(settings: Settings) -> ProviderEndpoint | None:
     )
 
 
-def _embedding_endpoint(settings: Settings) -> ProviderEndpoint | None:
+def embedding_endpoint(settings: Settings) -> ProviderEndpoint | None:
     """Where embedding requests go, or None for the offline embeddings."""
     if settings.resolved_embedding_provider == "mock":
         return None
@@ -135,7 +135,7 @@ def _embedding_provider(
 ) -> EmbeddingProvider:
     """The model that embeds chunks and queries alike, with these limits on each call."""
     _log_selection(settings)
-    endpoint = _embedding_endpoint(settings)
+    endpoint = embedding_endpoint(settings)
     if endpoint is None:
         return HashingEmbeddingProvider()
     client = _client(endpoint, timeout_seconds, max_retries)
