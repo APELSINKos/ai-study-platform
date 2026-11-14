@@ -35,6 +35,16 @@ _UNAVAILABLE: Final = ProviderUnavailableError("The AI provider could not be rea
 _REJECTED: Final = ProviderRequestError(
     "The AI provider rejected the request: HTTP 404 (model_not_found).", code="ai_rejected"
 )
+# Neither key nor any part of an address: an endpoint is only named, never located.
+_LEAKS: Final = (
+    _CHAT_KEY,
+    _EMBEDDING_KEY,
+    "://",
+    "api.openai.com",
+    "openrouter",
+    "host.docker.internal",
+    "11434",
+)
 
 
 class _Embedder:
@@ -84,6 +94,12 @@ def _live(**values: Any) -> Settings:
 
 def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().out.splitlines()
+
+
+def _assert_nothing_leaked(out: str, err: str) -> None:
+    for leak in _LEAKS:
+        assert leak not in out
+        assert leak not in err
 
 
 def _refuse_connection(request: httpx2.Request) -> httpx2.Response:
@@ -242,9 +258,7 @@ def test_neither_a_key_nor_an_address_is_ever_printed(
     )
 
     captured = capsys.readouterr()
-    for secret in (_CHAT_KEY, _EMBEDDING_KEY, _CHAT_URL, _EMBEDDING_URL):
-        assert secret not in captured.out
-        assert secret not in captured.err
+    _assert_nothing_leaked(captured.out, captured.err)
 
 
 # Built in each test, after the provider variables of the environment are cleared.
@@ -284,6 +298,16 @@ _ENDPOINTS: Final[list[tuple[dict[str, Any], str, str]]] = [
         "gpt-5.4-mini (provider openai, OpenAI)",
         "mock-hashing-v1 (provider mock, built in)",
     ),
+    (
+        {"llm_base_url": "https://openai-proxy.example.com/v1"},
+        "gpt-5.4-mini (provider openai, custom endpoint)",
+        "text-embedding-3-small (provider openai, custom endpoint)",
+    ),
+    (
+        {"llm_base_url": "https://api.openai.com.example.com/v1"},
+        "gpt-5.4-mini (provider openai, custom endpoint)",
+        "text-embedding-3-small (provider openai, custom endpoint)",
+    ),
 ]
 
 
@@ -297,6 +321,8 @@ _ENDPOINTS: Final[list[tuple[dict[str, Any], str, str]]] = [
         "custom-embedding-endpoint",
         "embedding-key-only",
         "built-in-embeddings",
+        "openai-lookalike-host",
+        "openai-prefixed-host",
     ],
 )
 def test_each_endpoint_is_named_openai_or_custom_endpoint(
@@ -304,6 +330,9 @@ def test_each_endpoint_is_named_openai_or_custom_endpoint(
 ) -> None:
     assert main([], settings=_live(**values), embedder=_Embedder()) == 0
 
-    lines = _lines(capsys)
-    assert f"Chat model: {chat}" in lines
-    assert f"Embedding model: {embedding}" in lines
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert lines[:2] == [f"Chat model: {chat}", f"Embedding model: {embedding}"]
+    assert _EMBEDDING_LATENCY.fullmatch(lines[2])
+    assert lines[3:] == [_NOT_EXERCISED]
+    _assert_nothing_leaked(captured.out, captured.err)
