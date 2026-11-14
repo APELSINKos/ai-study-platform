@@ -3,7 +3,8 @@
 Names the chat and embedding models in use and their providers, never a key or an address,
 embeds one short sentence and, with --chat, has the chat model analyse it as a one-line
 document. The API and the worker call no model when they start, so that a provider outage
-cannot stop them: this command is the check to run instead.
+cannot stop them: this command is the check to run instead. Run it in the worker container
+(make check-ai): it checks the settings of the process it runs in.
 """
 
 import argparse

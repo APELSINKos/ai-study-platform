@@ -9,6 +9,7 @@ point. The worker processes them as it processes uploads.
 """
 
 import argparse
+import os
 import sys
 import uuid
 from collections.abc import Callable, Sequence
@@ -28,6 +29,13 @@ from app.llm.probe import probe_embedding
 from app.repositories.documents import DocumentRepository, ReindexCandidate
 from app.workers.celery_app import celery_app
 
+# Compose sets this variable for the worker; a host shell does not, and there the command
+# would compare the stack's documents with the shell's models and publish to the stack's broker.
+_STACK_VARIABLE: Final = "DATABASE_URL"
+_OUTSIDE_THE_STACK_MESSAGE: Final = (
+    "DATABASE_URL is not set, so this is not the worker container: run make reindex, or"
+    " docker compose exec worker python -m app.reindex [--dry-run]. Nothing was changed."
+)
 # Stored on a document that the queue did not take; its owner's Retry recovers it.
 _QUEUE_UNAVAILABLE_MESSAGE: Final = "The document could not be queued for re-indexing."
 # What happens to the queued documents after a run.
@@ -63,9 +71,14 @@ def main(  # noqa: PLR0913 -- every dependency is passed in, so a test can repla
 ) -> int:
     """Run the command; the exit code is 1 when the probe failed or a document was not queued.
 
-    Whatever is not passed in is what the worker itself uses.
+    Whatever is not passed in is what the worker itself uses. Settings are read from the
+    environment only where DATABASE_URL is set, as in the worker container; elsewhere the
+    command stops at once, with exit code 1.
     """
     dry_run = _dry_run(argv)
+    if settings is None and _STACK_VARIABLE not in os.environ:
+        print(_OUTSIDE_THE_STACK_MESSAGE)
+        return 1
     settings = get_settings() if settings is None else settings
     # Built as the worker builds it, so that its name is the one the pipeline stores.
     embedder = build_embedding_provider(settings) if embedder is None else embedder
