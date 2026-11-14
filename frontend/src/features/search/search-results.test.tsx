@@ -10,9 +10,15 @@ import { ResultList, SearchNotes } from "./search-results";
 import { searchHitFixture, searchResultsFixture } from "./test-fixtures";
 
 const DOCUMENT_ID = searchHitFixture(1).document_id;
+const BUILT_IN_EMBEDDINGS = "mock-hashing-v1";
+const REAL_EMBEDDINGS = "text-embedding-3-small";
 
-function renderList(hits: SearchHit[], locale: Locale = "en") {
-  return renderWithIntl(<ResultList hits={hits} />, { locale });
+function renderList(
+  hits: SearchHit[],
+  locale: Locale = "en",
+  embeddingModel: string | null = BUILT_IN_EMBEDDINGS,
+) {
+  return renderWithIntl(<ResultList hits={hits} embeddingModel={embeddingModel} />, { locale });
 }
 
 function renderNotes(overrides: Partial<SearchResults>, locale: Locale = "en") {
@@ -25,6 +31,15 @@ function rows(name = "Search results"): HTMLElement[] {
 
 function notes(): string[] {
   return screen.queryAllByRole("paragraph").map((note) => note.textContent ?? "");
+}
+
+function marked(row: HTMLElement | undefined): string[] {
+  return Array.from(row?.querySelectorAll("mark") ?? []).map((mark) => mark.textContent ?? "");
+}
+
+/** The lines of a row under its title, as text. */
+function lines(row: HTMLElement | undefined): string[] {
+  return Array.from(row?.querySelectorAll("p") ?? []).map((line) => line.textContent ?? "");
 }
 
 describe("ResultList", () => {
@@ -45,6 +60,7 @@ describe("ResultList", () => {
     expect(first).toHaveTextContent("Photosynthesis › Light reactions");
     expect(first).toHaveTextContent("Pages 4–5");
     expect(first).toHaveTextContent("Chloroplasts turn light into the energy of sugar.");
+    expect(marked(first)).toEqual(["light"]);
     expect(second).toHaveTextContent("Lecture 1");
     expect(second).toHaveTextContent("Page 7");
   });
@@ -93,8 +109,10 @@ describe("ResultList", () => {
     renderList([searchHitFixture(1, { heading: null, page_start: null, page_end: null })]);
 
     const [row] = rows();
-    expect(row?.querySelectorAll("p")).toHaveLength(1);
-    expect(row).toHaveTextContent("Chloroplasts turn light into the energy of sugar.");
+    expect(lines(row)).toEqual([
+      "Chloroplasts turn light into the energy of sugar.",
+      "Matching words",
+    ]);
   });
 
   it("shows the title, headings and words as plain text", () => {
@@ -114,6 +132,7 @@ describe("ResultList", () => {
     expect(row).toHaveTextContent(`${markup} notes`);
     expect(within(row ?? document.body).getByText(`${markup} heading`)).toBeVisible();
     expect(row).toHaveTextContent(`${markup} before ${markup}`);
+    expect(marked(row)).toEqual([markup]);
     expect(document.querySelector("img")).toBeNull();
   });
 
@@ -136,6 +155,60 @@ describe("ResultList", () => {
     expect(first).toHaveTextContent("Страницы 4–5");
     expect(second).toHaveTextContent("Страница 7");
     expect(screen.getByRole("link", { name: "Lecture 1, Страница 7, Фрагмент 13" })).toBeVisible();
+  });
+});
+
+describe("match labels", () => {
+  function labelsOf(hit: SearchHit, embeddingModel: string | null, locale: Locale = "en") {
+    const { unmount } = renderList([hit], locale, embeddingModel);
+    const [row] = rows(locale === "en" ? "Search results" : "Результаты поиска");
+    const labels = lines(row).at(-1);
+    unmount();
+    return labels;
+  }
+
+  it("says a passage was found by the words of the query", () => {
+    expect(labelsOf(searchHitFixture(1, { matched_by: ["keyword"] }), REAL_EMBEDDINGS)).toBe(
+      "Matching words",
+    );
+  });
+
+  it("speaks of a similar meaning for a passage a real embedding model found", () => {
+    const hit = searchHitFixture(1, { matched_by: ["semantic"], similarity: 0.61 });
+
+    expect(labelsOf(hit, REAL_EMBEDDINGS)).toBe("Similar meaning");
+  });
+
+  it("speaks of similar words, never of meaning, for the built-in embeddings", () => {
+    const hit = searchHitFixture(1, { matched_by: ["semantic"], similarity: 0.12 });
+
+    expect(labelsOf(hit, BUILT_IN_EMBEDDINGS)).toBe("Similar words");
+  });
+
+  it("claims no meaning while the embedding model is not known yet", () => {
+    const hit = searchHitFixture(1, { matched_by: ["semantic"], similarity: 0.61 });
+
+    expect(labelsOf(hit, null)).toBe("Similar words");
+  });
+
+  it("gives a passage found both ways both labels, as plain text", () => {
+    const hit = searchHitFixture(1, { matched_by: ["keyword", "semantic"], similarity: 0.42 });
+    renderList([hit], "en", REAL_EMBEDDINGS);
+
+    const [row] = rows();
+    const labels = row?.querySelector("p:last-of-type");
+    expect(Array.from(labels?.children ?? []).map((label) => label.textContent)).toEqual([
+      "Matching words",
+      "Similar meaning",
+    ]);
+    expect(labels?.querySelectorAll("span")).toHaveLength(2);
+  });
+
+  it("speaks Russian", () => {
+    const both = searchHitFixture(1, { matched_by: ["keyword", "semantic"], similarity: 0.42 });
+
+    expect(labelsOf(both, REAL_EMBEDDINGS, "ru")).toBe("Совпадающие словаБлизкий смысл");
+    expect(labelsOf(both, BUILT_IN_EMBEDDINGS, "ru")).toBe("Совпадающие словаПохожие слова");
   });
 });
 

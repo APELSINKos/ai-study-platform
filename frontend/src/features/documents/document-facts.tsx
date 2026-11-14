@@ -4,14 +4,13 @@ import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useId } from "react";
 
 import { useMeta } from "@/features/meta/hooks";
+import { isBuiltInModel } from "@/features/meta/models";
 import type { AiMode, Difficulty, DocumentOut } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format";
 
 type FactsTranslator = ReturnType<typeof useTranslations<"Documents.facts">>;
 
 const MINUTES_PER_HOUR = 60;
-/** The built-in analyser and embedder name their models with this prefix. */
-const BUILT_IN_MODEL_PREFIX = "mock-";
 
 const DIFFICULTY_KEYS = {
   easy: "levels.easy",
@@ -33,10 +32,6 @@ function studyTime(minutes: number, t: FactsTranslator): string {
   return rest === 0 ? t("hours", { hours }) : t("hoursMinutes", { hours, minutes: rest });
 }
 
-function isBuiltIn(model: string | null): boolean {
-  return model?.startsWith(BUILT_IN_MODEL_PREFIX) === true;
-}
-
 /**
  * Who analysed the file, read from the document's own record first, so that the label stays true
  * after the server's AI settings change. Live mode always embeds with a real model, so passages
@@ -49,10 +44,10 @@ function analyser(
   mode: AiMode,
   t: FactsTranslator,
 ): string {
-  if (!isBuiltIn(model)) {
+  if (!isBuiltInModel(model)) {
     return model;
   }
-  return mode === "offline" || isBuiltIn(embeddingModel)
+  return mode === "offline" || isBuiltInModel(embeddingModel)
     ? t("offlineAnalysis")
     : t("basicAnalysis");
 }

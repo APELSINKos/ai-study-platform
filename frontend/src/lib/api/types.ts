@@ -25,6 +25,7 @@ export type ChunkPage = Schemas["ChunkPage"];
 export type SearchResults = Schemas["SearchResults"];
 export type SearchHit = Schemas["SearchHit"];
 export type SnippetPart = Schemas["SnippetPart"];
+export type MatchKind = Schemas["MatchKind"];
 
 export type MetaOut = Schemas["MetaOut"];
 export type AiInfo = Schemas["AiInfo"];

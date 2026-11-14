@@ -35,7 +35,7 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
   const router = useRouter();
   const headingId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const maxLength = useMeta().data?.search.max_query_chars;
+  const meta = useMeta().data;
   const search = useSearch(workspaceId, query);
   const [isNavigating, startTransition] = useTransition();
   const [text, setText] = useState(query ?? "");
@@ -90,7 +90,7 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
           aria-label={t("inputLabel")}
           value={text}
           onChange={(event) => setText(event.target.value)}
-          maxLength={maxLength}
+          maxLength={meta?.search.max_query_chars}
           enterKeyHint="search"
           // On a phone the box takes a line of its own. The browser's own clear button is
           // hidden: it would empty the box and leave the search in the address.
@@ -112,7 +112,9 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
       <p role="status" className={cn("text-ink-soft text-sm", status !== null && "mt-4")}>
         {status}
       </p>
-      {query === null ? null : <SearchOutcome search={search} />}
+      {query === null ? null : (
+        <SearchOutcome search={search} embeddingModel={meta?.ai.embedding_model ?? null} />
+      )}
     </section>
   );
 }
@@ -129,8 +131,13 @@ function statusText(search: SearchQuery, t: SearchTranslator): string | null {
     : t("status.found", { count });
 }
 
+interface SearchOutcomeProps {
+  search: SearchQuery;
+  embeddingModel: string | null;
+}
+
 /** Under the status line: a skeleton while the search runs, then its failure or its passages. */
-function SearchOutcome({ search }: { search: SearchQuery }) {
+function SearchOutcome({ search, embeddingModel }: SearchOutcomeProps) {
   const tErrors = useTranslations("Search.errors");
 
   // A search asked for again shows its skeleton too, rather than answers that are on their way out.
@@ -147,7 +154,7 @@ function SearchOutcome({ search }: { search: SearchQuery }) {
   return (
     <>
       <SearchNotes results={search.data} className="mt-3" />
-      <ResultList hits={search.data.results} className="mt-4" />
+      <ResultList hits={search.data.results} embeddingModel={embeddingModel} className="mt-4" />
     </>
   );
 }

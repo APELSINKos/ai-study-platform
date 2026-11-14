@@ -10,7 +10,7 @@ import type { MetaOut, SearchResults } from "@/lib/api/types";
 import { renderWithIntl } from "@/test/render";
 
 import { SearchSection } from "./search-section";
-import { searchResultsFixture } from "./test-fixtures";
+import { searchHitFixture, searchResultsFixture } from "./test-fixtures";
 
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
 
@@ -37,10 +37,13 @@ function searchPath(query: string): string {
   return `/search?${new URLSearchParams({ workspace_id: WORKSPACE_ID, q: query }).toString()}`;
 }
 
-/** Answers /meta, and every search with what `answer` gives. */
-function serve(answer: () => Promise<SearchResults> = async () => searchResultsFixture(3)) {
+/** Answers /meta with `meta`, and every search with what `answer` gives. */
+function serve(
+  answer: () => Promise<SearchResults> = async () => searchResultsFixture(3),
+  meta: MetaOut = META,
+) {
   apiFetchMock.mockImplementation((path) =>
-    path === META_PATH ? Promise.resolve(META) : answer(),
+    path === META_PATH ? Promise.resolve(meta) : answer(),
   );
 }
 
@@ -374,6 +377,30 @@ describe("SearchSection", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(expected);
     expect(screen.queryByText("The backend's own English.")).not.toBeInTheDocument();
   });
+
+  it.each([
+    ["the built-in embeddings", META, "Similar words"],
+    [
+      "a real embedding model",
+      {
+        ...META,
+        ai: { mode: "live", chat_model: "gpt-4o-mini", embedding_model: "text-embedding-3-small" },
+      },
+      "Similar meaning",
+    ],
+  ] as const)(
+    "names passages found by %s after what /meta reports",
+    async (_, meta: MetaOut, label) => {
+      const hit = searchHitFixture(1, { matched_by: ["keyword", "semantic"], similarity: 0.4 });
+      serve(async () => searchResultsFixture(1, { results: [hit] }), meta);
+      renderSection("light");
+
+      const row = await within(region()).findByRole("listitem");
+      await waitFor(() => expect(row).toHaveTextContent(label));
+      expect(row).toHaveTextContent("Matching words");
+      expect(row.querySelector("mark")).toHaveTextContent("light");
+    },
+  );
 
   it("speaks Russian", async () => {
     serve();

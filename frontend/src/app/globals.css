@@ -124,6 +124,23 @@
     color: var(--on-highlight);
   }
 
+  /* Words a search matched, marked as with the highlighter. The ink is set as well: the light
+     ink of the dark theme on the highlighter would be unreadable. */
+  mark {
+    background-color: var(--highlight);
+    color: var(--on-highlight);
+    /* A marked phrase that wraps is drawn on each line as a box of its own. */
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  @media (forced-colors: active) {
+    mark {
+      background-color: Mark;
+      color: MarkText;
+    }
+  }
+
   :focus-visible {
     outline: 2px solid var(--pen);
     outline-offset: 2px;

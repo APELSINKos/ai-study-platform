@@ -506,6 +506,11 @@
       "pages": "Pages {start}–{end}",
       "passage": "Passage {number}"
     },
+    "match": {
+      "keyword": "Matching words",
+      "meaning": "Similar meaning",
+      "words": "Similar words"
+    },
     "errors": {
       "networkError": "The API could not be reached. Check your connection and try again.",
       "sessionExpired": "Your session has ended. Sign in again to continue.",

@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
+import { Snippet } from "@/components/snippet";
 import { passageHref } from "@/features/documents/passage-href";
-import type { SearchHit, SearchResults } from "@/lib/api/types";
+import { isBuiltInModel } from "@/features/meta/models";
+import type { MatchKind, SearchHit, SearchResults } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 type RowTranslator = ReturnType<typeof useTranslations<"Search.row">>;
@@ -75,29 +77,50 @@ export function SearchNotes({
   );
 }
 
+interface ResultListProps {
+  hits: SearchHit[];
+  /** The model that embedded the passages and the query, from /meta; null while not known. */
+  embeddingModel: string | null;
+  className?: string;
+}
+
 /** The passages a search found, the best first, as ruled rows that open each one in its document. */
-export function ResultList({ hits, className }: { hits: SearchHit[]; className?: string }) {
+export function ResultList({ hits, embeddingModel, className }: ResultListProps) {
   const t = useTranslations("Search");
   if (hits.length === 0) {
     return null;
   }
+  // The built-in embeddings compare words and their beginnings, not meaning, so only a real
+  // model, once /meta has named it, earns the word.
+  const comparesMeaning = embeddingModel !== null && !isBuiltInModel(embeddingModel);
+  const labels = {
+    keyword: t("match.keyword"),
+    semantic: comparesMeaning ? t("match.meaning") : t("match.words"),
+  } satisfies Record<MatchKind, string>;
+
   return (
     <ol
       aria-label={t("resultsLabel")}
       className={cn("border-rule divide-rule divide-y border-y", className)}
     >
       {hits.map((hit) => (
-        <ResultRow key={hit.chunk_id} hit={hit} />
+        <ResultRow key={hit.chunk_id} hit={hit} labels={labels} />
       ))}
     </ol>
   );
+}
+
+interface ResultRowProps {
+  hit: SearchHit;
+  /** What to call each way a passage can be found. */
+  labels: Record<MatchKind, string>;
 }
 
 /**
  * One passage: the document's title is the link, stretched over the whole row. Only the title
  * shows; the link's name adds where the passage is, for the list of links a screen reader offers.
  */
-function ResultRow({ hit }: { hit: SearchHit }) {
+function ResultRow({ hit, labels }: ResultRowProps) {
   const t = useTranslations("Search.row");
   const pages = pageRange(hit, t);
 
@@ -117,7 +140,12 @@ function ResultRow({ hit }: { hit: SearchHit }) {
         </p>
       )}
       <p className="font-display text-ink mt-2 max-w-[70ch] leading-7 break-words">
-        {hit.snippet.map((part) => part.text).join("")}
+        <Snippet parts={hit.snippet} />
+      </p>
+      <p className="text-ink-soft mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {hit.matched_by.map((kind) => (
+          <span key={kind}>{labels[kind]}</span>
+        ))}
       </p>
     </li>
   );
