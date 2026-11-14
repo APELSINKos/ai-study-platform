@@ -561,12 +561,17 @@ def test_list_embedded_by_another_model_lists_every_owners_ready_documents_oldes
         attempts=3,
         created_at=_NOW - timedelta(days=2),
     )
-    tied = [
+    # Inserted in descending id order, so that only the id tie-break puts them in order.
+    tied_ids = sorted((uuid.uuid4(), uuid.uuid4()), reverse=True)
+    for document_id in tied_ids:
         _document(
-            db_session, workspace, "ready", embedding_model="older-model-v0", created_at=_EARLIER
+            db_session,
+            workspace,
+            "ready",
+            id=document_id,
+            embedding_model="older-model-v0",
+            created_at=_EARLIER,
         )
-        for _ in range(2)
-    ]
     # Embedded by the current model already, or not ready: whatever model they name.
     _document(db_session, workspace, "ready", created_at=_EARLIER)
     statuses: tuple[DocumentStatus, ...] = ("uploaded", "processing", "indexing", "failed")
@@ -583,11 +588,10 @@ def test_list_embedded_by_another_model_lists_every_owners_ready_documents_oldes
         _CURRENT_EMBEDDING_MODEL, _CHAT_MODEL
     )
 
-    tied_by_id = sorted(tied, key=lambda document: document.id)
     assert [(candidate.id, candidate.attempts) for candidate in candidates] == [
         (oldest.id, 3),
-        (tied_by_id[0].id, 0),
-        (tied_by_id[1].id, 0),
+        (tied_ids[1], 0),
+        (tied_ids[0], 0),
         (newest.id, 1),
     ]
 

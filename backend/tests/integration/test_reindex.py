@@ -29,7 +29,7 @@ from app.llm.mock_provider import (
 )
 from app.llm.openai_provider import OpenAIEmbeddingProvider
 from app.llm.probe import PROBE_SENTENCE, UNSENDABLE_KEY_MESSAGE
-from app.models.document import Document, DocumentStatus
+from app.models.document import Difficulty, Document, DocumentStatus
 from app.models.document_chunk import DocumentChunk
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -91,17 +91,27 @@ _CHANGES: Final[dict[str, Callable[[uuid.UUID], Update | Delete]]] = {
 
 @dataclass(frozen=True, slots=True)
 class _SavedAnalysis:
-    """The chat model that analysed a document, and what processing it again does with that."""
+    """The analysis saved on a document, and what processing it again does with that."""
 
-    model: str
+    model: str | None
     # The requests the chat model gets, and the title the document ends with.
     requests: int
-    title: str
+    title: str | None
+    difficulty: Difficulty | None = "easy"
+    saved_title: str | None = _SAVED_TITLE
 
 
 _SAVED_ANALYSES: Final = {
     "same-chat-model": _SavedAnalysis(MOCK_ANALYSIS_MODEL, requests=0, title=_SAVED_TITLE),
+    # Complete without a title: an analysis's blank title is saved as None.
+    "same-chat-model-without-a-title": _SavedAnalysis(
+        MOCK_ANALYSIS_MODEL, requests=0, title=None, saved_title=None
+    ),
     "another-chat-model": _SavedAnalysis(_OLDER_CHAT_MODEL, requests=1, title="Photosynthesis"),
+    "incomplete-analysis": _SavedAnalysis(
+        MOCK_ANALYSIS_MODEL, requests=1, title="Photosynthesis", difficulty=None
+    ),
+    "no-analysis-model": _SavedAnalysis(None, requests=1, title="Photosynthesis"),
 }
 
 
@@ -588,7 +598,9 @@ def test_a_queued_document_is_processed_into_chunks_of_the_current_model(
     analysis: _SavedAnalysis,
 ) -> None:
     session = library.session
-    document = library.store(analysis_model=analysis.model)
+    document = library.store(
+        analysis_model=analysis.model, difficulty=analysis.difficulty, title=analysis.saved_title
+    )
     old_chunk = ChunkRow(
         chunk_index=0,
         content=_NOTES,
