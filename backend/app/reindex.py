@@ -4,8 +4,10 @@ Run in the worker container: python -m app.reindex [--dry-run]. Vectors of two m
 be compared, so a search leaves such documents out of its vector list until they have been
 embedded with the current model. The command probes that model first and changes nothing if
 it fails. Then it sends the documents back for processing one at a time, each by a
-compare-and-set committed before the publish, so it can be stopped and run again at any
-point. The worker processes them as it processes uploads.
+compare-and-set committed before the publish, so a run can be stopped and run again: the next
+run queues the documents still ready. A stop during a publish leaves that one document in
+uploaded with nothing queued; its owner's Retry recovers it 15 minutes later. The worker
+processes the queued documents as it processes uploads.
 """
 
 import argparse
@@ -38,7 +40,7 @@ _OUTSIDE_THE_STACK_MESSAGE: Final = (
 )
 # Stored on a document that the queue did not take; its owner's Retry recovers it.
 _QUEUE_UNAVAILABLE_MESSAGE: Final = "The document could not be queued for re-indexing."
-# What happens to the queued documents after a run.
+# What happens to the queued documents after a run; a dry run prints them too.
 CAVEATS: Final = (
     "The command does not wait for processing: the worker re-indexes the queued documents in"
     " the background.",
@@ -96,6 +98,9 @@ def main(  # noqa: PLR0913 -- every dependency is passed in, so a test can repla
         return 0
     _print_counts(candidates, chat_model, dry_run=dry_run)
     if dry_run:
+        print("When run without --dry-run:")
+        for caveat in CAVEATS:
+            print(caveat)
         print("Dry run: nothing was changed.")
         return 0
     summary = _requeue(

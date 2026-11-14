@@ -332,7 +332,11 @@ def test_a_dry_run_counts_the_documents_to_re_index_and_re_analyse_and_changes_n
     lines = _lines(capsys)
     assert "Documents that would be re-indexed: 3" in lines
     assert "Documents that would be re-analysed too: 2" in lines
-    assert lines[-1] == "Dry run: nothing was changed."
+    assert lines[-len(CAVEATS) - 2 :] == [
+        "When run without --dry-run:",
+        *CAVEATS,
+        "Dry run: nothing was changed.",
+    ]
     assert not any(line.startswith("Re-indexed") for line in lines)
 
 
