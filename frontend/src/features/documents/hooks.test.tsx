@@ -8,12 +8,19 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { searchResultsFixture } from "@/features/search/test-fixtures";
 import { apiFetch } from "@/lib/api/client";
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 import type { DocumentOut } from "@/lib/api/types";
 import { queryKeys } from "@/lib/query-keys";
 
-import { useDocument, useDocumentChunks, useRetryDocument, useWorkspaceDocuments } from "./hooks";
+import {
+  useDeleteDocument,
+  useDocument,
+  useDocumentChunks,
+  useRetryDocument,
+  useWorkspaceDocuments,
+} from "./hooks";
 import {
   WORKSPACE_ID,
   chunkFixture,
@@ -520,5 +527,34 @@ describe("useDocumentChunks", () => {
     await pass(0);
 
     expect(requests()).toBe(2);
+  });
+});
+
+describe("useDeleteDocument", () => {
+  const OTHER_WORKSPACE_ID = "00000000-0000-4000-8000-000000000002";
+
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+  });
+
+  it("leaves the searches of the document's workspace to be run again, and only those", async () => {
+    apiFetchMock.mockResolvedValue(undefined);
+    const { result, queryClient } = renderWithClient(() =>
+      useDeleteDocument(readyDocumentFixture(1)),
+    );
+    const searches = [
+      queryKeys.search(WORKSPACE_ID, "light"),
+      queryKeys.search(WORKSPACE_ID, "glucose"),
+      queryKeys.search(OTHER_WORKSPACE_ID, "light"),
+    ];
+    for (const key of searches) {
+      queryClient.setQueryData(key, searchResultsFixture(2));
+    }
+
+    await act(() => result.current.mutateAsync());
+
+    // Its passages may be among the results; a search on screen runs again at once.
+    const invalidated = searches.map((key) => queryClient.getQueryState(key)?.isInvalidated);
+    expect(invalidated).toEqual([true, true, false]);
   });
 });

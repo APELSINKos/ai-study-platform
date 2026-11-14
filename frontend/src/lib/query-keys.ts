@@ -1,10 +1,11 @@
 /**
- * The query keys of the workspaces, the documents and /meta. Keys that only one feature uses, such
- * as the signed-in user's or the readiness check's, live with that feature's hooks. A key belongs
- * either to `useQuery` or to `useInfiniteQuery`, never to both, because the two cache differently
- * shaped data under it. Keys nest, and invalidating or removing
- * a prefix reaches every key below it: `workspaces` takes in the lists, each workspace and its
- * document list, but not a document's own page and fragments, which sit under `documents`.
+ * The query keys of the workspaces, the documents, the searches and /meta. Keys that only one
+ * feature uses, such as the signed-in user's or the readiness check's, live with that feature's
+ * hooks. A key belongs either to `useQuery` or to `useInfiniteQuery`, never to both, because the
+ * two cache differently shaped data under it. Keys nest, and invalidating or removing a prefix
+ * reaches every key below it: `workspaces` takes in the lists, each workspace and its document
+ * list, but not a document's own page and fragments, which sit under `documents`, nor the
+ * searches, which sit under `search` so that uploads and retries never run them again.
  */
 export const queryKeys = {
   workspaces: ["workspaces"] as const,
@@ -19,6 +20,10 @@ export const queryKeys = {
   document: (id: string) => ["documents", id] as const,
   /** Infinite, `DOCUMENT_CHUNKS_PAGE_SIZE` per page. */
   documentChunks: (id: string) => ["documents", id, "chunks"] as const,
+  /** Every search of one workspace. */
+  workspaceSearches: (workspaceId: string) => ["search", workspaceId] as const,
+  /** A plain query: the passages of a workspace that match a query. */
+  search: (workspaceId: string, query: string) => ["search", workspaceId, query] as const,
   meta: ["meta"] as const,
 };
 

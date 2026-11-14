@@ -196,6 +196,10 @@ export function useDeleteDocument(document: DocumentOut) {
       // holds its fragments.
       queryClient.removeQueries({ queryKey: queryKeys.document(document.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      // Its passages may be among the results of the workspace's searches.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaceSearches(document.workspace_id),
+      });
     },
   });
 }

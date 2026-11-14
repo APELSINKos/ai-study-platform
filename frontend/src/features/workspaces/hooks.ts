@@ -138,6 +138,8 @@ export function useDeleteWorkspace(id: string) {
       // holds the workspace's document list.
       queryClient.removeQueries({ queryKey: queryKeys.workspace(id) });
       removeCachedDocumentsOf(queryClient, id);
+      // The searches sit apart from the workspace, and their passages are gone with it.
+      queryClient.removeQueries({ queryKey: queryKeys.workspaceSearches(id) });
       // An invalidated list still shows its cached rows until the refetch lands, so a list off
       // screen would show the deleted workspace for a moment when the user returns to it; it
       // loads afresh instead. A list on screen (the user went back while waiting) is only

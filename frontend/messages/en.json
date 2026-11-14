@@ -484,6 +484,39 @@
       "fileNotStored": "The original file is no longer stored."
     }
   },
+  "Search": {
+    "title": "Search",
+    "inputLabel": "Words to look for",
+    "submit": "Search",
+    "clear": "Clear",
+    "loading": "Searching…",
+    "resultsLabel": "Search results",
+    "status": {
+      "found": "{count, plural, =0 {No passages match.} one {# passage matches.} other {# passages match.}}",
+      "closest": "{count, plural, one {The closest passage.} other {The # closest passages.}}"
+    },
+    "notes": {
+      "noReady": "No file in this workspace is ready to be searched.",
+      "pending": "{count, plural, one {# file is still being processed — search again once it is ready.} other {# files are still being processed — search again once they are ready.}}",
+      "stale": "{count, plural, one {# file was indexed with another model: until it is re-indexed, only its words are searched.} other {# files were indexed with another model: until they are re-indexed, only their words are searched.}}",
+      "wordsOnly": "Only the words of your query were looked for."
+    },
+    "row": {
+      "page": "Page {page}",
+      "pages": "Pages {start}–{end}",
+      "passage": "Passage {number}"
+    },
+    "errors": {
+      "networkError": "The API could not be reached. Check your connection and try again.",
+      "sessionExpired": "Your session has ended. Sign in again to continue.",
+      "workspaceNotFound": "This workspace no longer exists.",
+      "invalidQuery": "This query cannot be searched. Shorten it or remove unusual characters.",
+      "rateLimited": "Too many searches. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+      "rateLimitedMinutes": "Too many searches. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+      "rateLimitedGeneric": "Too many searches. Try again in a moment.",
+      "failed": "Search failed. Try again."
+    }
+  },
   "Dashboard": {
     "metaTitle": "Dashboard",
     "greeting": "Hello, {name}.",

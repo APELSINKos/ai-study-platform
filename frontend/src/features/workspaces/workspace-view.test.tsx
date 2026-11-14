@@ -8,6 +8,7 @@ import {
   documentPageFixture,
   readyDocumentFixture,
 } from "@/features/documents/test-fixtures";
+import { searchResultsFixture } from "@/features/search/test-fixtures";
 import { apiFetch } from "@/lib/api/client";
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 import type { DocumentOut, MetaOut, WorkspaceOut, WorkspaceUpdateRequest } from "@/lib/api/types";
@@ -19,8 +20,10 @@ import { WorkspaceView } from "./workspace-view";
 
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
 
+// One function for every render, so that a test sees each navigation the page asked for.
+const push = vi.fn();
 const replace = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace }) }));
 
 const apiFetchMock = vi.mocked(apiFetch);
 
@@ -39,9 +42,17 @@ function isDocumentsPath(path: string): boolean {
   return path.includes("/documents");
 }
 
-/** A request for the workspace itself, not for its documents or the upload limits. */
+function isSearchPath(path: string): boolean {
+  return path.startsWith("/search?");
+}
+
+/** A request for the workspace itself, not for its documents, a search or the upload limits. */
 function isWorkspacePath(path: string): boolean {
-  return !isDocumentsPath(path) && path !== META_PATH;
+  return !isDocumentsPath(path) && !isSearchPath(path) && path !== META_PATH;
+}
+
+function searchCalls() {
+  return apiFetchMock.mock.calls.filter(([path]) => isSearchPath(path));
 }
 
 const WORKSPACE = workspaceFixture(1, {
@@ -55,17 +66,28 @@ const WORKSPACE = workspaceFixture(1, {
 const LETTERED = { ...WORKSPACE, id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d" };
 const CAPITALISED_ID = LETTERED.id.toUpperCase();
 
-function renderView(id = WORKSPACE.id, locale: Locale = "en") {
-  return renderWithIntl(<WorkspaceView id={id} />, { locale });
+function renderView(id = WORKSPACE.id, locale: Locale = "en", query: string | null = null) {
+  const rendered = renderWithIntl(<WorkspaceView id={id} query={query} />, { locale });
+  return {
+    ...rendered,
+    /** The page after a navigation to another `?q=` of the same workspace. */
+    showQuery: (next: string | null) => rendered.rerender(<WorkspaceView id={id} query={next} />),
+  };
 }
 
-/** Answers like the API would, keeping the changes a PATCH makes and the files uploaded. */
+/**
+ * Answers like the API would, keeping the changes a PATCH makes and the files uploaded. Every
+ * search finds three passages.
+ */
 function serve(workspace: WorkspaceOut, documents: DocumentOut[] = []) {
   let current = workspace;
   let stored = documents;
   apiFetchMock.mockImplementation(async (path, init) => {
     if (path === META_PATH) {
       return META;
+    }
+    if (isSearchPath(path)) {
+      return searchResultsFixture(3);
     }
     if (isDocumentsPath(path) && init?.method === "POST") {
       const file = init.body instanceof FormData ? init.body.get("file") : null;
@@ -95,7 +117,8 @@ function primaryActions(): string[] {
 describe("WorkspaceView", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
-    replace.mockClear();
+    push.mockReset();
+    replace.mockReset();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 9, 16, 12, 0));
   });
@@ -194,6 +217,99 @@ describe("WorkspaceView", () => {
       body: expect.any(FormData),
     });
     expect(screen.getByText("1 file uploaded.")).toHaveAttribute("role", "status");
+  });
+
+  it("searches the workspace for the query of the address, between its header and its documents", async () => {
+    serve(WORKSPACE, [readyDocumentFixture(1, { title: "Reaction mechanisms" })]);
+    renderView(WORKSPACE.id, "en", "light");
+
+    const search = await screen.findByRole("region", { name: "Search" });
+    expect(await within(search).findByText("3 passages match.")).toHaveAttribute("role", "status");
+    expect(within(search).getByRole("searchbox", { name: "Words to look for" })).toHaveValue(
+      "light",
+    );
+    expect(searchCalls()).toEqual([
+      [`/search?workspace_id=${WORKSPACE.id}&q=light`, { signal: expect.any(AbortSignal) }],
+    ]);
+    const title = screen.getByRole("heading", { level: 1, name: "Organic chemistry" });
+    const documents = screen.getByRole("region", { name: "Documents" });
+    expect(title.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      search.compareDocumentPosition(documents) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
+  it("keeps Upload files as the page's one primary action beside the search and its results", async () => {
+    serve(WORKSPACE, [readyDocumentFixture(1, { title: "Reaction mechanisms" })]);
+    renderView(WORKSPACE.id, "en", "light");
+
+    await screen.findByText("3 passages match.");
+    const upload = screen.getByRole("button", { name: "Upload files" });
+    await waitFor(() => expect(upload).not.toHaveAttribute("aria-busy"));
+    expect(primaryActions()).toEqual(["Upload files"]);
+  });
+
+  it("offers no search before the workspace has a document", async () => {
+    serve({ ...WORKSPACE, stats: { ...WORKSPACE.stats, document_count: 0, ready_count: 0 } });
+    renderView(WORKSPACE.id, "en", "light");
+
+    const documents = await screen.findByRole("region", { name: "Documents" });
+    expect(await within(documents).findByText("No documents yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Search" })).not.toBeInTheDocument();
+    expect(searchCalls()).toHaveLength(0);
+  });
+
+  it("puts a search into the address of the workspace", async () => {
+    serve(WORKSPACE);
+    renderView();
+
+    await userEvent.type(
+      await screen.findByRole("searchbox", { name: "Words to look for" }),
+      "alkenes{Enter}",
+    );
+
+    expect(push).toHaveBeenCalledWith(`/workspaces/${WORKSPACE.id}?q=alkenes`, { scroll: false });
+  });
+
+  it("keeps the page, the box and its focus when the address brings another query", async () => {
+    serve(WORKSPACE);
+    const { showQuery } = renderView();
+    const box = await screen.findByRole("searchbox", { name: "Words to look for" });
+    await userEvent.click(box);
+
+    showQuery("light");
+
+    expect(await screen.findByText("3 passages match.")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Words to look for" })).toBe(box);
+    expect(box).toHaveValue("light");
+    expect(box).toHaveFocus();
+  });
+
+  it("searches again once a document is deleted, since its passages may be among the results", async () => {
+    let documents = [readyDocumentFixture(1, { title: "Reaction mechanisms" })];
+    apiFetchMock.mockImplementation(async (path, init) => {
+      if (path === META_PATH) {
+        return META;
+      }
+      if (isSearchPath(path)) {
+        return searchResultsFixture(documents.length === 0 ? 0 : 3);
+      }
+      if (init?.method === "DELETE") {
+        documents = [];
+        return undefined;
+      }
+      return isDocumentsPath(path) ? documentPageFixture(documents) : WORKSPACE;
+    });
+    renderView(WORKSPACE.id, "en", "light");
+    await screen.findByText("3 passages match.");
+    await userEvent.click(screen.getByRole("button", { name: "Delete lecture-1.pdf" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete this document?" });
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete document" }));
+
+    expect(await screen.findByText("No passages match.")).toBeInTheDocument();
+    expect(searchCalls()).toHaveLength(2);
   });
 
   it("moves focus to the documents heading once a document is deleted", async () => {
@@ -362,6 +478,20 @@ describe("WorkspaceView", () => {
     ).toBeInTheDocument();
   });
 
+  it("forgets the searches of a deleted workspace", async () => {
+    serve(WORKSPACE);
+    const { queryClient } = renderView(WORKSPACE.id, "en", "light");
+    await screen.findByText("3 passages match.");
+    apiFetchMock.mockResolvedValue(undefined);
+    await userEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
+    const dialog = await screen.findByRole("alertdialog");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete workspace" }));
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/workspaces"));
+    expect(queryClient.getQueryData(queryKeys.search(WORKSPACE.id, "light"))).toBeUndefined();
+  });
+
   it("forgets a workspace deleted on an address that spells its id in capitals", async () => {
     apiFetchMock.mockImplementation((path, init) => {
       if (path === META_PATH) {
@@ -436,7 +566,7 @@ describe("WorkspaceView", () => {
 
   it("speaks Russian", async () => {
     serve(WORKSPACE);
-    renderView(WORKSPACE.id, "ru");
+    renderView(WORKSPACE.id, "ru", "light");
 
     const region = await screen.findByRole("region", { name: "Документы" });
     expect(await within(region).findByText("Документов пока нет.")).toHaveAttribute(
@@ -448,6 +578,11 @@ describe("WorkspaceView", () => {
     expect(screen.getByRole("button", { name: "Изменить" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить пространство" })).toBeInTheDocument();
     expect(within(region).getByRole("button", { name: "Загрузить файлы" })).toBeInTheDocument();
+    const search = screen.getByRole("region", { name: "Поиск" });
+    expect(await within(search).findByText("Запросу соответствуют 3 фрагмента.")).toHaveAttribute(
+      "role",
+      "status",
+    );
   });
 
   it("counts documents in the margin in Russian", async () => {

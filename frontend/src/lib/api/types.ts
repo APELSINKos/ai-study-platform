@@ -22,6 +22,10 @@ export type Difficulty = Schemas["Difficulty"];
 export type ChunkOut = Schemas["ChunkOut"];
 export type ChunkPage = Schemas["ChunkPage"];
 
+export type SearchResults = Schemas["SearchResults"];
+export type SearchHit = Schemas["SearchHit"];
+export type SnippetPart = Schemas["SnippetPart"];
+
 export type MetaOut = Schemas["MetaOut"];
 export type AiInfo = Schemas["AiInfo"];
 export type AiMode = Schemas["AiMode"];

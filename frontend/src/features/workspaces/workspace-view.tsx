@@ -7,6 +7,7 @@ import { useId, useRef, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { DocumentList } from "@/features/documents/document-list";
 import { UploadDropzone } from "@/features/documents/upload-dropzone";
+import { SearchSection } from "@/features/search/search-section";
 import { ApiError } from "@/lib/api/errors";
 import type { WorkspaceOut } from "@/lib/api/types";
 import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
@@ -26,8 +27,14 @@ function isMissingWorkspace(error: unknown): boolean {
   return error instanceof ApiError && MISSING_WORKSPACE_CODES.has(error.code);
 }
 
+interface WorkspaceViewProps {
+  id: string;
+  /** The search the address holds in `?q=`; null when it holds none. */
+  query: string | null;
+}
+
 /** The page of one workspace, fetched in the browser: the server never sees the session. */
-export function WorkspaceView({ id }: { id: string }) {
+export function WorkspaceView({ id, query }: WorkspaceViewProps) {
   const workspace = useWorkspace(id);
   // The page's one heading, in whichever state the page is.
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -42,7 +49,7 @@ export function WorkspaceView({ id }: { id: string }) {
     return <WorkspaceNotFound headingRef={headingRef} />;
   }
   if (workspace.data !== undefined) {
-    return <WorkspacePage workspace={workspace.data} headingRef={headingRef} />;
+    return <WorkspacePage workspace={workspace.data} query={query} headingRef={headingRef} />;
   }
   if (workspace.isPending) {
     return <WorkspaceSkeleton />;
@@ -61,18 +68,22 @@ export function WorkspaceView({ id }: { id: string }) {
 
 type HeadingRef = RefObject<HTMLHeadingElement | null>;
 
-function WorkspacePage({
-  workspace,
-  headingRef,
-}: {
+interface WorkspacePageProps {
   workspace: WorkspaceOut;
+  query: string | null;
   headingRef: HeadingRef;
-}) {
+}
+
+function WorkspacePage({ workspace, query, headingRef }: WorkspacePageProps) {
   return (
     <div className="notebook-row">
       <WorkspaceMarginNote workspace={workspace} />
       <div className="max-w-3xl">
         <WorkspaceHeader workspace={workspace} headingRef={headingRef} />
+        {/* Nothing to search before the first file arrives. */}
+        {workspace.stats.document_count > 0 ? (
+          <SearchSection workspaceId={workspace.id} query={query} className="mt-12" />
+        ) : null}
         <WorkspaceDocuments workspace={workspace} className="mt-12" />
       </div>
     </div>

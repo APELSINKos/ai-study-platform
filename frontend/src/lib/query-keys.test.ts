@@ -13,6 +13,7 @@ const PLAIN_KEYS: QueryKey[] = [
   queryKeys.recentWorkspaces,
   queryKeys.workspace("w1"),
   queryKeys.document("d1"),
+  queryKeys.search("w1", "light"),
   queryKeys.meta,
 ];
 
@@ -25,6 +26,8 @@ function cacheWithEveryKey(): QueryClient {
     queryKeys.workspaceDocuments("w2"),
     queryKeys.document("d2"),
     queryKeys.documentChunks("d2"),
+    queryKeys.search("w1", "dark"),
+    queryKeys.search("w2", "light"),
   ]) {
     queryClient.setQueryData(key, { cached: true });
   }
@@ -33,6 +36,10 @@ function cacheWithEveryKey(): QueryClient {
 
 function isCached(queryClient: QueryClient, key: QueryKey): boolean {
   return queryClient.getQueryData(key) !== undefined;
+}
+
+function isInvalidated(queryClient: QueryClient, key: QueryKey): boolean | undefined {
+  return queryClient.getQueryState(key)?.isInvalidated;
 }
 
 describe("queryKeys", () => {
@@ -45,6 +52,8 @@ describe("queryKeys", () => {
     expect(queryKeys.documents).toEqual(["documents"]);
     expect(queryKeys.document("d1")).toEqual(["documents", "d1"]);
     expect(queryKeys.documentChunks("d1")).toEqual(["documents", "d1", "chunks"]);
+    expect(queryKeys.workspaceSearches("w1")).toEqual(["search", "w1"]);
+    expect(queryKeys.search("w1", "light")).toEqual(["search", "w1", "light"]);
     expect(queryKeys.meta).toEqual(["meta"]);
   });
 
@@ -61,13 +70,26 @@ describe("queryKeys", () => {
 
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
 
-    const invalidated = (key: QueryKey) => queryClient.getQueryState(key)?.isInvalidated;
-    expect(invalidated(queryKeys.workspaceList)).toBe(true);
-    expect(invalidated(queryKeys.recentWorkspaces)).toBe(true);
-    expect(invalidated(queryKeys.workspace("w1"))).toBe(true);
-    expect(invalidated(queryKeys.workspaceDocuments("w1"))).toBe(true);
-    expect(invalidated(queryKeys.document("d1"))).toBe(false);
-    expect(invalidated(queryKeys.meta)).toBe(false);
+    expect(isInvalidated(queryClient, queryKeys.workspaceList)).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.recentWorkspaces)).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.workspace("w1"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.workspaceDocuments("w1"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.document("d1"))).toBe(false);
+    expect(isInvalidated(queryClient, queryKeys.meta)).toBe(false);
+    // Uploads and retries invalidate the workspaces; a search runs again only on request.
+    expect(isInvalidated(queryClient, queryKeys.search("w1", "light"))).toBe(false);
+  });
+
+  it("lets one invalidation reach every search of a workspace, and no other", async () => {
+    const queryClient = cacheWithEveryKey();
+
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSearches("w1") });
+
+    expect(isInvalidated(queryClient, queryKeys.search("w1", "light"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.search("w1", "dark"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.search("w2", "light"))).toBe(false);
+    expect(isInvalidated(queryClient, queryKeys.workspace("w1"))).toBe(false);
+    expect(isInvalidated(queryClient, queryKeys.workspaceDocuments("w1"))).toBe(false);
   });
 
   it("drops a deleted workspace together with its document list, and nothing else", () => {
@@ -80,6 +102,19 @@ describe("queryKeys", () => {
     expect(isCached(queryClient, queryKeys.workspace("w2"))).toBe(true);
     expect(isCached(queryClient, queryKeys.workspaceDocuments("w2"))).toBe(true);
     expect(isCached(queryClient, queryKeys.workspaceList)).toBe(true);
+    // The searches sit apart, so the delete removes them by their own prefix.
+    expect(isCached(queryClient, queryKeys.search("w1", "light"))).toBe(true);
+  });
+
+  it("drops the searches of one workspace, and nothing else", () => {
+    const queryClient = cacheWithEveryKey();
+
+    queryClient.removeQueries({ queryKey: queryKeys.workspaceSearches("w1") });
+
+    expect(isCached(queryClient, queryKeys.search("w1", "light"))).toBe(false);
+    expect(isCached(queryClient, queryKeys.search("w1", "dark"))).toBe(false);
+    expect(isCached(queryClient, queryKeys.search("w2", "light"))).toBe(true);
+    expect(isCached(queryClient, queryKeys.workspace("w1"))).toBe(true);
   });
 
   it("drops a deleted document together with its chunks, and nothing else", () => {
