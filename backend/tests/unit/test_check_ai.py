@@ -2,7 +2,9 @@ import re
 from collections.abc import Sequence
 from typing import Any, Final
 
+import httpx2
 import pytest
+from openai import OpenAI
 from pydantic import SecretStr
 
 from app.check_ai import main
@@ -15,7 +17,9 @@ from app.llm.base import (
     ProviderUnavailableError,
 )
 from app.llm.mock_provider import HashingEmbeddingProvider, MockLLMProvider
-from app.llm.probe import PROBE_SENTENCE
+from app.llm.openai_provider import OpenAIEmbeddingProvider, OpenAILLMProvider
+from app.llm.probe import PROBE_SENTENCE, UNSENDABLE_KEY_MESSAGE
+from app.llm.structured import ChatOptions
 
 # Invented, and as long as a real key.
 _CHAT_KEY: Final = "chat-key-for-check-ai-tests-".ljust(40, "0")
@@ -80,6 +84,20 @@ def _live(**values: Any) -> Settings:
 
 def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().out.splitlines()
+
+
+def _refuse_connection(request: httpx2.Request) -> httpx2.Response:
+    raise httpx2.ConnectError("Connection refused", request=request)
+
+
+def _client_with_an_unsendable_key() -> OpenAI:
+    """A client whose key was pasted with a no-break space; a request would be refused."""
+    return OpenAI(
+        api_key=f"{_CHAT_KEY}\N{NO-BREAK SPACE}",
+        base_url="http://llm.test/v1",
+        max_retries=0,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(_refuse_connection)),
+    )
 
 
 def test_the_built_in_models_are_named_and_the_embedding_model_answers(
@@ -151,6 +169,53 @@ def test_a_failing_chat_model_exits_with_1_and_its_error_code(
         "The chat model failed: ai_rejected"
         " (The AI provider rejected the request: HTTP 404 (model_not_found).)"
     )
+
+
+def test_an_embedding_key_that_cannot_be_sent_is_named_as_the_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with _client_with_an_unsendable_key() as client:
+        embedder = OpenAIEmbeddingProvider(client=client, model="text-embedding-3-small")
+
+        assert main([], settings=_offline(), embedder=embedder) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out.splitlines()[-1] == f"The embedding model failed: {UNSENDABLE_KEY_MESSAGE}"
+    assert _CHAT_KEY not in captured.out
+    assert _CHAT_KEY not in captured.err
+
+
+def test_a_chat_key_that_cannot_be_sent_is_named_as_the_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    options = ChatOptions(
+        model="gpt-5.4-mini", structured_output="json_schema", max_output_tokens=700
+    )
+    with _client_with_an_unsendable_key() as client:
+        llm = OpenAILLMProvider(client=client, options=options)
+
+        assert main(["--chat"], settings=_offline(), embedder=_Embedder(), llm=llm) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out.splitlines()[-1] == f"The chat model failed: {UNSENDABLE_KEY_MESSAGE}"
+    assert _CHAT_KEY not in captured.out
+    assert _CHAT_KEY not in captured.err
+
+
+def test_the_models_are_named_before_a_base_url_the_client_refuses(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = _live(
+        embedding_api_key=SecretStr(_EMBEDDING_KEY), embedding_base_url="http://localhost:11434O/v1"
+    )
+
+    with pytest.raises(httpx2.InvalidURL):
+        main([], settings=settings)
+
+    assert _lines(capsys)[:2] == [
+        "Chat model: gpt-5.4-mini (provider openai, OpenAI)",
+        "Embedding model: text-embedding-3-small (provider openai, custom endpoint)",
+    ]
 
 
 @pytest.mark.parametrize(

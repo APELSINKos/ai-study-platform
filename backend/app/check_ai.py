@@ -21,7 +21,7 @@ from app.llm.factory import (
     embedding_endpoint,
     selected_models,
 )
-from app.llm.probe import probe_chat, probe_embedding
+from app.llm.probe import UNSENDABLE_KEY_MESSAGE, probe_chat, probe_embedding
 
 
 def main(
@@ -37,14 +37,18 @@ def main(
     """
     chat = _wants_chat(argv)
     settings = get_settings() if settings is None else settings
-    embedder = build_embedding_provider(settings) if embedder is None else embedder
     selection = selected_models(settings)
     print(f"Chat model: {_describe(selection.chat, chat_endpoint(settings))}")
     print(f"Embedding model: {_describe(selection.embedding, embedding_endpoint(settings))}")
+    # Built after the lines above, so that they show even when the client refuses a base URL.
+    embedder = build_embedding_provider(settings) if embedder is None else embedder
     try:
         latency = probe_embedding(embedder)
     except ProviderError as error:
         print(f"The embedding model failed: {_failure(error)}")
+        return 1
+    except UnicodeEncodeError:
+        print(f"The embedding model failed: {UNSENDABLE_KEY_MESSAGE}")
         return 1
     print(f"The embedding model answered in {latency} ms.")
     if not chat:
@@ -58,6 +62,9 @@ def main(
         latency = probe_chat(llm)
     except ProviderError as error:
         print(f"The chat model failed: {_failure(error)}")
+        return 1
+    except UnicodeEncodeError:
+        print(f"The chat model failed: {UNSENDABLE_KEY_MESSAGE}")
         return 1
     print(f"The chat model answered in {latency} ms.")
     return 0

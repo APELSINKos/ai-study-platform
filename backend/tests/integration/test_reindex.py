@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+import httpx2
 import pytest
+from openai import OpenAI
 from sqlalchemy import Delete, Update, delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -25,7 +27,8 @@ from app.llm.mock_provider import (
     HashingEmbeddingProvider,
     MockLLMProvider,
 )
-from app.llm.probe import PROBE_SENTENCE
+from app.llm.openai_provider import OpenAIEmbeddingProvider
+from app.llm.probe import PROBE_SENTENCE, UNSENDABLE_KEY_MESSAGE
 from app.models.document import Document, DocumentStatus
 from app.models.document_chunk import DocumentChunk
 from app.models.user import User
@@ -47,6 +50,8 @@ _INDEXED_AT: Final = _NOW - timedelta(days=30)
 # settings select.
 _OLDER_EMBEDDING_MODEL: Final = "text-embedding-3-small"
 _OLDER_CHAT_MODEL: Final = "gpt-5.4-mini"
+# Invented, and as long as a real key.
+_API_KEY: Final = "embedding-key-for-reindex-tests-".ljust(40, "0")
 _SAVED_TITLE: Final = "Notes on photosynthesis"
 _NOTES: Final = """# Photosynthesis
 
@@ -271,6 +276,10 @@ def _one_hot(index: int) -> list[float]:
     return vector
 
 
+def _refuse_connection(request: httpx2.Request) -> httpx2.Response:
+    raise httpx2.ConnectError("Connection refused", request=request)
+
+
 def test_only_ready_documents_of_another_embedding_model_are_queued_again(
     db_session: Session, library: _Library, command: _Command, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -433,6 +442,34 @@ def test_an_embedding_model_that_fails_the_probe_stops_the_command_before_any_ch
         " (The AI provider could not be reached.)",
         "Nothing was changed.",
     ]
+
+
+def test_an_embedding_key_that_cannot_be_sent_stops_the_command_before_any_change(
+    db_session: Session, library: _Library, command: _Command, capsys: pytest.CaptureFixture[str]
+) -> None:
+    document = library.store()
+    queue = _Queue()
+    # Pasted with a no-break space, the key cannot go into a header; a request would be refused.
+    with OpenAI(
+        api_key=f"{_API_KEY}\N{NO-BREAK SPACE}",
+        base_url="http://llm.test/v1",
+        max_retries=0,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(_refuse_connection)),
+    ) as client:
+        embedder = OpenAIEmbeddingProvider(client=client, model="text-embedding-3-large")
+
+        assert command.run(queue=queue, embedder=embedder) == 1
+
+    assert queue.enqueued == []
+    db_session.refresh(document)
+    assert (document.status, document.updated_at) == ("ready", _INDEXED_AT)
+    captured = capsys.readouterr()
+    assert captured.out.splitlines()[-2:] == [
+        f"The embedding model text-embedding-3-large failed the probe: {UNSENDABLE_KEY_MESSAGE}",
+        "Nothing was changed.",
+    ]
+    assert _API_KEY not in captured.out
+    assert _API_KEY not in captured.err
 
 
 def test_a_document_the_queue_does_not_take_is_failed_and_the_run_stops_there(

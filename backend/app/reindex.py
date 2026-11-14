@@ -25,7 +25,7 @@ from app.db.session import get_session_factory
 from app.documents.queue import CeleryDocumentQueue, DocumentQueue, QueueUnavailableError
 from app.llm.base import EmbeddingProvider, ProviderError
 from app.llm.factory import build_embedding_provider, selected_models
-from app.llm.probe import probe_embedding
+from app.llm.probe import UNSENDABLE_KEY_MESSAGE, probe_embedding
 from app.repositories.documents import DocumentRepository, ReindexCandidate
 from app.workers.celery_app import celery_app
 
@@ -132,6 +132,12 @@ def _probe(embedder: EmbeddingProvider) -> bool:
         print(
             f"The embedding model {embedder.model_name} failed the probe: {error.code}"
             f" ({error.message})"
+        )
+        print("Nothing was changed.")
+        return False
+    except UnicodeEncodeError:
+        print(
+            f"The embedding model {embedder.model_name} failed the probe: {UNSENDABLE_KEY_MESSAGE}"
         )
         print("Nothing was changed.")
         return False

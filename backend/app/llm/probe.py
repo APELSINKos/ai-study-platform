@@ -9,6 +9,11 @@ from app.llm.base import AnalysisRequest, EmbeddingProvider, LLMProvider
 # Short and invented, so that a probe of a paid model costs next to nothing.
 PROBE_SENTENCE: Final = "Spaced repetition brings each card back just before it would be forgotten."
 PROBE_FILENAME: Final = "probe.txt"
+# The client raises UnicodeEncodeError for such a key before it sends anything.
+UNSENDABLE_KEY_MESSAGE: Final = (
+    "its API key holds a character that cannot be sent in a request header, such as a"
+    " pasted no-break or zero-width space."
+)
 
 
 def probe_embedding(embedder: EmbeddingProvider) -> float:
