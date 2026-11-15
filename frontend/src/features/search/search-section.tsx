@@ -109,10 +109,13 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
         )}
       </form>
       {/* The one polite live region of the search. It stays in place, empty while a search
-          runs, so that each answer is announced when it arrives. */}
-      <p role="status" className={cn("text-ink-soft text-sm", status !== null && "mt-4")}>
-        {status}
-      </p>
+          runs, so that each answer is announced when it arrives, with what it could not cover. */}
+      <div role="status" className={cn(status !== null && "mt-4")}>
+        {status === null ? null : <p className="text-ink-soft text-sm">{status}</p>}
+        {status === null || search.data === undefined ? null : (
+          <SearchNotes results={search.data} className="mt-3" />
+        )}
+      </div>
       {query === null ? null : (
         <SearchOutcome search={search} embeddingModel={meta?.ai.embedding_model ?? null} />
       )}
@@ -152,12 +155,7 @@ function SearchOutcome({ search, embeddingModel }: SearchOutcomeProps) {
       </p>
     );
   }
-  return (
-    <>
-      <SearchNotes results={search.data} className="mt-3" />
-      <ResultList hits={search.data.results} embeddingModel={embeddingModel} className="mt-4" />
-    </>
-  );
+  return <ResultList hits={search.data.results} embeddingModel={embeddingModel} className="mt-4" />;
 }
 
 function ResultsSkeleton({ className }: { className?: string }) {

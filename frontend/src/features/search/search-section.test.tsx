@@ -321,7 +321,8 @@ describe("SearchSection", () => {
     serve(async () => searchResultsFixture(0));
     renderSection("xylophone");
 
-    expect(await screen.findByText("No passages match.")).toHaveAttribute("role", "status");
+    await screen.findByText("No passages match.");
+    expect(screen.getByRole("status")).toHaveTextContent("No passages match.");
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
@@ -329,7 +330,8 @@ describe("SearchSection", () => {
     serve(async () => searchResultsFixture(10));
     renderSection("light");
 
-    expect(await screen.findByText("The 10 closest passages.")).toHaveAttribute("role", "status");
+    await screen.findByText("The 10 closest passages.");
+    expect(screen.getByRole("status")).toHaveTextContent("The 10 closest passages.");
     expect(within(region()).getAllByRole("listitem")).toHaveLength(10);
   });
 
@@ -337,10 +339,11 @@ describe("SearchSection", () => {
     serve(async () => searchResultsFixture(9));
     renderSection("light");
 
-    expect(await screen.findByText("9 passages match.")).toHaveAttribute("role", "status");
+    await screen.findByText("9 passages match.");
+    expect(screen.getByRole("status")).toHaveTextContent("9 passages match.");
   });
 
-  it("notes what the search could not cover, under the line that sums it up", async () => {
+  it("announces what the search could not cover together with the line that sums it up", async () => {
     serve(async () => searchResultsFixture(2, { pending_document_count: 1 }));
     renderSection("light");
 
@@ -348,11 +351,33 @@ describe("SearchSection", () => {
       "1 file is still being processed — search again once it is ready.",
     );
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("2 passages match.");
-    expect(status.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(status).toContainElement(note);
+    const summary = within(status).getByText("2 passages match.");
+    expect(summary.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
       note.compareDocumentPosition(screen.getByRole("list")) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("leaves the status line empty when a search asked for again fails", async () => {
+    let attempts = 0;
+    serve(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return searchResultsFixture(3, { pending_document_count: 1 });
+      }
+      throw apiError(429, "rate_limited", 30);
+    });
+    renderSection("light");
+    await screen.findByText("3 passages match.");
+
+    await userEvent.click(searchButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Too many searches. Try again in 30 seconds.",
+    );
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("reports a failed search and runs it again from the button", async () => {
@@ -428,10 +453,8 @@ describe("SearchSection", () => {
     const section = region("Поиск");
     expect(within(section).getByRole("search", { name: "Поиск" })).toBeInTheDocument();
     expect(searchbox("Слова для поиска")).toHaveValue("light");
-    expect(await screen.findByText("Запросу соответствуют 3 фрагмента.")).toHaveAttribute(
-      "role",
-      "status",
-    );
+    await screen.findByText("Запросу соответствуют 3 фрагмента.");
+    expect(screen.getByRole("status")).toHaveTextContent("Запросу соответствуют 3 фрагмента.");
     expect(searchButton("Найти")).toBeInTheDocument();
     expect(within(section).getByRole("button", { name: "Очистить" })).toBeInTheDocument();
     expect(within(section).getByRole("list", { name: "Результаты поиска" })).toBeInTheDocument();

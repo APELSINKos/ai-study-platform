@@ -224,7 +224,8 @@ describe("WorkspaceView", () => {
     renderView(WORKSPACE.id, "en", "light");
 
     const search = await screen.findByRole("region", { name: "Search" });
-    expect(await within(search).findByText("3 passages match.")).toHaveAttribute("role", "status");
+    await within(search).findByText("3 passages match.");
+    expect(within(search).getByRole("status")).toHaveTextContent("3 passages match.");
     expect(within(search).getByRole("searchbox", { name: "Words to look for" })).toHaveValue(
       "light",
     );
@@ -582,9 +583,9 @@ describe("WorkspaceView", () => {
     expect(screen.getByRole("button", { name: "Удалить пространство" })).toBeInTheDocument();
     expect(within(region).getByRole("button", { name: "Загрузить файлы" })).toBeInTheDocument();
     const search = screen.getByRole("region", { name: "Поиск" });
-    expect(await within(search).findByText("Запросу соответствуют 3 фрагмента.")).toHaveAttribute(
-      "role",
-      "status",
+    await within(search).findByText("Запросу соответствуют 3 фрагмента.");
+    expect(within(search).getByRole("status")).toHaveTextContent(
+      "Запросу соответствуют 3 фрагмента.",
     );
   });
 
