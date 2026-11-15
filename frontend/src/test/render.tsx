@@ -12,13 +12,18 @@ const catalogs = { en, ru } satisfies Record<Locale, typeof en>;
 
 interface IntlRenderOptions extends Omit<RenderOptions, "wrapper"> {
   locale?: Locale;
+  /** By default a new client that never retries a failed request. */
+  queryClient?: QueryClient;
 }
 
 export function renderWithIntl(
   ui: ReactElement,
-  { locale = "en", ...options }: IntlRenderOptions = {},
+  {
+    locale = "en",
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    ...options
+  }: IntlRenderOptions = {},
 ): RenderResult & { queryClient: QueryClient } {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // A wrapper rather than part of `ui`, so that `rerender` keeps the messages and the cache.
   function Providers({ children }: { children: ReactNode }) {
     return (

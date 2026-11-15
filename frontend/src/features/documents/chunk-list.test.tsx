@@ -1,12 +1,14 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultScheduler, notifyManager, type InfiniteData } from "@tanstack/react-query";
+import { useLayoutEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Locale } from "@/i18n/config";
 import { apiFetch } from "@/lib/api/client";
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 import type { ChunkPage, DocumentOut } from "@/lib/api/types";
+import { makeQueryClient } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { renderWithIntl } from "@/test/render";
 import { stubScrollIntoView } from "@/test/scroll-into-view";
@@ -369,7 +371,68 @@ describe("ChunkList opened at a fragment", () => {
     expect(scrollIntoView).toHaveBeenCalledOnce();
   });
 
-  it("asks once for a page that fails, then leaves it to Show more and its error", async () => {
+  it.each([50, 100])(
+    "loads the page that starts with fragment %i, then goes there",
+    async (fragment) => {
+      serveFragments(200);
+      renderList(READY, "en", fragment);
+      await pass(0);
+
+      const pages = Array.from({ length: fragment / PAGE_SIZE + 1 }, (_, index) =>
+        pagePath(index + 1),
+      );
+      expect(requestedPages()).toEqual(pages);
+      expect(rowOf(fragment)).toHaveFocus();
+      expect(rowOf(fragment)).toHaveTextContent("The passage you opened");
+    },
+  );
+
+  it("goes to the fragment after the page's own scroll, which runs in a layout effect", async () => {
+    serveFragments(3);
+    const pageScroll = vi.fn();
+    // Next scrolls a page it opens in a layout effect of a component above the page's content.
+    function OpenedPage({ path, children }: { path: string; children?: ReactNode }) {
+      useLayoutEffect(() => {
+        pageScroll(path);
+      }, [path]);
+      return children;
+    }
+    const { queryClient, rerender } = renderWithIntl(<OpenedPage path="/workspaces" />);
+    queryClient.setQueryData<InfiniteData<ChunkPage, number>>(queryKeys.documentChunks(READY.id), {
+      pages: [fragmentPage(1, 3)],
+      pageParams: [1],
+    });
+
+    rerender(
+      <OpenedPage path={`/documents/${READY.id}`}>
+        <ChunkList document={READY} fragment={1} />
+      </OpenedPage>,
+    );
+    await pass(0);
+
+    const [, opened] = pageScroll.mock.invocationCallOrder;
+    expect(scrollIntoView.mock.invocationCallOrder[0]).toBeGreaterThan(opened ?? Infinity);
+  });
+
+  it("leaves a failing page to the app's retries, then to Show more and its error", async () => {
+    serveFragments(200, (page) =>
+      page === 2
+        ? Promise.reject(new ApiError({ status: 503, code: "http_error", message: "x" }))
+        : undefined,
+    );
+    renderWithIntl(<ChunkList document={READY} fragment={120} />, {
+      queryClient: makeQueryClient(),
+    });
+    await pass(0);
+    await pass(60_000);
+
+    // The app tries a failed request twice more; the list itself asks for the page once.
+    expect(requestedPages()).toEqual([pagePath(1), pagePath(2), pagePath(2), pagePath(2)]);
+    expect(screen.getByRole("alert")).toHaveTextContent("More passages could not be loaded.");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("asks once by itself for a page that fails, then leaves it to Show more and its error", async () => {
     let failed = false;
     serveFragments(200, (page) => {
       if (page !== 2 || failed) {
