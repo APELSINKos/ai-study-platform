@@ -5,9 +5,10 @@ import { useEffect, useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { ChunkOut, DocumentOut } from "@/lib/api/types";
-import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
+import { isFocusLost, useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 import { cn } from "@/lib/utils";
 
+import styles from "./chunk-list.module.css";
 import { documentErrorMessage } from "./error-message";
 import { useDocumentChunks } from "./hooks";
 
@@ -15,6 +16,11 @@ const SKELETON_ROWS = 3;
 
 type ChunksQuery = ReturnType<typeof useDocumentChunks>;
 type ChunksTranslator = ReturnType<typeof useTranslations<"Documents.chunks">>;
+
+/** The id of a fragment's row, by the fragment's place in the document. */
+function rowId(index: number): string {
+  return `fragment-${index}`;
+}
 
 function pageRange(chunk: ChunkOut, t: ChunksTranslator): string | null {
   if (chunk.page_start === null) {
@@ -26,16 +32,50 @@ function pageRange(chunk: ChunkOut, t: ChunksTranslator): string | null {
     : t("pages", { start: chunk.page_start, end });
 }
 
+interface ChunkListProps {
+  document: DocumentOut;
+  /** The fragment the address opens the page at, by its place in the document; null for none. */
+  fragment: number | null;
+  className?: string;
+}
+
 /**
  * The passages a document was cut into for search, in reading order, set in the serif of a
  * printed page. They exist only once processing has finished.
  */
-export function ChunkList({ document, className }: { document: DocumentOut; className?: string }) {
+export function ChunkList({ document, fragment, className }: ChunkListProps) {
   const t = useTranslations("Documents.chunks");
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const chunks = useDocumentChunks(document);
   const focusHeadingOnArrival = useFocusOnArrival(chunks.data !== undefined, headingRef);
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = chunks;
+  const loadedCount = chunks.data?.chunks.length ?? 0;
+  const total = chunks.data?.total ?? 0;
+
+  // Opened at a fragment on a later page, the list loads the pages up to it, one at a time. A
+  // page that fails stops it there, and Show more with its error takes over; a fragment the
+  // document does not have loads nothing more.
+  useEffect(() => {
+    if (
+      fragment !== null &&
+      hasNextPage &&
+      !isFetchingNextPage &&
+      !isFetchNextPageError &&
+      loadedCount <= fragment &&
+      fragment < total
+    ) {
+      void fetchNextPage();
+    }
+  }, [
+    fragment,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    loadedCount,
+    total,
+    fetchNextPage,
+  ]);
 
   function loadAgain() {
     focusHeadingOnArrival();
@@ -55,7 +95,7 @@ export function ChunkList({ document, className }: { document: DocumentOut; clas
         {t("title")}
       </h2>
       {document.status === "ready" ? (
-        <ChunksBody chunks={chunks} onRetry={loadAgain} className="mt-4" />
+        <ChunksBody chunks={chunks} fragment={fragment} onRetry={loadAgain} className="mt-4" />
       ) : (
         // A failed document gets fragments only if a retry succeeds, so none are promised.
         <p className="text-ink-soft mt-3 text-sm">
@@ -68,11 +108,12 @@ export function ChunkList({ document, className }: { document: DocumentOut; clas
 
 interface ChunksBodyProps {
   chunks: ChunksQuery;
+  fragment: number | null;
   onRetry: () => void;
   className?: string;
 }
 
-function ChunksBody({ chunks, onRetry, className }: ChunksBodyProps) {
+function ChunksBody({ chunks, fragment, onRetry, className }: ChunksBodyProps) {
   const t = useTranslations("Documents.chunks");
   const tErrors = useTranslations("Documents.errors");
 
@@ -80,7 +121,8 @@ function ChunksBody({ chunks, onRetry, className }: ChunksBodyProps) {
     return (
       <ChunkRows
         className={className}
-        chunks={chunks.data}
+        chunks={chunks.data.chunks}
+        fragment={fragment}
         hasMore={chunks.hasNextPage}
         isLoadingMore={chunks.isFetchingNextPage}
         loadMoreError={
@@ -109,6 +151,7 @@ function ChunksBody({ chunks, onRetry, className }: ChunksBodyProps) {
 
 interface ChunkRowsProps {
   chunks: ChunkOut[];
+  fragment: number | null;
   hasMore: boolean;
   isLoadingMore: boolean;
   loadMoreError: string | null;
@@ -118,6 +161,7 @@ interface ChunkRowsProps {
 
 function ChunkRows({
   chunks,
+  fragment,
   hasMore,
   isLoadingMore,
   loadMoreError,
@@ -129,6 +173,8 @@ function ChunkRows({
   // Set by Show more: once the next page renders, focus moves to its first fragment, so a
   // keyboard user goes on reading from there instead of being dropped when the button goes.
   const firstNewRowRef = useRef<number | null>(null);
+  // The fragment the page last went to, so that it goes to each one only once.
+  const arrivedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     const index = firstNewRowRef.current;
@@ -142,6 +188,28 @@ function ChunkRows({
     }
   }, [chunks.length]);
 
+  // Once the fragment the address names is shown, the page goes to it: the row comes into view
+  // and takes the focus, unless the user has moved the focus meanwhile. Not a layout effect:
+  // Next scrolls a page it opens in a layout effect of its own, which runs after this list's and
+  // would undo the scroll.
+  useEffect(() => {
+    if (fragment === null || arrivedAtRef.current === fragment) {
+      return;
+    }
+    const row = listRef.current?.querySelector(`#${rowId(fragment)}`);
+    if (!(row instanceof HTMLElement)) {
+      return;
+    }
+    arrivedAtRef.current = fragment;
+    if (isFocusLost()) {
+      // Centred, a fragment taller than the window, as on a phone, would start above it and
+      // hide its label; such a fragment is shown from its start.
+      const fitsInWindow = row.offsetHeight <= window.innerHeight;
+      row.scrollIntoView({ block: fitsInWindow ? "center" : "start" });
+      row.focus({ preventScroll: true });
+    }
+  }, [fragment, chunks.length]);
+
   function showMore() {
     if (isLoadingMore) {
       return;
@@ -154,7 +222,7 @@ function ChunkRows({
     <div className={className}>
       <ol ref={listRef} className="border-rule divide-rule divide-y border-y">
         {chunks.map((chunk) => (
-          <ChunkRow key={chunk.id} chunk={chunk} />
+          <ChunkRow key={chunk.id} chunk={chunk} isOpened={chunk.chunk_index === fragment} />
         ))}
       </ol>
       {hasMore ? (
@@ -173,13 +241,23 @@ function ChunkRows({
   );
 }
 
-function ChunkRow({ chunk }: { chunk: ChunkOut }) {
+interface ChunkRowProps {
+  chunk: ChunkOut;
+  /** Whether the address opened the page at this fragment. */
+  isOpened: boolean;
+}
+
+function ChunkRow({ chunk, isOpened }: ChunkRowProps) {
   const t = useTranslations("Documents.chunks");
   const pages = pageRange(chunk, t);
 
   return (
-    // Focusable from code only: Show more moves the focus to the first fragment it adds.
-    <li tabIndex={-1} className="py-5">
+    // Focusable from code only: Show more moves the focus to the first fragment it adds, and an
+    // address that names a fragment moves it there.
+    <li id={rowId(chunk.chunk_index)} tabIndex={-1} className="py-5">
+      {isOpened ? (
+        <p className={cn(styles.opened, "mb-1 text-sm font-medium")}>{t("opened")}</p>
+      ) : null}
       {chunk.heading === null && pages === null ? null : (
         <p className="text-ink-soft mb-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {chunk.heading === null ? null : (

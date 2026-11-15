@@ -475,7 +475,7 @@ describe("useDocumentChunks", () => {
     await pass(0);
 
     expect(apiFetchMock).toHaveBeenCalledWith(FIRST_CHUNKS_PATH);
-    expect(result.current.data?.map((chunk) => chunk.content)).toEqual([
+    expect(result.current.data?.chunks.map((chunk) => chunk.content)).toEqual([
       "Passage 0 of the lecture.",
       "Passage 1 of the lecture.",
     ]);
@@ -500,10 +500,21 @@ describe("useDocumentChunks", () => {
     await pass(0);
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(SECOND_CHUNKS_PATH);
-    expect(result.current.data?.map((chunk) => chunk.chunk_index)).toEqual(
+    expect(result.current.data?.chunks.map((chunk) => chunk.chunk_index)).toEqual(
       Array.from({ length: 51 }, (_, index) => index),
     );
     expect(result.current.hasNextPage).toBe(false);
+  });
+
+  it("counts the fragments of pages not loaded yet", async () => {
+    const firstFifty = Array.from({ length: 50 }, (_, index) => chunkFixture(index));
+    apiFetchMock.mockResolvedValue(chunkPageFixture(firstFifty, { total: 130 }));
+    const { result } = renderChunks(readyDocumentFixture(1));
+
+    await pass(0);
+
+    expect(result.current.data?.chunks).toHaveLength(50);
+    expect(result.current.data?.total).toBe(130);
   });
 
   it("never asks for the loaded pages again when the user comes back to the tab", async () => {

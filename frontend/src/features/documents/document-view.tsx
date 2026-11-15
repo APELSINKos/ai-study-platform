@@ -42,8 +42,14 @@ function isMissingDocument(error: unknown): boolean {
   return error instanceof ApiError && MISSING_DOCUMENT_CODES.has(error.code);
 }
 
+interface DocumentViewProps {
+  id: string;
+  /** The fragment the address opens the page at, by its place in the document; null for none. */
+  fragment: number | null;
+}
+
 /** The page of one document, fetched in the browser: the server never sees the session. */
-export function DocumentView({ id }: { id: string }) {
+export function DocumentView({ id, fragment }: DocumentViewProps) {
   // While the document is being deleted, asking for it could only find it gone, so the page
   // stops asking and shows it as it was until the workspace's page takes over.
   const [deleting, setDeleting] = useState<DocumentOut | null>(null);
@@ -66,6 +72,7 @@ export function DocumentView({ id }: { id: string }) {
     return (
       <DocumentDetail
         document={document}
+        fragment={fragment}
         headingRef={headingRef}
         onDeleting={setDeleting}
         // The page turns into Not found once the refresh lands, and its heading takes the focus.
@@ -92,13 +99,20 @@ type HeadingRef = RefObject<HTMLHeadingElement | null>;
 
 interface DocumentDetailProps {
   document: DocumentOut;
+  fragment: number | null;
   headingRef: HeadingRef;
   onDeleting: DeletingHandler;
   /** Runs when a retry finds the document deleted. */
   onGone: () => void;
 }
 
-function DocumentDetail({ document, headingRef, onDeleting, onGone }: DocumentDetailProps) {
+function DocumentDetail({
+  document,
+  fragment,
+  headingRef,
+  onDeleting,
+  onGone,
+}: DocumentDetailProps) {
   return (
     <div className="notebook-row">
       <WorkspaceCrumb workspaceId={document.workspace_id} />
@@ -113,7 +127,7 @@ function DocumentDetail({ document, headingRef, onDeleting, onGone }: DocumentDe
           className="mt-5"
         />
         <DocumentAnalysis document={document} />
-        <ChunkList document={document} className="mt-12" />
+        <ChunkList document={document} fragment={fragment} className="mt-12" />
       </div>
     </div>
   );

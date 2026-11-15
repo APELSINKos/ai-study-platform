@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
-/** Whether the focus has dropped to the page, as it does when the focused element is removed. */
-function isFocusLost(): boolean {
+/**
+ * Whether the focus is on the page itself: where a page load leaves it, and where it drops when
+ * the focused element is removed.
+ */
+export function isFocusLost(): boolean {
   return document.activeElement === null || document.activeElement === document.body;
 }
 

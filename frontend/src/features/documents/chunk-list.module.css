@@ -1,0 +1,36 @@
+/*
+ * The label over the fragment an address opened the page at, marked the way the landing's lecture
+ * page marks its lines: a highlighter band behind the words only, never behind the passage. The
+ * ink stays dark in both themes, since light ink would not read on the highlighter.
+ */
+.opened {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  margin-inline: -0.2em;
+  padding-inline: 0.2em;
+  line-height: 2;
+  color: var(--on-highlight);
+}
+
+.opened::before {
+  content: "";
+  position: absolute;
+  inset: 0.42em 0 0.34em;
+  z-index: -1;
+  border-radius: 0.18em 0.32em 0.26em 0.2em;
+  background-color: var(--highlight);
+}
+
+/* Forced colours would draw a plate of the page's colour behind the words, over the band, and on
+   a dark plate the dark ink would vanish. The label keeps the system's own highlight instead. */
+@media (forced-colors: active) {
+  .opened {
+    forced-color-adjust: none;
+    color: MarkText;
+  }
+
+  .opened::before {
+    background-color: Mark;
+  }
+}

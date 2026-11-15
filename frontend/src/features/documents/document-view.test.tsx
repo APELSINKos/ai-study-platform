@@ -11,6 +11,7 @@ import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
 import type { ChunkOut, DocumentOut, MetaOut, WorkspaceOut } from "@/lib/api/types";
 import { queryKeys } from "@/lib/query-keys";
 import { renderWithIntl } from "@/test/render";
+import { stubScrollIntoView } from "@/test/scroll-into-view";
 
 import { DocumentView } from "./document-view";
 import {
@@ -63,8 +64,8 @@ const FAILED = documentFixture(1, {
 const DOCUMENT_PATH = `/documents/${READY.id}`;
 const CHUNKS_PATH = `${DOCUMENT_PATH}/chunks?page=1&page_size=50`;
 
-function renderView(id = READY.id, locale: Locale = "en") {
-  return renderWithIntl(<DocumentView id={id} />, { locale });
+function renderView(id = READY.id, locale: Locale = "en", fragment: number | null = null) {
+  return renderWithIntl(<DocumentView id={id} fragment={fragment} />, { locale });
 }
 
 interface Answers {
@@ -286,6 +287,19 @@ describe("DocumentView", () => {
     const fragments = await screen.findByRole("region", { name: "Fragments" });
     expect(await within(fragments).findByText("Passage 1 of the lecture.")).toBeInTheDocument();
     expect(apiFetchMock).toHaveBeenCalledWith(CHUNKS_PATH);
+  });
+
+  it("opens at the fragment the address names, and keeps the page's one live region", async () => {
+    const scrollIntoView = stubScrollIntoView();
+    serve(READY, { chunks: [chunkFixture(0), chunkFixture(1), chunkFixture(2)] });
+    renderView(READY.id, "en", 2);
+
+    const row = (await screen.findByText("Passage 2 of the lecture.")).closest("li");
+    await waitFor(() => expect(row).toHaveFocus());
+    expect(scrollIntoView.mock.contexts).toEqual([row]);
+    expect(row).toHaveTextContent("The passage you opened");
+    await expectStatus("Ready");
+    expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 
   it("says why a document failed and offers to retry it", async () => {

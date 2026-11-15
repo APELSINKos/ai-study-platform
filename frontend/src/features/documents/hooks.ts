@@ -100,8 +100,17 @@ export function useDocument(id: string, { enabled = true }: DocumentQueryOptions
   });
 }
 
-function allChunks(data: InfiniteData<ChunkPage, number>): ChunkOut[] {
-  return data.pages.flatMap((page) => page.items);
+/** The fragments loaded so far, and how many the document has in all. */
+interface LoadedChunks {
+  chunks: ChunkOut[];
+  total: number;
+}
+
+function loadedChunks(data: InfiniteData<ChunkPage, number>): LoadedChunks {
+  return {
+    chunks: data.pages.flatMap((page) => page.items),
+    total: data.pages.at(-1)?.total ?? 0,
+  };
 }
 
 /** A document's fragments in reading order, a page at a time, asked for once it is ready. */
@@ -115,7 +124,7 @@ export function useDocumentChunks(document: DocumentOut) {
     enabled: document.status === "ready",
     // A ready document's fragments never change, so loaded pages are never asked for again.
     staleTime: Infinity,
-    select: allChunks,
+    select: loadedChunks,
   });
 }
 

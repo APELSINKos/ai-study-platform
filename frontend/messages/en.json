@@ -404,7 +404,8 @@
       "showMore": "Show more",
       "retry": "Try again",
       "page": "Page {page}",
-      "pages": "Pages {start}–{end}"
+      "pages": "Pages {start}–{end}",
+      "opened": "The passage you opened"
     },
     "upload": {
       "button": "Upload files",
