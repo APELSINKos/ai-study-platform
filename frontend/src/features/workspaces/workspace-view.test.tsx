@@ -351,6 +351,18 @@ describe("WorkspaceView", () => {
     );
   });
 
+  it("searches by the id the API spells, whatever the address", async () => {
+    serve(LETTERED, [readyDocumentFixture(1, { workspace_id: LETTERED.id })]);
+    const { queryClient } = renderView(CAPITALISED_ID, "en", "light");
+
+    await screen.findByText("3 passages match.");
+    expect(searchCalls()).toEqual([
+      [`/search?workspace_id=${LETTERED.id}&q=light&limit=10`, { signal: expect.any(AbortSignal) }],
+    ]);
+    // The key a document delete invalidates and a workspace delete removes.
+    expect(queryClient.getQueryData(queryKeys.search(LETTERED.id, "light"))).toBeDefined();
+  });
+
   it("uploads into the workspace by the id the API spells, whatever the address", async () => {
     serve(LETTERED);
     renderView(CAPITALISED_ID);

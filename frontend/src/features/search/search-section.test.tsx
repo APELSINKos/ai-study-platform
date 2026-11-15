@@ -122,10 +122,10 @@ describe("SearchSection", () => {
   });
 
   it("lets the query be as long as /meta allows", async () => {
-    serve();
+    serve(undefined, { ...META, search: { max_query_chars: 120 } });
     renderSection(null);
 
-    await waitFor(() => expect(searchbox()).toHaveAttribute("maxLength", "200"));
+    await waitFor(() => expect(searchbox()).toHaveAttribute("maxLength", "120"));
   });
 
   it("puts the query into the address as a new history entry, without scrolling", async () => {
