@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +15,7 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
 const apiFetchMock = vi.mocked(apiFetch);
 
 const LIGHT_PATH = `/search?workspace_id=${WORKSPACE_ID}&q=light+reactions`;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A client that retries failures and refreshes on focus, as queries do unless told otherwise. */
 function newQueryClient(): QueryClient {
@@ -35,6 +36,13 @@ function renderSearch(query: string | null, queryClient = newQueryClient()) {
 function showTabAgain(): void {
   act(() => {
     document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
+  });
+}
+
+function comeBackOnline(): void {
+  act(() => {
+    onlineManager.setOnline(false);
+    onlineManager.setOnline(true);
   });
 }
 
@@ -81,15 +89,36 @@ describe("useSearch", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("never tries a failed search again by itself", async () => {
+  it("keeps an answer however old it is", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      apiFetchMock.mockResolvedValue(searchResultsFixture(2));
+      const { result, unmount, queryClient } = renderSearch("light reactions");
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      vi.setSystemTime(Date.now() + DAY_MS);
+      unmount();
+      const again = renderSearch("light reactions", queryClient);
+      await waitFor(() => expect(again.result.current.isSuccess).toBe(true));
+      comeBackOnline();
+      await act(() => Promise.resolve());
+
+      expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never tries a failed search again by itself: not when the tab is shown again, nor when back online", async () => {
     apiFetchMock.mockRejectedValue(
       new ApiError({ status: 503, code: "http_error", message: "Service Unavailable" }),
     );
     const { result } = renderSearch("light reactions");
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    // A failed search has no answer to keep, so only the option stops the tab from asking.
+    // A failed search has no answer to keep, so only the options stop these from asking.
     showTabAgain();
+    comeBackOnline();
     await act(() => Promise.resolve());
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);

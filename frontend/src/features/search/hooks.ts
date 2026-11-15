@@ -18,5 +18,6 @@ export function useSearch(workspaceId: string, query: string | null) {
     staleTime: Infinity,
     retry: false,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
