@@ -474,7 +474,7 @@ describe("SearchSection", () => {
     renderSection("light", "ru");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Поиск не удался. Попробуйте ещё раз.",
+      "Не удалось выполнить поиск. Попробуйте ещё раз.",
     );
   });
 });

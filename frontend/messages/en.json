@@ -501,7 +501,7 @@
       "noReady": "No file in this workspace is ready to be searched.",
       "pending": "{count, plural, one {# file is still being processed — search again once it is ready.} other {# files are still being processed — search again once they are ready.}}",
       "stale": "{count, plural, one {# file was indexed with another model: until it is re-indexed, only its words are searched.} other {# files were indexed with another model: until they are re-indexed, only their words are searched.}}",
-      "wordsOnly": "Only the words of your query were looked for."
+      "wordsOnly": "Only the words of your query were searched for."
     },
     "row": {
       "page": "Page {page}",
