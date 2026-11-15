@@ -490,6 +490,7 @@
     "inputLabel": "Слова для поиска",
     "submit": "Найти",
     "clear": "Очистить",
+    "clearLabel": "Очистить поиск",
     "loading": "Идёт поиск…",
     "resultsLabel": "Результаты поиска",
     "status": {

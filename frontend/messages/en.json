@@ -490,6 +490,7 @@
     "inputLabel": "Words to look for",
     "submit": "Search",
     "clear": "Clear",
+    "clearLabel": "Clear search",
     "loading": "Searching…",
     "resultsLabel": "Search results",
     "status": {

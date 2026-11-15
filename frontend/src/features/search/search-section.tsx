@@ -103,7 +103,7 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
           {t("submit")}
         </Button>
         {query === null ? null : (
-          <Button variant="ghost" onClick={clear}>
+          <Button variant="ghost" onClick={clear} aria-label={t("clearLabel")}>
             {t("clear")}
           </Button>
         )}

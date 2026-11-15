@@ -103,7 +103,9 @@ describe("SearchSection", () => {
 
     await screen.findByText("3 passages match.");
     expect(searchButton()).toHaveAttribute("data-variant", "secondary");
-    expect(screen.getByRole("button", { name: "Clear" })).toHaveAttribute("data-variant", "ghost");
+    const clear = screen.getByRole("button", { name: "Clear search" });
+    expect(clear).toHaveAttribute("data-variant", "ghost");
+    expect(clear).toHaveTextContent("Clear");
     expect(document.querySelector('[data-variant="primary"]')).toBeNull();
   });
 
@@ -115,7 +117,7 @@ describe("SearchSection", () => {
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
     expect(searchCalls()).toHaveLength(0);
   });
 
@@ -290,7 +292,7 @@ describe("SearchSection", () => {
     const { showQuery } = renderSection("light");
     await screen.findByText("3 passages match.");
 
-    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
 
     expect(replace).toHaveBeenCalledWith(WORKSPACE_URL, { scroll: false });
     expect(push).not.toHaveBeenCalled();
@@ -300,7 +302,7 @@ describe("SearchSection", () => {
     showQuery(null);
 
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
     expect(searchbox()).toHaveFocus();
   });
 
@@ -310,11 +312,11 @@ describe("SearchSection", () => {
 
     await userEvent.type(searchbox(), "light");
 
-    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
 
     showQuery("light");
 
-    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear search" })).toBeInTheDocument();
   });
 
   it("says when no passage matches", async () => {
@@ -456,7 +458,7 @@ describe("SearchSection", () => {
     await screen.findByText("Запросу соответствуют 3 фрагмента.");
     expect(screen.getByRole("status")).toHaveTextContent("Запросу соответствуют 3 фрагмента.");
     expect(searchButton("Найти")).toBeInTheDocument();
-    expect(within(section).getByRole("button", { name: "Очистить" })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "Очистить поиск" })).toBeInTheDocument();
     expect(within(section).getByRole("list", { name: "Результаты поиска" })).toBeInTheDocument();
   });
 
