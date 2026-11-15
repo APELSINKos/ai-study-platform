@@ -34,7 +34,8 @@ const META: MetaOut = {
 };
 
 function searchPath(query: string): string {
-  return `/search?${new URLSearchParams({ workspace_id: WORKSPACE_ID, q: query }).toString()}`;
+  const params = new URLSearchParams({ workspace_id: WORKSPACE_ID, q: query, limit: "10" });
+  return `/search?${params.toString()}`;
 }
 
 /** Answers /meta with `meta`, and every search with what `answer` gives. */
@@ -319,6 +320,13 @@ describe("SearchSection", () => {
 
     expect(await screen.findByText("The 10 closest passages.")).toHaveAttribute("role", "status");
     expect(within(region()).getAllByRole("listitem")).toHaveLength(10);
+  });
+
+  it("says how many passages match when the search returned fewer than it can", async () => {
+    serve(async () => searchResultsFixture(9));
+    renderSection("light");
+
+    expect(await screen.findByText("9 passages match.")).toHaveAttribute("role", "status");
   });
 
   it("notes what the search could not cover, under the line that sums it up", async () => {

@@ -229,7 +229,10 @@ describe("WorkspaceView", () => {
       "light",
     );
     expect(searchCalls()).toEqual([
-      [`/search?workspace_id=${WORKSPACE.id}&q=light`, { signal: expect.any(AbortSignal) }],
+      [
+        `/search?workspace_id=${WORKSPACE.id}&q=light&limit=10`,
+        { signal: expect.any(AbortSignal) },
+      ],
     ]);
     const title = screen.getByRole("heading", { level: 1, name: "Organic chemistry" });
     const documents = screen.getByRole("region", { name: "Documents" });

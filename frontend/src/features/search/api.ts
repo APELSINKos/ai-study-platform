@@ -2,8 +2,8 @@ import { apiFetch } from "@/lib/api/client";
 import type { SearchResults } from "@/lib/api/types";
 
 /**
- * How many passages a search returns: the API's own default, since the request names no limit.
- * A search that returns this many may have left other matching passages out.
+ * How many passages a search asks for. A search that returns this many may have left other
+ * matching passages out.
  */
 export const SEARCH_RESULT_LIMIT = 10;
 
@@ -17,6 +17,10 @@ export function searchWorkspace(
   query: string,
   signal?: AbortSignal,
 ): Promise<SearchResults> {
-  const params = new URLSearchParams({ workspace_id: workspaceId, q: query });
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+    q: query,
+    limit: String(SEARCH_RESULT_LIMIT),
+  });
   return apiFetch<SearchResults>(`/search?${params.toString()}`, { signal });
 }

@@ -14,7 +14,7 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn() }));
 
 const apiFetchMock = vi.mocked(apiFetch);
 
-const LIGHT_PATH = `/search?workspace_id=${WORKSPACE_ID}&q=light+reactions`;
+const LIGHT_PATH = `/search?workspace_id=${WORKSPACE_ID}&q=light+reactions&limit=10`;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A client that retries failures and refreshes on focus, as queries do unless told otherwise. */
@@ -147,7 +147,7 @@ describe("useSearch", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      `/search?workspace_id=${WORKSPACE_ID}&q=glucose`,
+      `/search?workspace_id=${WORKSPACE_ID}&q=glucose&limit=10`,
       { signal: expect.any(AbortSignal) },
     );
     expect(signalOf(0)?.aborted).toBe(true);
