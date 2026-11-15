@@ -404,6 +404,19 @@ describe("ChunkList opened at a fragment", () => {
     },
   );
 
+  it("loads nothing for a document that is no longer ready, even with its first page kept", async () => {
+    serveFragments(200);
+    const { rerender } = renderList(READY, "en", null);
+    await pass(0);
+
+    // A re-index takes the document back to uploaded while its first page stays in memory.
+    rerender(<ChunkList document={{ ...READY, status: "uploaded" }} fragment={120} />);
+    await pass(60_000);
+
+    expect(requestedPages()).toEqual([pagePath(1)]);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it("leaves the focus where the user has moved it while the pages load", async () => {
     const second = Promise.withResolvers<ChunkPage>();
     serveFragments(200, (page) => (page === 2 ? second.promise : undefined));

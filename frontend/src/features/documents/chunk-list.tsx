@@ -55,9 +55,12 @@ export function ChunkList({ document, fragment, className }: ChunkListProps) {
 
   // Opened at a fragment on a later page, the list loads the pages up to it, one at a time. A
   // page that fails stops it there, and Show more with its error takes over; a fragment the
-  // document does not have loads nothing more.
+  // document does not have loads nothing more. Pages kept from before a re-index still offer a
+  // next page, so a document that is not ready loads nothing either.
+  const isReady = document.status === "ready";
   useEffect(() => {
     if (
+      isReady &&
       fragment !== null &&
       hasNextPage &&
       !isFetchingNextPage &&
@@ -68,6 +71,7 @@ export function ChunkList({ document, fragment, className }: ChunkListProps) {
       void fetchNextPage();
     }
   }, [
+    isReady,
     fragment,
     hasNextPage,
     isFetchingNextPage,
