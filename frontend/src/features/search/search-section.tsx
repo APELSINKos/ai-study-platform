@@ -50,7 +50,8 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const next = text.trim();
+    // A paste can leave half of an emoji, which no address can hold.
+    const next = text.trim().toWellFormed();
     if (next === "") {
       return;
     }

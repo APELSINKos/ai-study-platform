@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -149,6 +149,17 @@ describe("SearchSection", () => {
     expect(push).toHaveBeenCalledWith(`${WORKSPACE_URL}?q=glucose%20%26%20sugar`, {
       scroll: false,
     });
+  });
+
+  it("puts a broken character into the address as a replacement character", async () => {
+    serve();
+    renderSection(null);
+
+    // Half of an emoji, as a paste cut in the wrong place can leave it.
+    fireEvent.change(searchbox(), { target: { value: "light \uD83D" } });
+    await userEvent.click(searchButton());
+
+    expect(push).toHaveBeenCalledWith(`${WORKSPACE_URL}?q=light%20%EF%BF%BD`, { scroll: false });
   });
 
   it("never searches for blank text", async () => {
