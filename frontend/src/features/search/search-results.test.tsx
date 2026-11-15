@@ -115,6 +115,28 @@ describe("ResultList", () => {
     ]);
   });
 
+  it("leaves the document's title out of the headings when they start with it", () => {
+    const untitled = { document_title: "Cell biology", page_start: null, page_end: null };
+    renderList([
+      // A Markdown file is named after its first heading, which heads the path of its passages.
+      searchHitFixture(1, { ...untitled, heading: "Cell biology" }),
+      searchHitFixture(2, { ...untitled, heading: "Cell biology › The light reactions" }),
+      searchHitFixture(3, { ...untitled, heading: "Cell biology basics" }),
+    ]);
+
+    const [first, second, third] = rows();
+    expect(lines(first)).toEqual([
+      "Chloroplasts turn light into the energy of sugar.",
+      "Matching words",
+    ]);
+    expect(lines(second)[0]).toBe("The light reactions");
+    expect(lines(third)[0]).toBe("Cell biology basics");
+    expect(screen.getByRole("link", { name: "Cell biology, Passage 12" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Cell biology, The light reactions, Passage 13" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the title, headings and words as plain text", () => {
     const markup = "<img src=x onerror=alert(1)>";
     renderList([

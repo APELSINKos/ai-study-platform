@@ -11,6 +11,21 @@ import { cn } from "@/lib/utils";
 
 type RowTranslator = ReturnType<typeof useTranslations<"Search.row">>;
 
+/** How the API joins the headings above a passage. */
+const HEADING_SEPARATOR = " › ";
+
+/**
+ * The headings above a passage, without the document's title when they start with it: a Markdown
+ * file is named after its first heading. Null when no other heading is left.
+ */
+function headingBelowTitle(hit: SearchHit): string | null {
+  if (hit.heading === null || hit.heading === hit.document_title) {
+    return null;
+  }
+  const title = hit.document_title + HEADING_SEPARATOR;
+  return hit.heading.startsWith(title) ? hit.heading.slice(title.length) : hit.heading;
+}
+
 function pageRange(hit: SearchHit, t: RowTranslator): string | null {
   if (hit.page_start === null) {
     return null;
@@ -26,13 +41,13 @@ function pageRange(hit: SearchHit, t: RowTranslator): string | null {
  * other passages of that document. Several can share a page or a heading, but each has a place of
  * its own in the document.
  */
-function linkName(hit: SearchHit, pages: string | null, t: RowTranslator): string {
-  const parts = [
-    hit.document_title,
-    pages,
-    hit.heading,
-    t("passage", { number: hit.chunk_index + 1 }),
-  ];
+function linkName(
+  hit: SearchHit,
+  heading: string | null,
+  pages: string | null,
+  t: RowTranslator,
+): string {
+  const parts = [hit.document_title, pages, heading, t("passage", { number: hit.chunk_index + 1 })];
   return parts.filter((part) => part !== null).join(", ");
 }
 
@@ -122,20 +137,21 @@ interface ResultRowProps {
  */
 function ResultRow({ hit, labels }: ResultRowProps) {
   const t = useTranslations("Search.row");
+  const heading = headingBelowTitle(hit);
   const pages = pageRange(hit, t);
 
   return (
     <li className="group relative py-4">
       <Link
         href={passageHref(hit.document_id, hit.chunk_index)}
-        aria-label={linkName(hit, pages, t)}
+        aria-label={linkName(hit, heading, pages, t)}
         className="text-ink focus-visible:after:outline-pen font-medium break-words group-hover:underline after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-solid"
       >
         {hit.document_title}
       </Link>
-      {hit.heading === null && pages === null ? null : (
+      {heading === null && pages === null ? null : (
         <p className="text-ink-soft mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          {hit.heading === null ? null : <span className="min-w-0 break-words">{hit.heading}</span>}
+          {heading === null ? null : <span className="min-w-0 break-words">{heading}</span>}
           {pages === null ? null : <span>{pages}</span>}
         </p>
       )}
