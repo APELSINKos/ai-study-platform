@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -8,6 +8,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useSearch } from "@/features/search/hooks";
 import { searchResultsFixture } from "@/features/search/test-fixtures";
 import { apiFetch } from "@/lib/api/client";
 import { ApiError, NETWORK_ERROR_CODE } from "@/lib/api/errors";
@@ -567,5 +568,27 @@ describe("useDeleteDocument", () => {
     // Its passages may be among the results; a search on screen runs again at once.
     const invalidated = searches.map((key) => queryClient.getQueryState(key)?.isInvalidated);
     expect(invalidated).toEqual([true, true, false]);
+  });
+
+  it("sends again a search that was still on its way when the document went", async () => {
+    let searches = 0;
+    apiFetchMock.mockImplementation(async (path) => {
+      if (!path.startsWith("/search")) {
+        return undefined;
+      }
+      searches += 1;
+      // The first answer may have been worked out before the delete: it never arrives here.
+      return searches === 1 ? new Promise(() => {}) : searchResultsFixture(1);
+    });
+    const { result } = renderWithClient(() => ({
+      search: useSearch(WORKSPACE_ID, "light"),
+      remove: useDeleteDocument(readyDocumentFixture(1)),
+    }));
+    await waitFor(() => expect(searches).toBe(1));
+
+    await act(() => result.current.remove.mutateAsync());
+
+    await waitFor(() => expect(result.current.search.isSuccess).toBe(true));
+    expect(searches).toBe(2);
   });
 });
