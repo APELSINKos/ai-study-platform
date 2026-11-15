@@ -212,10 +212,10 @@ describe("documentErrorMessage", () => {
     );
     expect(messageFor(apiError(status, code), "open")).toBe("This document could not be loaded.");
     expect(messageFor(apiError(status, code), "loadFragments")).toBe(
-      "The fragments could not be loaded.",
+      "The passages could not be loaded.",
     );
     expect(messageFor(apiError(status, code), "loadMoreFragments")).toBe(
-      "More fragments could not be loaded.",
+      "More passages could not be loaded.",
     );
     expect(messageFor(apiError(status, code), "download")).toBe(
       "The file could not be downloaded. Try again.",

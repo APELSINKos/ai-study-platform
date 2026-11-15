@@ -156,7 +156,7 @@ test.describe.serial("documents from upload to deletion", () => {
     await expect(
       page.getByText(`${NOTES.firstSentence} ${NOTES.secondSentence}`, { exact: true }),
     ).toBeVisible();
-    const fragments = page.getByRole("region", { name: "Fragments" });
+    const fragments = page.getByRole("region", { name: "Passages" });
     await expect(fragments.getByRole("listitem").first()).toContainText(NOTES.firstSentence);
   });
 

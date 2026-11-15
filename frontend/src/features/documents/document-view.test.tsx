@@ -273,9 +273,9 @@ describe("DocumentView", () => {
     serve(documentFixture(1, { status: "indexing" }));
     renderView();
 
-    const fragments = await screen.findByRole("region", { name: "Fragments" });
+    const fragments = await screen.findByRole("region", { name: "Passages" });
     expect(
-      within(fragments).getByText("Fragments appear once the file is processed."),
+      within(fragments).getByText("Passages appear once the file is processed."),
     ).toBeInTheDocument();
     expect(requestsFor((path) => path.includes("/chunks"))).toBe(0);
   });
@@ -284,7 +284,7 @@ describe("DocumentView", () => {
     serve(READY, { chunks: [chunkFixture(0), chunkFixture(1)] });
     renderView();
 
-    const fragments = await screen.findByRole("region", { name: "Fragments" });
+    const fragments = await screen.findByRole("region", { name: "Passages" });
     expect(await within(fragments).findByText("Passage 1 of the lecture.")).toBeInTheDocument();
     expect(apiFetchMock).toHaveBeenCalledWith(CHUNKS_PATH);
   });

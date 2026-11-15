@@ -390,17 +390,17 @@
       "hoursMinutes": "{hours, plural, one {# hour} other {# hours}} {minutes, plural, one {# minute} other {# minutes}}",
       "pages": "Pages",
       "words": "Words",
-      "fragments": "Fragments",
+      "fragments": "Passages",
       "processingTime": "Processing time",
       "analysis": "Analysed with",
       "offlineAnalysis": "Offline analysis",
       "basicAnalysis": "Basic analysis (the AI model could not analyse this file)"
     },
     "chunks": {
-      "title": "Fragments",
-      "pending": "Fragments appear once the file is processed.",
-      "failed": "There are no fragments because the file could not be processed.",
-      "loading": "Loading fragments…",
+      "title": "Passages",
+      "pending": "Passages appear once the file is processed.",
+      "failed": "There are no passages because the file could not be processed.",
+      "loading": "Loading passages…",
       "showMore": "Show more",
       "retry": "Try again",
       "page": "Page {page}",
@@ -479,8 +479,8 @@
       "uploadFailed": "The file could not be uploaded. Try again.",
       "limitsFailed": "The upload limits could not be loaded.",
       "openFailed": "This document could not be loaded.",
-      "fragmentsFailed": "The fragments could not be loaded.",
-      "moreFragmentsFailed": "More fragments could not be loaded.",
+      "fragmentsFailed": "The passages could not be loaded.",
+      "moreFragmentsFailed": "More passages could not be loaded.",
       "downloadFailed": "The file could not be downloaded. Try again.",
       "fileNotStored": "The original file is no longer stored."
     }

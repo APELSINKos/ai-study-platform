@@ -77,7 +77,7 @@ describe("DocumentFacts", () => {
       ["Estimated study time", "25 minutes"],
       ["Pages", "12"],
       ["Words", "3,412"],
-      ["Fragments", "9"],
+      ["Passages", "9"],
       ["Processing time", "1.8 sec"],
       ["Analysed with", "Offline analysis"],
     ]);

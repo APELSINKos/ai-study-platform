@@ -41,7 +41,7 @@ function renderList(
   return renderWithIntl(<ChunkList document={document} fragment={fragment} />, { locale });
 }
 
-function region(name = "Fragments"): HTMLElement {
+function region(name = "Passages"): HTMLElement {
   return screen.getByRole("region", { name });
 }
 
@@ -62,7 +62,7 @@ describe("ChunkList", () => {
     renderList(document);
 
     expect(
-      within(region()).getByText("Fragments appear once the file is processed."),
+      within(region()).getByText("Passages appear once the file is processed."),
     ).toBeInTheDocument();
     expect(within(region()).queryByRole("list")).not.toBeInTheDocument();
     expect(apiFetchMock).not.toHaveBeenCalled();
@@ -73,10 +73,10 @@ describe("ChunkList", () => {
     renderList(documentFixture(1, { status: "failed", error_code: "no_text", can_retry: true }));
 
     expect(
-      within(region()).getByText("There are no fragments because the file could not be processed."),
+      within(region()).getByText("There are no passages because the file could not be processed."),
     ).toBeInTheDocument();
     expect(
-      within(region()).queryByText("Fragments appear once the file is processed."),
+      within(region()).queryByText("Passages appear once the file is processed."),
     ).not.toBeInTheDocument();
     expect(within(region()).queryByRole("list")).not.toBeInTheDocument();
     expect(apiFetchMock).not.toHaveBeenCalled();
@@ -86,7 +86,7 @@ describe("ChunkList", () => {
     apiFetchMock.mockReturnValue(new Promise(() => {}));
     renderList();
 
-    expect(within(region()).getByText("Loading fragments…")).toBeInTheDocument();
+    expect(within(region()).getByText("Loading passages…")).toBeInTheDocument();
     expect(region().querySelector("[aria-busy='true']")).not.toBeNull();
   });
 
@@ -171,7 +171,7 @@ describe("ChunkList", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "More fragments could not be loaded.",
+      "More passages could not be loaded.",
     );
     expect(rows()).toHaveLength(50);
 
@@ -199,7 +199,7 @@ describe("ChunkList", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     // Try again had the focus and the fragments took its place.
     await waitFor(() =>
-      expect(within(region()).getByRole("heading", { name: "Fragments" })).toHaveFocus(),
+      expect(within(region()).getByRole("heading", { name: "Passages" })).toHaveFocus(),
     );
   });
 
@@ -209,9 +209,7 @@ describe("ChunkList", () => {
     );
     renderList();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The fragments could not be loaded.",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("The passages could not be loaded.");
     expect(screen.queryByText("Internal server error.")).not.toBeInTheDocument();
   });
 
@@ -385,7 +383,7 @@ describe("ChunkList opened at a fragment", () => {
     await pass(60_000);
 
     expect(requestedPages()).toEqual([pagePath(1), pagePath(2)]);
-    expect(screen.getByRole("alert")).toHaveTextContent("More fragments could not be loaded.");
+    expect(screen.getByRole("alert")).toHaveTextContent("More passages could not be loaded.");
     expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
     expect(rows()).toHaveLength(50);
     expect(scrollIntoView).not.toHaveBeenCalled();
