@@ -4,15 +4,15 @@
 
 ## Overview
 
-Recall is a self-hosted web application for preparing for exams from your own material. You create a workspace for each course or exam and upload lecture notes or textbook chapters as PDF, Markdown or plain-text files. A background worker reads every file, cleans its text, splits it into passages, analyses it (title, summary, topics, difficulty and estimated study time) and stores a vector embedding for each passage in PostgreSQL with pgvector. Those passages are what the next features build on: answers with citations, quizzes and flashcards with spaced repetition. The whole stack starts with one Docker Compose command and needs no API key: built-in offline models stand in until an OpenAI-compatible endpoint is configured.
+Recall is a self-hosted web application for preparing for exams from your own material. You create a workspace for each course or exam and upload lecture notes or textbook chapters as PDF, Markdown or plain-text files. A background worker reads every file, cleans its text, splits it into passages, analyses it (title, summary, topics, difficulty and estimated study time) and stores a vector embedding for each passage in PostgreSQL with pgvector. A search finds a workspace's passages by their words and their embeddings together and opens any of them at its place in the document. The next features build on the same passages: answers with citations, quizzes and flashcards with spaced repetition. The whole stack starts with one Docker Compose command and needs no API key: built-in offline models stand in until an OpenAI-compatible endpoint is configured.
 
 | Area | Status |
 | --- | --- |
 | Accounts and sessions: registration, sign-in, session refresh, sign-out | Working |
 | Workspaces, one per course or exam, with an exam-date countdown | Working |
 | Document upload and background processing: extraction, cleaning, chunking, analysis, embeddings | Working |
+| Search: hybrid vector and full-text search over a workspace's passages, each result opening its document at the passage | Working |
 | Web interface in English and Russian, with light and dark themes | Working |
-| Retrieval: hybrid vector and full-text search over the passages | Planned |
 | Chat with citations to the source passages | Planned |
 | Quizzes generated from the material | Planned |
 | Flashcards with spaced repetition | Planned |
@@ -34,9 +34,11 @@ Recall is a self-hosted web application for preparing for exams from your own ma
 - Retry for a failed document, and for one that has not changed status for 15 minutes ("This is taking longer than usual").
 - A document page with the title, summary, topics, difficulty, estimated study time, page, word and passage counts, processing time and the model that analysed the file; the passages with their heading path and page range; download of the original file; deletion.
 
+**Search.** Each workspace page has a search box. A search looks through the passages of the workspace's ready documents by their words and their embeddings at once and lists the best ten, each with its document, heading path and pages, a snippet with the matching words marked, and how it was found: "Matching words", and "Similar meaning", or "Similar words" while the built-in embeddings, which compare words, are in use. A result opens its document scrolled to that passage, with the focus on it. The query stays in the address, so Back and Forward step through earlier searches. Notes say when files are still being processed, when some were embedded by another model and wait for a re-index, and when only the words were searched. A query holds at most 200 characters, a user may search 30 times a minute, and the API never writes a query to its logs or metrics.
+
 **Interface.** English and Russian, switched in the header and remembered in a cookie (the browser's language decides on the first visit); light, dark and system themes; layouts for phones and desktops; animations that respect reduced motion; a landing page that shows what a file becomes today and marks the features still to come, such as answers, quizzes and flashcards, as coming next; and a system status page that checks the database and the task queue.
 
-**Operations.** Structured logs, JSON or console, with a request ID that follows an upload into the worker; Prometheus metrics for HTTP requests at `/metrics`; liveness and readiness probes; health checks on every long-running Compose service.
+**Operations.** Structured logs, JSON or console, with a request ID that follows an upload into the worker; Prometheus metrics at `/metrics` for HTTP requests and for the time a search spends retrieving passages and waiting for its query's embedding; liveness and readiness probes; health checks on every long-running Compose service.
 
 ## Architecture
 
@@ -51,12 +53,13 @@ flowchart LR
     worker --> pg
     worker --> files
     worker --> llm["LLM provider<br/>OpenAI-compatible API<br/>or built-in offline models"]
+    api -->|"query embeddings"| llm
 ```
 
 - The browser talks only to Next.js. It renders the pages and rewrites `/api/*` to FastAPI, so the session cookies are first-party and CORS plays no part in normal use.
 - An upload is stored on a volume shared with the worker, recorded as `uploaded` and queued in Redis; the API answers `202 Accepted` at once.
 - The Celery worker processes the document and records each stage in PostgreSQL; the browser polls for it.
-- The worker reaches models only through provider interfaces: an OpenAI-compatible API, or the built-in offline models when no key is set.
+- The worker, and the API for the query of a search, reach models only through provider interfaces: an OpenAI-compatible API, or the built-in offline models when no key is set.
 
 The backend is layered so that HTTP, rules and SQL stay apart:
 
@@ -70,7 +73,7 @@ repository   app/repositories/  SQLAlchemy queries (repositories only flush)
 PostgreSQL   app/models/, migrations in alembic/versions/
 ```
 
-Document processing lives in `app/documents/` (upload checks, storage, extraction, cleaning, chunking and the pipeline), model access in `app/llm/` (provider protocols, the OpenAI-compatible and offline implementations, prompts), and the Celery app and its task in `app/workers/`. Abstractions exist where they pay for themselves: the model providers have two implementations and a protocol between them, while file storage is a single class that tests simply give a temporary root folder.
+Document processing lives in `app/documents/` (upload checks, storage, extraction, cleaning, chunking and the pipeline), model access in `app/llm/` (provider protocols, the OpenAI-compatible and offline implementations, prompts), search in `app/rag/` (the store that runs the SQL, the retriever that merges its two lists, and snippets), and the Celery app and its task in `app/workers/`. Abstractions exist where they pay for themselves: the model providers have two implementations and a protocol between them, while file storage is a single class that tests simply give a temporary root folder.
 
 ```
 backend/     FastAPI application, Celery worker, Alembic migrations, tests
@@ -101,7 +104,7 @@ Makefile     Shortcuts for the commands below
 
 ## RAG Pipeline
 
-Answering from your material needs the material prepared first. Ingestion works today; retrieval and answering come next.
+Answering from your material needs the material prepared first and the right passages found. Ingestion and retrieval work today; answering comes next.
 
 ```mermaid
 flowchart TD
@@ -120,7 +123,7 @@ flowchart TD
     request --> reading
     reading --> indexing
     save --> ready(["ready"])
-    ready -.-> retrieve["Retrieve: vector and full-text results merged by rank (planned)"]
+    ready --> retrieve["Retrieve: vector and full-text results merged by rank"]
     retrieve -.-> answer["Answer with citations (planned)"]
 ```
 
@@ -157,7 +160,15 @@ stateDiagram-v2
 
 A model that is unavailable (a timeout, no connection, HTTP 408 or 409, a 429 rate limit, or a server error other than 501) is retried twice, after 30 and 60 seconds (longer if the provider asks, but at most 5 minutes); meanwhile the interface shows "Retrying soon", and a model still unavailable after that fails the document with `ai_unavailable`. Every other error is final, among them a spent quota (HTTP 402, or a 429 about the quota) and HTTP 501, which a compatible server answers to a request it does not support at all. An analysis the model refuses for good is replaced by the built-in one and the document still becomes ready; a final embedding error fails the document. A retry reuses an analysis that the same model saved in an earlier attempt instead of asking for it again, but not one the built-in analysis stood in for. A failed document carries one code from a closed set: file problems (`pdf_unreadable`, `pdf_encrypted`, `no_text`, `too_many_pages`, `text_too_long`, `file_missing`), model problems (`ai_unavailable`, `ai_quota_exceeded`, `ai_rejected`, `ai_invalid_output`, `embedding_dimension_mismatch`) and run problems (`processing_timeout`, `queue_unavailable`, `internal_error`). Retry puts a failed document back to `uploaded`, as it does a document stuck in an earlier status for 15 minutes.
 
-Next, a question will be embedded the same way; the passages nearest to it by cosine distance will be merged with full-text matches by Reciprocal Rank Fusion, and the model will answer only from those passages, citing them, or say that the material does not cover the question.
+Retrieval (`GET /api/v1/search`) works on the ready documents of one workspace:
+
+1. **Normalise.** The query is cleaned like document text: NFC, with invisible and control characters removed. It may hold at most 200 characters.
+2. **Embed.** The query is embedded by the same model as the passages, with a 10-second limit and no retries, well within the web proxy's 30 seconds. A query that excludes words (`-word`) is not embedded, since an embedding cannot leave words out: it is matched by its words alone.
+3. **Two lists.** The vector list takes the 40 passages nearest to the query by cosine distance, only from documents embedded by the current model, and drops those with a similarity below 0.05. The keyword list takes the 40 best matches of `websearch_to_tsquery('simple', …)`, which understands quotes for phrases, `or` and `-`, ranked by `ts_rank_cd`; it covers every ready document.
+4. **Merge.** Reciprocal Rank Fusion gives each passage 1 / (60 + rank) from every list it appears in. Ties go to the better rank in a single list, then to the passage id, so the same query always returns the same order.
+5. **Snippets.** `ts_headline` picks up to two short excerpts around the matching words, and the API returns them as plain and highlighted parts, with an ellipsis wherever text is left out. A passage found by its embedding alone shows its first 30 words.
+
+When the query cannot be embedded, a hybrid search returns the keyword list and reports `semantic_available: false`. Answers written only from the retrieved passages, citing them, or saying that the material does not cover the question, come next.
 
 ## Database Schema
 
@@ -256,6 +267,10 @@ Compose starts PostgreSQL and Redis, applies the migrations with a one-off `migr
 | `make e2e` | Playwright against the running stack at http://localhost:3000 |
 | `make migrate` | Apply database migrations |
 | `make api-types` | Regenerate the frontend API types from the backend OpenAPI schema |
+| `make reindex` | Re-index the documents embedded by another model than the current one; `ARGS=--dry-run` only counts them |
+| `make check-ai` | Check that the configured models answer: embed one sentence, and with `ARGS=--chat` also ask the chat model for one small analysis |
+
+Both commands run in the worker container, with its settings; without `make`, run `docker compose exec worker python -m app.reindex [--dry-run]` or `docker compose exec worker python -m app.check_ai [--chat]`. `check-ai` names each model with its provider and whether it is built in, at OpenAI or at a custom endpoint, never with a key or an address; it prints how long each model took to answer and exits with 1 and the error code when one fails. `reindex` first embeds a probe sentence and stops without changing anything if the model does not answer, then queues the documents one at a time. It does not wait for processing: until the worker has re-indexed them, they count as their owners' active documents, so those owners' uploads may be refused with `too_many_active_documents`; a document that fails while a model is unavailable shows failed until its owner retries it; and the per-user limits do not apply to the command itself. A document is analysed again unless the current chat model already analysed it in full, so moving from the built-in models to paid ones pays for a new analysis of every document; `--dry-run` says how many. A stop in the middle of queueing leaves at most one document uploaded with nothing queued, and its owner's Retry recovers it 15 minutes later.
 
 ## Environment Variables
 
@@ -295,7 +310,7 @@ Limits such as the upload size are settings with fixed defaults in `backend/app/
 - **No network, no paid model.** Tests use the offline providers or fakes, and the Celery task runs in-process without a broker.
 - **Hostile input.** Text processing runs on untrusted files, so its regular expressions are written to stay linear, and timing tests feed it 2,000,000-character runs of the characters that would make a careless pattern backtrack. They run with coverage's tracer paused, so that under `--cov` in CI they time the code rather than the tracing.
 - **Frontend (Vitest, Testing Library).** Component and hook tests in jsdom, including keyboard use, polling and both languages.
-- **End to end (Playwright).** The landing and status pages, the account lifecycle, and a document's whole way: upload, processing to ready, the document page with its summary and passages, a duplicate turned down, a 12 MiB file that fails as too long, a file over 20 MiB turned down in the browser without a request, and the workspace's deletion. The two suites that need an account register one each, since registration is rate-limited, and the document suite first checks `GET /api/v1/meta` and stops unless the offline models are in use.
+- **End to end (Playwright).** The landing and status pages, the account lifecycle, and a document's whole way: upload, processing to ready, the document page with its summary and passages, a duplicate turned down, a 12 MiB file that fails as too long, a file over 20 MiB turned down in the browser without a request, a search that finds a passage by one of its words and opens the document at it with the focus there, Back to the same results, a search that finds nothing, and the workspace's deletion. The two suites that need an account register one each, since registration is rate-limited, and the document suite first checks `GET /api/v1/meta` and stops unless the offline models are in use.
 - **CI (GitHub Actions)** on every push to `main` and every pull request: the backend job installs the dependencies locked in `uv.lock`, failing when the lock no longer matches `pyproject.toml`, and runs ruff, mypy and pytest with coverage against PostgreSQL with pgvector and Redis service containers; the frontend job runs ESLint, Prettier, TypeScript, Vitest and a production build on the Node version in `.nvmrc`; a contract job regenerates the TypeScript API types from the backend's OpenAPI schema and fails on any difference.
 
 ## Evaluation
@@ -311,8 +326,11 @@ FastAPI serves interactive documentation at http://localhost:8000/docs (Swagger 
 | Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/token`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` |
 | Workspaces | `GET`, `POST /workspaces`; `GET`, `PATCH`, `DELETE /workspaces/{id}` |
 | Documents | `POST`, `GET /workspaces/{id}/documents`; `GET`, `DELETE /documents/{id}`; `GET /documents/{id}/chunks`; `GET /documents/{id}/file`; `POST /documents/{id}/retry` |
-| Meta | `GET /meta`: upload limits, accepted file types, per-user limits, the models in use (public) |
+| Search | `GET /search`: the passages of a workspace that best match a query |
+| Meta | `GET /meta`: upload limits, accepted file types, per-user limits, the longest search query, the models in use (public) |
 | Health | `GET /health/live`, `GET /health/ready` |
+
+`GET /api/v1/search?workspace_id=…&q=…` also takes `limit` (1 to 20, by default 10) and `mode` (`hybrid` by default, `vector` or `keyword`). It returns `results`, each with its document, chunk index, heading path, pages, snippet parts, score, how it was found and its cosine similarity, together with `semantic_available` and the numbers of searched, stale and pending documents. In `vector` mode a query that cannot be embedded is answered with 503 `search_unavailable`, with `Retry-After: 30` when the failure is temporary; `hybrid` falls back to the words instead. A user may search 30 times a minute.
 
 Lists take `?page=1&page_size=20` (at most 100) and return `{"items": [...], "total": ..., "page": ..., "page_size": ...}`. Every error has the same shape:
 
@@ -338,6 +356,7 @@ Lists take `?page=1&page_size=20` (at most 100) and return `{"items": [...], "to
 | 422 | `validation_error`, `invalid_text_encoding`, `empty_file` |
 | 429 | `rate_limited`, `too_many_active_documents`, with `Retry-After` |
 | 500 | `internal_error`, without internals; the `request_id` finds it in the logs |
+| 503 | `search_unavailable`, with `Retry-After` when the model may answer later |
 
 Other errors, such as an unknown route or a method a route does not take, carry a generic code for their status: `bad_request`, `permission_denied`, `not_found`, `method_not_allowed`, `unsupported_media_type`, or `http_error` for any status without a code of its own.
 
@@ -355,7 +374,17 @@ Screenshots will be added once the study features have their finished interface.
 
 **Celery and Redis for processing.** Parsing a PDF and calling models can take minutes, so an upload only stores the file, records the document, queues a task and answers `202 Accepted`. Celery brings what this needs: soft and hard time limits, retries with backoff, and late acknowledgement, so a message whose worker process crashed is delivered again. That helps only a document the crashed run had not claimed yet; one it had claimed is skipped by the redelivery (see the run token below) and recovered by the stale Retry. Redis was already in the stack for rate limits, so it doubles as the broker rather than adding another service. Publishing has bounded connect and socket timeouts and a single retry, so a publish to a dead broker gives up within about 21 seconds and an upload still answers before the web proxy's 30-second limit, with the document failed as `queue_unavailable` for Retry to queue again. When a publish fails only after the broker took the message, and a worker has already moved the document on, the upload or retry returns the document as the worker left it.
 
-**pgvector inside PostgreSQL.** Passages, their vectors and their full-text index live in the database that already holds the documents. One transaction stores a document's passages and marks it ready, deleting a document deletes its vectors through a cascade, and there is no second store to run or keep in sync. The embedding is a column of `document_chunks`, one vector per passage, rather than a table of its own. Each passage also keeps its `workspace_id`, because search will always filter by workspace; the composite foreign key keeps that copy equal to the document's.
+**pgvector inside PostgreSQL.** Passages, their vectors and their full-text index live in the database that already holds the documents. One transaction stores a document's passages and marks it ready, deleting a document deletes its vectors through a cascade, and there is no second store to run or keep in sync. The embedding is a column of `document_chunks`, one vector per passage, rather than a table of its own. Each passage also keeps its `workspace_id`, because search always filters by workspace; the composite foreign key keeps that copy equal to the document's.
+
+**Hybrid search merged by rank.** Embeddings find passages that say the same thing in other words; full-text search finds exact terms, names and formulas that embeddings blur. The two lists score on different scales, cosine distance against `ts_rank_cd`, so they are merged by rank rather than by score with Reciprocal Rank Fusion (Cormack, Clarke and Büttcher, SIGIR 2009), whose constant of 60 keeps the top of one list from outweighing passages that both lists rank well. The full-text side uses the `simple` configuration, which treats every language alike, because the notes are in English, Russian or both.
+
+**Filtered vector search with iterative scans.** A search filters an approximate HNSW index by workspace. A plain HNSW scan stops after its 40 nearest candidates and only then applies the filter, so a small workspace in a large table could come back empty. pgvector's iterative scans (`hnsw.iterative_scan = relaxed_order`, set for the one transaction only) keep scanning until enough rows pass the filter, and the query sorts them again by distance, since relaxed order may return them slightly out of order. For a single workspace PostgreSQL usually takes the exact path through the workspace index anyway.
+
+**One embedding model at a time.** Vectors of different models cannot be compared, even when they have the same size. So the vector list only uses documents embedded by the current model; the others are still searched by their words, reported as stale, and `make reindex` embeds them again.
+
+**Snippets as parts, never HTML.** `ts_headline` marks the matching words with control characters that stored text never contains, and the API turns them into a list of plain and highlighted parts. No markup crosses the API, so a document's text cannot inject any into the page; the web client renders the parts as text inside `<mark>` elements.
+
+**Search degrades instead of failing.** If the query embedding times out or fails, a search still returns the keyword list and says that only words were searched; only `vector` mode, with nothing else to return, answers 503. No model is called while the API or the worker starts, so an outage at a model provider cannot keep the stack down; `make check-ai` checks the models on request.
 
 **Provider interfaces with offline models.** The pipeline depends on two small protocols, `LLMProvider` and `EmbeddingProvider`, not on a vendor's SDK. One implementation talks to any OpenAI-compatible API through the official SDK, with an explicit key, URL, timeouts and retries; the other is built in: a heuristic analysis and hashed word embeddings that are deterministic and need no network. So the stack runs and every test passes without an API key, and no test depends on a model or pays for one. A model's answer is requested as JSON matching a Pydantic schema and validated again on arrival, with one chance to repair it. Keys are resolved together with their URLs because chat and embeddings often come from different vendors: a key must never be sent to a host it was not issued for (the pairing rule under Environment Variables). For the same reason the client takes no address or header from the OpenAI SDK's own variables: `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and `OPENAI_CUSTOM_HEADERS` are ignored.
 
@@ -373,22 +402,23 @@ Screenshots will be added once the study features have their finished interface.
 
 ## Limitations
 
-- The offline analysis is heuristic: the title comes from the front matter, the first heading or first lines that stand alone like a title; the summary from the first sentences; the topics from the headings the text returns to and its repeated phrases, then from word frequencies; and the difficulty from a readability score. Code blocks, HTML blocks, tables, images and badges are left out. The offline embeddings match shared words, not meaning. Real models need an API key.
+- The offline analysis is heuristic: the title comes from the front matter, the first heading or first lines that stand alone like a title; the summary from the first sentences; the topics from the headings the text returns to and its repeated phrases, then from word frequencies; and the difficulty from a readability score. Code blocks, HTML blocks, tables, images and badges are left out. The offline embeddings compare words and their beginnings, not meaning, so search labels their matches "Similar words". Real models need an API key.
 - There is no OCR: a scanned PDF without a text layer fails with `no_text`.
 - The interface is in English and Russian only.
 - It is a single-node setup: one Compose stack, with uploaded files on a local volume shared by the API and the worker, and no object storage or replicas. The per-IP rate limits assume a reverse proxy that sets `X-Forwarded-For` (see Authentication).
-- The vector size is fixed at 1,536 dimensions, and documents processed before a change of embedding model keep their old vectors; there is no command to re-embed them yet.
+- The vector size is fixed at 1,536 dimensions. After a change of embedding model, documents keep their old vectors and are searched by their words only until `make reindex` embeds them again.
+- Vector search is approximate: the HNSW index trades exactness for speed, so a near passage can occasionally be missed. Full-text search uses PostgreSQL's `simple` configuration, which does no stemming: "cell" does not match "cells" by its words, although the embeddings may still bring that passage in. A query that excludes words (`-word`) is matched by its words alone.
 - Processing status is polled rather than pushed, every 2 seconds or every 15 once the files on their way have stalled, and an upload shows no percentage.
 - Synchronous routes: FastAPI's thread pool bounds how many requests run at once.
 
 ## Future Improvements
 
-- Retrieval and search: vector and full-text results merged by Reciprocal Rank Fusion, then chat that answers only from the retrieved passages, cites them and says when the material does not cover a question.
+- Chat that answers only from the retrieved passages, cites them and says when the material does not cover a question.
 - Quizzes generated as schema-validated JSON, with results, history and mistakes turned into flashcards.
 - Flashcards with spaced repetition (Again, Hard, Good, Easy) and export to Anki.
 - A dashboard with study time, accuracy, weak topics, upcoming repetitions and recommendations.
 - Evaluation with `make evaluate`.
-- Hardening and delivery: production images built in CI, dependency and secret scanning, end-to-end tests in CI, re-embedding after a model change, OCR for scanned PDFs.
+- Hardening and delivery: production images built in CI, dependency and secret scanning, end-to-end tests in CI, OCR for scanned PDFs.
 
 ## License
 
