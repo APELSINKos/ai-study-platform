@@ -13,6 +13,12 @@ const CSRF_COOKIE = "recall_csrf";
 const CSRF_HEADER = "X-CSRF-Token";
 const WORKSPACE_URL = /\/workspaces\/[0-9a-f-]{36}$/;
 const DOCUMENT_URL = /\/documents\/[0-9a-f-]{36}$/;
+const PASSAGE_URL = /\/documents\/[0-9a-f-]{36}\?fragment=\d+$/;
+// A word of the notes, and one that shares no word, nor the beginning of one, with them: the
+// built-in embeddings compare words and their beginnings.
+const FOUND_WORD = "slower";
+const MISSING_WORD = "xylophone";
+const FOUND_WORD_URL = /\/workspaces\/[0-9a-f-]{36}\?q=slower$/;
 
 const ACCOUNT = newAccount("documents", "E2E Reader");
 const WORKSPACE_NAME = "Memory and learning";
@@ -66,6 +72,24 @@ function documentRow(page: Page, name: string) {
     .filter({ hasText: name });
 }
 
+function searchSection(page: Page) {
+  return page.getByRole("region", { name: "Search" });
+}
+
+async function search(page: Page, words: string): Promise<void> {
+  const section = searchSection(page);
+  await section.getByRole("searchbox", { name: "Words to look for" }).fill(words);
+  await section.getByRole("button", { name: "Search", exact: true }).click();
+}
+
+/** The results whose snippet marks `word` as a word the query matched. */
+function resultsMarking(page: Page, word: string) {
+  return searchSection(page)
+    .getByRole("list", { name: "Search results" })
+    .getByRole("listitem")
+    .filter({ has: page.locator("mark", { hasText: word }) });
+}
+
 /** Deletes a workspace the way the web app does, and fails when the workspace is left behind. */
 async function deleteWorkspace(page: Page, id: string): Promise<void> {
   const cookies = await page.context().cookies();
@@ -80,7 +104,7 @@ async function deleteWorkspace(page: Page, id: string): Promise<void> {
 }
 
 // Registration is rate-limited per IP, so this suite creates exactly one account and walks
-// it through one workspace's whole life: uploads, processing, refusals and deletion.
+// it through one workspace's whole life: uploads, processing, refusals, search and deletion.
 test.describe.serial("documents from upload to deletion", () => {
   let page: Page;
   let workspaceId: string | null = null;
@@ -196,6 +220,46 @@ test.describe.serial("documents from upload to deletion", () => {
     await expect(uploadResults(page)).toContainText("The file is larger than 20 MB.");
     page.off("request", countUploads);
     expect(sent).toBe(0);
+  });
+
+  test("finds a passage of the notes by one of its words, marked in the snippet", async () => {
+    await search(page, FOUND_WORD);
+
+    await expect(page).toHaveURL(FOUND_WORD_URL);
+    const result = resultsMarking(page, FOUND_WORD);
+    await expect(result).toHaveCount(1);
+    await expect(result.locator("mark")).toHaveText(FOUND_WORD);
+    await expect(result).toContainText(NOTES.title);
+  });
+
+  test("opens the document at the passage a result cites, with the focus on it", async () => {
+    await resultsMarking(page, FOUND_WORD).getByRole("link").click();
+
+    await expect(page).toHaveURL(PASSAGE_URL);
+    const opened = page
+      .getByRole("region", { name: "Passages" })
+      .getByRole("listitem")
+      .filter({ hasText: "The passage you opened" });
+    await expect(opened).toBeVisible();
+    await expect(opened).toBeFocused();
+    await expect(opened).toContainText(NOTES.secondSentence);
+  });
+
+  test("comes back to the same search and its results", async () => {
+    await page.goBack();
+
+    await expect(page).toHaveURL(FOUND_WORD_URL);
+    await expect(
+      searchSection(page).getByRole("searchbox", { name: "Words to look for" }),
+    ).toHaveValue(FOUND_WORD);
+    await expect(resultsMarking(page, FOUND_WORD)).toBeVisible();
+  });
+
+  test("says so when no passage matches", async () => {
+    await search(page, MISSING_WORD);
+
+    await expect(searchSection(page).getByRole("status")).toHaveText("No passages match.");
+    await expect(searchSection(page).getByRole("list", { name: "Search results" })).toHaveCount(0);
   });
 
   test("deletes the workspace and comes back to an empty list", async () => {
