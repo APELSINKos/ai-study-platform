@@ -16,6 +16,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // Compose publishes the web client on 127.0.0.1, and Docker Desktop links it by that address;
+  // the dev server serves its client scripts only to localhost and the origins listed here.
+  allowedDevOrigins: ["127.0.0.1"],
   experimental: {
     // The /api proxy cuts bodies beyond this; it must pass a 20 MiB upload plus multipart overhead.
     proxyClientMaxBodySize: "21mb",
