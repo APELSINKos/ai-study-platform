@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final, Protocol
 
-from app.rag.snippets import parse_headline
+from app.rag.snippets import snippet_parts
 from app.rag.vector_store import ChunkHit, KeywordCandidate, VectorCandidate
 from app.schemas.search import MatchKind, SearchMode, SnippetPart
 
@@ -175,7 +175,7 @@ def _retrieved(
         page_end=hit.page_end,
         content=hit.content,
         char_count=hit.char_count,
-        snippet=parse_headline(hit.headline),
+        snippet=snippet_parts(hit.headline, hit.content),
         score=score,
         matched_by=tuple(matched_by),
         similarity=similarity,

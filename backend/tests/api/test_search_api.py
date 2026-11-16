@@ -311,13 +311,8 @@ def test_a_result_is_a_passage_with_its_place_snippet_score_and_how_it_was_found
             "heading": None,
             "page_start": 3,
             "page_end": 4,
-            # No word of the query matches: the first words, nothing highlighted.
-            "snippet": [
-                {
-                    "text": "Chlorophyll absorbs red and blue light and reflects",
-                    "highlighted": False,
-                }
-            ],
+            # No word of the query matches: the passage's opening, here all of it, unmarked.
+            "snippet": [{"text": _PIGMENT, "highlighted": False}],
             "score": pytest.approx(1 / 62),
             "matched_by": ["semantic"],
             "similarity": pytest.approx(0.8),
@@ -326,6 +321,28 @@ def test_a_result_is_a_passage_with_its_place_snippet_score_and_how_it_was_found
     assert body["semantic_available"] is True
     assert _counts(body) == (2, 0, 0)
     assert embedder.calls == [["photosynthesis"]]
+
+
+def test_a_snippet_shows_with_an_ellipsis_where_its_passage_goes_on(
+    user_client: TestClient, db_session: Session
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    document = _add_document(db_session, workspace_id)
+    passage = (
+        "Cells are the basic units of life. Chloroplasts capture light energy and store it in"
+        " sugar. Inside each chloroplast, stacks of thylakoid membranes hold the pigment"
+        " chlorophyll, which absorbs red and blue light and reflects green. The Calvin cycle"
+        " fixes carbon dioxide into three-carbon sugars. It needs no light directly, but it"
+        " stops within minutes in the dark because the carriers run out."
+    )
+    _add_chunks(db_session, document, _row(0, passage))
+
+    [hit] = _results(user_client, workspace_id, "calvin", mode="keyword")["results"]
+
+    text = "".join(part["text"] for part in hit["snippet"])
+    assert text.startswith("… ")
+    assert text.endswith(" …")
+    assert _highlighted(hit) == ["Calvin"]
 
 
 @pytest.mark.usefixtures("fresh_vector_index")

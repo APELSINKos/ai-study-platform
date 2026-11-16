@@ -3,6 +3,7 @@
 The headline comes with marks in its text (see vector_store): the words that the query
 matched stand between HIGHLIGHT_START and HIGHLIGHT_STOP, and FRAGMENT_DELIMITER stands
 between two passages. The API returns parts, never markup, and the client shows them as text.
+An ellipsis stands wherever a snippet leaves out part of its chunk.
 """
 
 import re
@@ -16,9 +17,12 @@ from app.schemas.search import SnippetPart
 
 # Two passages of up to 24 words fit with room to spare; only very long words need more.
 MAX_SNIPPET_CHARS: Final = 600
+# The opening of a chunk found by embeddings alone, about as long as a passage of a headline.
+OPENING_WORDS: Final = 30
 _PASSAGE_BREAK: Final = f" {ELLIPSIS} "
 # One mark at a time; re.split keeps each mark between the texts before and after it.
 _MARK_RE: Final = re.compile(f"([{HIGHLIGHT_START}{HIGHLIGHT_STOP}{FRAGMENT_DELIMITER}])")
+_UNMARK: Final = str.maketrans("", "", HIGHLIGHT_START + HIGHLIGHT_STOP)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +41,25 @@ class _Word:
 _CUT_MARK: Final = _Word(" ", ELLIPSIS, highlighted=False)
 
 
+def snippet_parts(headline: str, content: str) -> list[SnippetPart]:
+    """The snippet of a chunk: its headline, with an ellipsis where it leaves the chunk's text out.
+
+    A headline without highlighted words belongs to a chunk found by embeddings alone, for
+    which PostgreSQL picks only the first few words: the chunk's first OPENING_WORDS words
+    stand in. A snippet holds at most MAX_SNIPPET_CHARS characters after its first ellipsis.
+    """
+    words = _headline_words(headline)
+    if not any(word.highlighted for word in words):
+        return _parts(_opening(content))
+    if words[-1] != _CUT_MARK and not _reaches_end(headline, content):
+        words.append(_CUT_MARK)
+    if not _starts_at_beginning(headline, content):
+        first = words[0]
+        words[0] = _Word(" ", first.text, first.highlighted)
+        words.insert(0, _Word("", ELLIPSIS, highlighted=False))
+    return _parts(words)
+
+
 def parse_headline(raw: str) -> list[SnippetPart]:
     """The parts of a headline: the words that the query matched highlighted, the rest plain.
 
@@ -44,6 +67,11 @@ def parse_headline(raw: str) -> list[SnippetPart]:
     mark without its partner is dropped. A snippet longer than MAX_SNIPPET_CHARS ends with
     an ellipsis, cut before the first word (a run between spaces or marks) that does not fit.
     """
+    return _parts(_headline_words(raw))
+
+
+def _headline_words(raw: str) -> list[_Word]:
+    """The words of a headline, cut with an ellipsis if they do not fit MAX_SNIPPET_CHARS."""
     words: list[_Word] = []
     length = 0
     for word in _words(raw):
@@ -51,8 +79,51 @@ def parse_headline(raw: str) -> list[SnippetPart]:
         length += word.length
         if length > MAX_SNIPPET_CHARS:
             # The snippet has to be cut, so the rest of the headline is not turned into words.
-            return _parts(_cut(words))
-    return _parts(words)
+            return _cut(words)
+    return words
+
+
+def _opening(content: str) -> list[_Word]:
+    """The first OPENING_WORDS words of a chunk, then an ellipsis when more follow."""
+    pieces = content.split(maxsplit=OPENING_WORDS)
+    words = _headline_words(" ".join(pieces[:OPENING_WORDS]))
+    if len(pieces) > OPENING_WORDS and words[-1] != _CUT_MARK:
+        words.append(_CUT_MARK)
+    return words
+
+
+# The headline leaves out the punctuation before a chunk's first word and after its last, so
+# only letters and digits decide whether a passage reaches the start or the end of the chunk.
+
+
+def _starts_at_beginning(headline: str, content: str) -> bool:
+    """Whether the headline's first passage starts where its chunk does."""
+    first = headline.split(FRAGMENT_DELIMITER, 1)[0].translate(_UNMARK)
+    first = first[_first_word_index(first) :]
+    return content.startswith(first, _first_word_index(content))
+
+
+def _reaches_end(headline: str, content: str) -> bool:
+    """Whether the headline's last passage ends where its chunk does."""
+    last = headline.rsplit(FRAGMENT_DELIMITER, 1)[-1].translate(_UNMARK)
+    last = last[: _last_word_end(last)]
+    return content.endswith(last, 0, _last_word_end(content))
+
+
+def _first_word_index(text: str) -> int:
+    """Where the first letter or digit of a text stands; the text's length when it has none."""
+    for index, character in enumerate(text):
+        if character.isalnum():
+            return index
+    return len(text)
+
+
+def _last_word_end(text: str) -> int:
+    """Where a text ends once what follows its last letter or digit is left out."""
+    for index in range(len(text), 0, -1):
+        if text[index - 1].isalnum():
+            return index
+    return 0
 
 
 def _words(raw: str) -> Iterator[_Word]:

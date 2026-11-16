@@ -5,7 +5,7 @@ from typing import Final
 
 import pytest
 
-from app.rag.snippets import MAX_SNIPPET_CHARS, parse_headline
+from app.rag.snippets import MAX_SNIPPET_CHARS, OPENING_WORDS, parse_headline, snippet_parts
 from app.rag.vector_store import FRAGMENT_DELIMITER as DELIMITER
 from app.rag.vector_store import HIGHLIGHT_START as START
 from app.rag.vector_store import HIGHLIGHT_STOP as STOP
@@ -277,6 +277,149 @@ def test_a_headline_as_postgresql_writes_it_becomes_parts() -> None:
         _marked("reaction"),
         _plain(" to fix carbon dioxide"),
     ]
+
+
+# A passage, and below, the headlines PostgreSQL writes for it with the store's options.
+_PASSAGE: Final = (
+    "Cells are the basic units of life. Chloroplasts capture light energy and store it in sugar."
+    " Inside each chloroplast, stacks of thylakoid membranes hold the pigment chlorophyll, which"
+    " absorbs red and blue light and reflects green. The Calvin cycle fixes carbon dioxide into"
+    " three-carbon sugars. It needs no light directly, but it stops within minutes in the dark"
+    " because the carriers run out."
+)
+
+
+def test_a_snippet_from_inside_a_passage_has_an_ellipsis_at_each_end() -> None:
+    headline = (
+        "chlorophyll, which absorbs red and blue light and reflects green."
+        f" The {START}Calvin{STOP} cycle fixes carbon dioxide into three-carbon sugars. It"
+        " needs no light"
+    )
+
+    assert snippet_parts(headline, _PASSAGE) == [
+        _plain("… chlorophyll, which absorbs red and blue light and reflects green. The "),
+        _marked("Calvin"),
+        _plain(" cycle fixes carbon dioxide into three-carbon sugars. It needs no light …"),
+    ]
+
+
+def test_a_snippet_from_the_start_of_a_passage_has_no_ellipsis_before_it() -> None:
+    headline = (
+        f"{START}Cells{STOP} are the basic units of life. Chloroplasts capture light energy"
+        " and store it in sugar. Inside each chloroplast, stacks of thylakoid membranes hold"
+    )
+
+    assert snippet_parts(headline, _PASSAGE) == [
+        _marked("Cells"),
+        _plain(
+            " are the basic units of life. Chloroplasts capture light energy and store it in"
+            " sugar. Inside each chloroplast, stacks of thylakoid membranes hold …"
+        ),
+    ]
+
+
+def test_a_snippet_that_reaches_the_end_of_a_passage_has_no_ellipsis_after_it() -> None:
+    # The headline leaves out the full stop after the passage's last word.
+    headline = f"stops within minutes in the dark because the carriers run {START}out{STOP}"
+
+    assert snippet_parts(headline, _PASSAGE) == [
+        _plain("… stops within minutes in the dark because the carriers run "),
+        _marked("out"),
+    ]
+
+
+def test_the_first_passage_of_a_headline_decides_its_start_and_the_last_its_end() -> None:
+    headline = (
+        f"Cells are the basic units of life. Chloroplasts capture {START}light{STOP} energy and"
+        " store it in sugar. Inside each chloroplast, stacks of thylakoid membranes hold"
+        f"{DELIMITER}pigment chlorophyll, which absorbs red and blue {START}light{STOP} and"
+        " reflects green. The Calvin cycle fixes carbon dioxide into three-carbon sugars. It needs"
+    )
+
+    assert snippet_parts(headline, _PASSAGE) == [
+        _plain("Cells are the basic units of life. Chloroplasts capture "),
+        _marked("light"),
+        _plain(
+            " energy and store it in sugar. Inside each chloroplast, stacks of thylakoid"
+            " membranes hold … pigment chlorophyll, which absorbs red and blue "
+        ),
+        _marked("light"),
+        _plain(
+            " and reflects green. The Calvin cycle fixes carbon dioxide into three-carbon"
+            " sugars. It needs …"
+        ),
+    ]
+
+
+def test_a_snippet_of_a_whole_passage_has_no_ellipsis() -> None:
+    passage = "(Photosynthesis turns light into sugar.)"
+    headline = f"{START}Photosynthesis{STOP} turns light into sugar"
+
+    assert snippet_parts(headline, passage) == [
+        _marked("Photosynthesis"),
+        _plain(" turns light into sugar"),
+    ]
+
+
+def test_a_passage_found_by_embeddings_alone_shows_its_opening() -> None:
+    words = [f"word{number}" for number in range(OPENING_WORDS + 5)]
+    # PostgreSQL gives a passage without matching words only its first eight words.
+    headline = " ".join(words[:8])
+
+    assert snippet_parts(headline, "\n".join(words)) == [
+        _plain(" ".join(words[:OPENING_WORDS]) + " …")
+    ]
+
+
+def test_a_short_passage_found_by_embeddings_alone_is_shown_whole() -> None:
+    passage = "Chlorophyll absorbs red and blue light\nand reflects green."
+
+    assert snippet_parts("Chlorophyll absorbs red and blue light and reflects", passage) == [
+        _plain("Chlorophyll absorbs red and blue light and reflects green.")
+    ]
+
+
+def test_an_opening_of_long_words_is_cut_to_the_snippet_limit() -> None:
+    passage = " ".join(["abcdefghij" * 10] * OPENING_WORDS)
+
+    parts = snippet_parts("", passage)
+
+    assert len(_text(parts)) <= MAX_SNIPPET_CHARS
+    assert _text(parts).endswith(" …")
+    assert _text(parts).count("…") == 1
+
+
+def test_a_snippet_cut_at_the_limit_ends_with_a_single_ellipsis() -> None:
+    headline = f"{START}light{STOP} " + "abcd " * 200
+    passage = headline.replace(START, "").replace(STOP, "") + "and more."
+
+    text = _text(snippet_parts(headline, passage))
+
+    assert text.endswith("abcd …")
+    assert text.count("…") == 1
+
+
+def test_a_passage_without_words_gives_no_parts() -> None:
+    assert snippet_parts("", " \n ") == []
+
+
+@pytest.mark.no_cover
+@pytest.mark.parametrize(
+    ("headline", "passage"),
+    [
+        (f"{START}a{STOP} " + "a " * 300, "a " * (HOSTILE_TEXT_LENGTH // 2)),
+        (f"{START}x{STOP}" + "x" * 500 + "y", "x" * HOSTILE_TEXT_LENGTH),
+        (f"{START}a{STOP}{DELIMITER}" * 100, ". " * (HOSTILE_TEXT_LENGTH // 2)),
+        ("", "a\n" * (HOSTILE_TEXT_LENGTH // 2)),
+    ],
+    ids=["repeated words", "one long word", "only punctuation", "opening of a long passage"],
+)
+def test_snippets_of_long_passages_take_linear_time(headline: str, passage: str) -> None:
+    started = time.perf_counter()
+    parts = snippet_parts(headline, passage)
+
+    assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
+    assert len(_text(parts)) <= MAX_SNIPPET_CHARS + len("… ")
 
 
 @pytest.mark.no_cover
