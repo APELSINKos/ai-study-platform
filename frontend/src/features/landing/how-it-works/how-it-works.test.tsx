@@ -30,7 +30,7 @@ describe("HowItWorks", () => {
     expect(screen.getAllByRole("heading", { level: 3 }).map((step) => step.textContent)).toEqual([
       "1Your file becomes passages",
       "2Each passage gets a place on a map",
-      "3Your question will find its neighbours",
+      "3Your search finds its neighbours",
       "4The answer will cite them",
     ]);
   });
@@ -44,7 +44,7 @@ describe("HowItWorks", () => {
     const marked = screen
       .getAllByRole("heading", { level: 3 })
       .map((title) => within(title.closest("li") as HTMLElement).queryByText(label) !== null);
-    expect(marked).toEqual([false, false, true, true]);
+    expect(marked).toEqual([false, false, false, true]);
   });
 
   it("does not claim that the built-in model maps passages by meaning", () => {
@@ -52,6 +52,15 @@ describe("HowItWorks", () => {
 
     expect(screen.queryByText(/by meaning/i)).not.toBeInTheDocument();
     expect(screen.getByText(/use the same words/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["en", /^The first three steps already work on every file you upload/],
+    ["ru", /^Первые три шага уже проходит каждый загруженный файл/],
+  ] as const)("says that search works today (%s)", (locale, lead) => {
+    renderWithIntl(<HowItWorks />, { locale });
+
+    expect(screen.getByText(lead)).toBeInTheDocument();
   });
 
   it("starts the story at the first step with the answer not yet written", async () => {

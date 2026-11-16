@@ -55,7 +55,7 @@ describe("the landing page's account of what Recall does", () => {
   it("tells what works today and what comes next from the first screen", () => {
     renderWithIntl(<Hero />);
 
-    expect(screen.getByText(/cuts each file into passages/)).toHaveTextContent(
+    expect(screen.getByText(/cuts each file into passages you can search/)).toHaveTextContent(
       "Answers with sources, quizzes and flashcards are coming next.",
     );
   });

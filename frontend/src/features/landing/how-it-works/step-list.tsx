@@ -3,8 +3,8 @@ import { useTranslations } from "next-intl";
 import { ComingNext } from "../coming-next";
 import { STEPS, type Step } from "./timeline";
 
-/** Questions and cited answers are not built yet: their steps say so. */
-const COMING_NEXT_STEPS: ReadonlySet<Step> = new Set(["search", "answer"]);
+/** Answers that cite their passages are not built yet: their step says so. */
+const COMING_NEXT_STEPS: ReadonlySet<Step> = new Set(["answer"]);
 
 /**
  * The four numbered steps beside the map. The current one gets its number circled in pen. Where

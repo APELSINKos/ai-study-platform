@@ -1,6 +1,6 @@
 {
   "Metadata": {
-    "description": "Upload lecture notes and textbook chapters: each file is split into passages and summed up. Answers with sources, quizzes and flashcards are coming next."
+    "description": "Upload lecture notes and textbook chapters: each file is split into passages you can search and summed up. Answers with sources, quizzes and flashcards are coming next."
   },
   "Locale": {
     "label": "Language",
@@ -24,7 +24,7 @@
     "comingNext": "Coming next",
     "hero": {
       "headline": "<line>Read it once.</line> <line>Recall it on exam day.</line>",
-      "lead": "Upload your lecture notes and textbook chapters: Recall cuts each file into passages and sums it up, with its topics, difficulty and study time. Answers with sources, quizzes and flashcards are coming next.",
+      "lead": "Upload your lecture notes and textbook chapters: Recall cuts each file into passages you can search and sums it up, with its topics, difficulty and study time. Answers with sources, quizzes and flashcards are coming next.",
       "page": {
         "course": "Introduction to psychology, lecture 6",
         "title": "How memory fades",
@@ -38,7 +38,7 @@
     },
     "how": {
       "title": "How it works",
-      "lead": "The first two steps already run on every file you upload. Asking questions comes next: each answer will come from your own material, and you will always see where.",
+      "lead": "The first three steps already work on every file you upload, so you can search your notes today. Asking questions comes next: each answer will come from your own material, and you will always see where.",
       "steps": {
         "passages": {
           "title": "Your file becomes passages",
@@ -49,8 +49,8 @@
           "body": "Recall turns each passage into a point on a map, next to passages that use the same words. With an AI model connected, passages that say the same thing in other words land close together too."
         },
         "search": {
-          "title": "Your question will find its neighbours",
-          "body": "The question will land on the same map. The passages nearest to it will be pulled in, along with any that use its exact terms."
+          "title": "Your search finds its neighbours",
+          "body": "A search lands on the same map and brings back the passages nearest to it, along with any that use its exact words. Each result opens your file at that passage."
         },
         "answer": {
           "title": "The answer will cite them",
