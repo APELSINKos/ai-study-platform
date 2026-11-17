@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useId, useRef, useState, useTransition, type FormEvent } from "react";
@@ -7,6 +8,7 @@ import { useId, useRef, useState, useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useMeta } from "@/features/meta/hooks";
+import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 
 import { SEARCH_RESULT_LIMIT } from "./api";
@@ -33,6 +35,7 @@ interface SearchSectionProps {
 export function SearchSection({ workspaceId, query, className }: SearchSectionProps) {
   const t = useTranslations("Search");
   const router = useRouter();
+  const queryClient = useQueryClient();
   const headingId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const meta = useMeta().data;
@@ -60,6 +63,9 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
       void search.refetch();
       return;
     }
+    // A search the user asks for is sent afresh, even one answered earlier: files may have
+    // become ready since. Back and Forward still show the answers kept for earlier searches.
+    queryClient.removeQueries({ queryKey: queryKeys.search(workspaceId, next), exact: true });
     startTransition(() =>
       router.push(`/workspaces/${workspaceId}?q=${encodeURIComponent(next)}`, { scroll: false }),
     );

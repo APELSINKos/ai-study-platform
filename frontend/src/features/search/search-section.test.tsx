@@ -221,6 +221,27 @@ describe("SearchSection", () => {
     expect(searchCalls()).toHaveLength(2);
   });
 
+  it("searches afresh for an earlier query typed again, as files may have become ready since", async () => {
+    let pending = 1;
+    serve(async () => searchResultsFixture(2, { pending_document_count: pending }));
+    const { showQuery } = renderSection("light");
+    await screen.findByText("1 file is still being processed — search again once it is ready.");
+    showQuery("glucose");
+    await waitFor(() => expect(searchCalls()).toHaveLength(2));
+    await screen.findByText("2 passages match.");
+
+    // The file is ready now, and the user searches for "light" again.
+    pending = 0;
+    await userEvent.clear(searchbox());
+    await userEvent.type(searchbox(), "light{Enter}");
+    expect(push).toHaveBeenLastCalledWith(`${WORKSPACE_URL}?q=light`, { scroll: false });
+    showQuery("light");
+
+    await waitFor(() => expect(searchCalls()).toHaveLength(3));
+    expect(await screen.findByText("2 passages match.")).toBeInTheDocument();
+    expect(screen.queryByText(/still being processed/)).not.toBeInTheDocument();
+  });
+
   it("searches again for an unchanged query, without a new history entry", async () => {
     serve();
     renderSection("light");
