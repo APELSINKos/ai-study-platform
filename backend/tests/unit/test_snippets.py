@@ -331,6 +331,27 @@ def test_a_snippet_that_reaches_the_end_of_a_passage_has_no_ellipsis_after_it() 
 
 
 def test_the_first_passage_of_a_headline_decides_its_start_and_the_last_its_end() -> None:
+    # The query "cells out": the first passage starts where the chunk does and the last one
+    # ends where it does, so only the break between them shows an ellipsis.
+    headline = (
+        f"{START}Cells{STOP} are the basic units of life. Chloroplasts capture light energy and"
+        " store it in sugar. Inside each chloroplast, stacks of thylakoid membranes hold"
+        f"{DELIMITER}it stops within minutes in the dark because the carriers run {START}out{STOP}"
+    )
+
+    assert snippet_parts(headline, _PASSAGE) == [
+        _marked("Cells"),
+        _plain(
+            " are the basic units of life. Chloroplasts capture light energy and store it in"
+            " sugar. Inside each chloroplast, stacks of thylakoid membranes hold … it stops within"
+            " minutes in the dark because the carriers run "
+        ),
+        _marked("out"),
+        _plain("."),
+    ]
+
+
+def test_a_headline_whose_last_passage_stops_short_ends_with_an_ellipsis() -> None:
     headline = (
         f"Cells are the basic units of life. Chloroplasts capture {START}light{STOP} energy and"
         " store it in sugar. Inside each chloroplast, stacks of thylakoid membranes hold"
@@ -492,8 +513,15 @@ def test_a_short_passage_found_by_embeddings_alone_is_shown_whole() -> None:
     ]
 
 
+def test_an_opening_of_exactly_opening_words_has_no_ellipsis() -> None:
+    words = [f"word{number}" for number in range(OPENING_WORDS)]
+
+    assert snippet_parts(" ".join(words[:8]), " ".join(words)) == [_plain(" ".join(words))]
+
+
 def test_an_opening_of_long_words_is_cut_to_the_snippet_limit() -> None:
-    passage = " ".join(["abcdefghij" * 10] * OPENING_WORDS)
+    # One word more than the opening holds, so the cut's ellipsis has to be the only one.
+    passage = " ".join(["abcdefghij" * 10] * (OPENING_WORDS + 1))
 
     parts = snippet_parts("", passage)
 
@@ -510,6 +538,17 @@ def test_a_snippet_cut_at_the_limit_ends_with_a_single_ellipsis() -> None:
 
     assert text.endswith("abcd …")
     assert text.count("…") == 1
+
+
+def test_the_ellipses_at_both_ends_come_on_top_of_the_snippet_limit() -> None:
+    words = "light " + "x" * (MAX_SNIPPET_CHARS - len("light "))
+    headline = f"{START}light{STOP}" + words.removeprefix("light")
+    passage = f"Before it, {words} and after it."
+
+    text = _text(snippet_parts(headline, passage))
+
+    assert text == f"… {words} …"
+    assert len(text) == MAX_SNIPPET_CHARS + len("… ") + len(" …")
 
 
 def test_a_passage_without_words_gives_no_parts() -> None:
@@ -541,7 +580,7 @@ def test_snippets_of_long_passages_take_linear_time(headline: str, passage: str)
     parts = snippet_parts(headline, passage)
 
     assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
-    assert len(_text(parts)) <= MAX_SNIPPET_CHARS + len("… ")
+    assert len(_text(parts)) <= MAX_SNIPPET_CHARS + len("… ") + len(" …")
 
 
 @pytest.mark.no_cover
