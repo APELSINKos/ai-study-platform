@@ -154,14 +154,17 @@ def test_every_vector_has_unit_length(embedder: HashingEmbeddingProvider, text: 
     assert math.isclose(math.fsum(value * value for value in vector), 1.0, abs_tol=1e-9)
 
 
-def test_text_without_features_gets_one_fixed_unit_vector(
+def test_each_text_without_features_gets_a_unit_vector_of_its_own(
     embedder: HashingEmbeddingProvider,
 ) -> None:
-    vectors = embedder.embed(["", "  \n\t ", "the and of", "и в на", "2024 42"])
+    empty, blank, *others = embedder.embed(["", "  \n\t ", "the and of", "2024 42", "1917"])
 
-    assert all(vector == vectors[0] for vector in vectors)
-    assert max(vectors[0]) == 1.0
-    assert vectors[0].count(0.0) == EMBEDDING_DIMENSIONS - 1
+    for vector in (empty, blank, *others):
+        assert max(vector) == 1.0
+        assert vector.count(0.0) == EMBEDDING_DIMENSIONS - 1
+    # Spaces aside, only the same text gets the same vector.
+    assert blank == empty
+    assert len({vector.index(1.0) for vector in (empty, *others)}) == 4
 
 
 @pytest.mark.parametrize(

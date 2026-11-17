@@ -239,9 +239,11 @@ def _embed(text: str) -> list[float]:
         vector[index] += sign * weight
     norm = math.sqrt(math.fsum(value * value for value in vector))
     if norm == 0.0:
-        # No features, or features that cancel out. pgvector cannot compare a zero vector
-        # by cosine, so such texts share one fixed unit vector.
-        vector[_bucket(_EMPTY_TEXT_FEATURE)[0]] = 1.0
+        # No features, or features that cancel out. pgvector cannot compare a zero vector by
+        # cosine, so the text itself picks the one component it sets: two such texts are
+        # alike only when they are the same text, spaces aside, or their hashes happen to
+        # pick the same component.
+        vector[_bucket(_EMPTY_TEXT_FEATURE + " ".join(text.split()))[0]] = 1.0
         return vector
     return [value / norm for value in vector]
 

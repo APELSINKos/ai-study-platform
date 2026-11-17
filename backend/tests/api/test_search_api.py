@@ -390,6 +390,28 @@ def test_the_built_in_embeddings_find_a_word_form_that_the_words_miss(
 
 
 @pytest.mark.usefixtures("fresh_vector_index")
+def test_a_query_of_numbers_alone_is_not_similar_to_a_passage_of_other_numbers(
+    user_client: TestClient, db_session: Session, embedder: _FakeQueryEmbedder
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    prose, _ = _add_chunks(
+        db_session,
+        _add_document(db_session, workspace_id),
+        _row(0, "The revolution of 1917 changed Russia."),
+        # A table's figures: the built-in embeddings compare words, and numbers count as none.
+        _row(1, "2019 2020 2021 2022 12.5 13.1 14.2 15.0"),
+    )
+
+    body = _results(user_client, workspace_id, "1917")
+
+    assert [(hit["chunk_id"], hit["matched_by"]) for hit in body["results"]] == [
+        (prose, ["keyword"])
+    ]
+    assert body["semantic_available"] is True
+    assert embedder.calls == [["1917"]]
+
+
+@pytest.mark.usefixtures("fresh_vector_index")
 def test_a_vector_search_finds_passages_by_their_embeddings_alone(
     user_client: TestClient, db_session: Session, embedder: _FakeQueryEmbedder
 ) -> None:
