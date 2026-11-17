@@ -308,15 +308,15 @@ describe("SearchSection", () => {
     expect(push).toHaveBeenCalledTimes(1);
   });
 
-  it("clears the search from the address, empties the box and puts the focus in it", async () => {
+  it("clears the search from the address as a new history entry, empties the box and puts the focus in it", async () => {
     serve();
     const { showQuery } = renderSection("light");
     await screen.findByText("3 passages match.");
 
     await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
 
-    expect(replace).toHaveBeenCalledWith(WORKSPACE_URL, { scroll: false });
-    expect(push).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith(WORKSPACE_URL, { scroll: false });
+    expect(replace).not.toHaveBeenCalled();
     expect(searchbox()).toHaveValue("");
     expect(searchbox()).toHaveFocus();
 

@@ -71,10 +71,11 @@ export function SearchSection({ workspaceId, query, className }: SearchSectionPr
     );
   }
 
+  // Clearing is a step in the history, like a search: Back brings the cleared search back.
   function clear() {
     setText("");
     inputRef.current?.focus();
-    router.replace(`/workspaces/${workspaceId}`, { scroll: false });
+    router.push(`/workspaces/${workspaceId}`, { scroll: false });
   }
 
   const status = query === null ? null : statusText(search, t);
