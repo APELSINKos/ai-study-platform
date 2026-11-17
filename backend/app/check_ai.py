@@ -9,7 +9,7 @@ cannot stop them: this command is the check to run instead. Run it in the worker
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from app.core.config import DEFAULT_OPENAI_BASE_URL, ProviderEndpoint, Settings, get_settings
 from app.llm.base import EmbeddingProvider, LLMProvider, ProviderError
@@ -41,32 +41,31 @@ def main(
     print(f"Chat model: {_describe(selection.chat, chat_endpoint(settings))}")
     print(f"Embedding model: {_describe(selection.embedding, embedding_endpoint(settings))}")
     embedder = build_embedding_provider(settings) if embedder is None else embedder
-    try:
-        latency = probe_embedding(embedder)
-    except ProviderError as error:
-        print(f"The embedding model failed: {_failure(error)}")
-        return 1
-    except UnicodeEncodeError:
-        print(f"The embedding model failed: {UNSENDABLE_KEY_MESSAGE}")
-        return 1
-    print(f"The embedding model answered in {latency} ms.")
+    embedding_answered = _report("embedding", lambda: probe_embedding(embedder))
     if not chat:
         print(
             "The chat model was not exercised; run with --chat to send it one small analysis"
             " request."
         )
-        return 0
+        return 0 if embedding_answered else 1
+    # Probed even when the embeddings fail: the two often come from different vendors.
     llm = build_llm_provider(settings) if llm is None else llm
+    chat_answered = _report("chat", lambda: probe_chat(llm))
+    return 0 if embedding_answered and chat_answered else 1
+
+
+def _report(kind: str, probe: Callable[[], float]) -> bool:
+    """Run one probe and print how long the model took or how it failed; whether it answered."""
     try:
-        latency = probe_chat(llm)
+        latency = probe()
     except ProviderError as error:
-        print(f"The chat model failed: {_failure(error)}")
-        return 1
+        print(f"The {kind} model failed: {_failure(error)}")
+        return False
     except UnicodeEncodeError:
-        print(f"The chat model failed: {UNSENDABLE_KEY_MESSAGE}")
-        return 1
-    print(f"The chat model answered in {latency} ms.")
-    return 0
+        print(f"The {kind} model failed: {UNSENDABLE_KEY_MESSAGE}")
+        return False
+    print(f"The {kind} model answered in {latency} ms.")
+    return True
 
 
 def _wants_chat(argv: Sequence[str] | None) -> bool:

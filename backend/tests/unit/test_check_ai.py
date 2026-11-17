@@ -160,18 +160,33 @@ def test_without_chat_the_chat_model_gets_no_request(capsys: pytest.CaptureFixtu
     assert _lines(capsys)[-1] == _NOT_EXERCISED
 
 
-@pytest.mark.parametrize("args", [[], ["--chat"]], ids=["embeddings-only", "with-chat"])
 def test_a_failing_embedding_model_exits_with_1_and_its_error_code(
-    capsys: pytest.CaptureFixture[str], args: list[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     chat = _ChatModel()
 
-    assert main(args, settings=_offline(), embedder=_Embedder(_UNAVAILABLE), llm=chat) == 1
+    assert main([], settings=_offline(), embedder=_Embedder(_UNAVAILABLE), llm=chat) == 1
 
     assert chat.requests == []
-    assert _lines(capsys)[-1] == (
+    assert _lines(capsys)[-2:] == [
+        "The embedding model failed: ai_unavailable (The AI provider could not be reached.)",
+        _NOT_EXERCISED,
+    ]
+
+
+def test_with_chat_the_chat_model_is_probed_even_when_the_embedding_model_fails(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    chat = _ChatModel()
+
+    assert main(["--chat"], settings=_offline(), embedder=_Embedder(_UNAVAILABLE), llm=chat) == 1
+
+    assert len(chat.requests) == 1
+    lines = _lines(capsys)
+    assert lines[-2] == (
         "The embedding model failed: ai_unavailable (The AI provider could not be reached.)"
     )
+    assert _CHAT_LATENCY.fullmatch(lines[-1])
 
 
 def test_a_failing_chat_model_exits_with_1_and_its_error_code(
@@ -196,7 +211,10 @@ def test_an_embedding_key_that_cannot_be_sent_is_named_as_the_failure(
         assert main([], settings=_offline(), embedder=embedder) == 1
 
     captured = capsys.readouterr()
-    assert captured.out.splitlines()[-1] == f"The embedding model failed: {UNSENDABLE_KEY_MESSAGE}"
+    assert captured.out.splitlines()[-2:] == [
+        f"The embedding model failed: {UNSENDABLE_KEY_MESSAGE}",
+        _NOT_EXERCISED,
+    ]
     assert _CHAT_KEY not in captured.out
     assert _CHAT_KEY not in captured.err
 
