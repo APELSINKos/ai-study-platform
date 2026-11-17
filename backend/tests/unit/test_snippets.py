@@ -319,12 +319,14 @@ def test_a_snippet_from_the_start_of_a_passage_has_no_ellipsis_before_it() -> No
 
 
 def test_a_snippet_that_reaches_the_end_of_a_passage_has_no_ellipsis_after_it() -> None:
-    # The headline leaves out the full stop after the passage's last word.
+    # The headline leaves out the full stop after the passage's last word; the snippet puts
+    # it back.
     headline = f"it stops within minutes in the dark because the carriers run {START}out{STOP}"
 
     assert snippet_parts(headline, _PASSAGE) == [
         _plain("… it stops within minutes in the dark because the carriers run "),
         _marked("out"),
+        _plain("."),
     ]
 
 
@@ -356,8 +358,119 @@ def test_a_snippet_of_a_whole_passage_has_no_ellipsis() -> None:
     headline = f"{START}Photosynthesis{STOP} turns light into sugar"
 
     assert snippet_parts(headline, passage) == [
+        _plain("("),
         _marked("Photosynthesis"),
-        _plain(" turns light into sugar"),
+        _plain(" turns light into sugar.)"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("passage", "headline", "expected"),
+    [
+        (
+            '"Light" is the first word here.',
+            f'{START}Light{STOP}" is the first word here',
+            [_plain('"'), _marked("Light"), _plain('" is the first word here.')],
+        ),
+        (
+            "«Фотосинтез» — это процесс, в котором свет становится энергией.",
+            f"{START}Фотосинтез{STOP}» — это процесс, в котором свет становится энергией",
+            [
+                _plain("«"),
+                _marked("Фотосинтез"),
+                _plain("» — это процесс, в котором свет становится энергией."),
+            ],
+        ),
+        (
+            "**Фотосинтез** — это процесс, в котором свет становится энергией.",
+            f"{START}Фотосинтез{STOP}** — это процесс, в котором свет становится энергией",
+            [
+                _plain("**"),
+                _marked("Фотосинтез"),
+                _plain("** — это процесс, в котором свет становится энергией."),
+            ],
+        ),
+        (
+            "(Draft) Photosynthesis converts light into chemical energy.",
+            f"Draft) {START}Photosynthesis{STOP} converts light into chemical energy",
+            [
+                _plain("(Draft) "),
+                _marked("Photosynthesis"),
+                _plain(" converts light into chemical energy."),
+            ],
+        ),
+        (
+            "- Chlorophyll absorbs red and blue light.",
+            f"{START}Chlorophyll{STOP} absorbs red and blue light",
+            [_plain("- "), _marked("Chlorophyll"), _plain(" absorbs red and blue light.")],
+        ),
+        (
+            "Эта глава объясняет «фотосинтез».",
+            f"Эта глава объясняет «{START}фотосинтез{STOP}",
+            [_plain("Эта глава объясняет «"), _marked("фотосинтез"), _plain("».")],
+        ),
+        (
+            "½ of the light is reflected.",
+            f"of the {START}light{STOP} is reflected",
+            [_plain("½ of the "), _marked("light"), _plain(" is reflected.")],
+        ),
+        (
+            "Chlorophyll absorbs red light²",
+            f"{START}Chlorophyll{STOP} absorbs red light",
+            [_marked("Chlorophyll"), _plain(" absorbs red light²")],
+        ),
+        (
+            "Water is written H₂O, and carbon dioxide CO₂",
+            f"Water is written H₂O, and carbon dioxide {START}CO{STOP}",
+            [_plain("Water is written H₂O, and carbon dioxide "), _marked("CO"), _plain("₂")],
+        ),
+        (
+            "/usr/share/dict lists the words of the language, one word on each line.",
+            f"/usr/share/dict lists the {START}words{STOP} of the language, one word on each line",
+            [
+                _plain("/usr/share/dict lists the "),
+                _marked("words"),
+                _plain(" of the language, one word on each line."),
+            ],
+        ),
+        (
+            "Read the notes at https://example.com/notes/",
+            f"Read the {START}notes{STOP} at https://example.com/notes/",
+            [_plain("Read the "), _marked("notes"), _plain(" at https://example.com/notes/")],
+        ),
+    ],
+    ids=[
+        "quotes",
+        "guillemets",
+        "emphasis",
+        "brackets",
+        "list-item",
+        "quote-and-full-stop-at-the-end",
+        "fraction",
+        "superscript",
+        "subscript-after-a-matched-word",
+        "path",
+        "url",
+    ],
+)
+def test_a_snippet_that_reaches_an_edge_of_its_passage_gets_back_what_the_headline_left_out(
+    passage: str, headline: str, expected: list[SnippetPart]
+) -> None:
+    # The headlines PostgreSQL writes with the store's options: it leaves out what stands
+    # before the passage's first word and after its last, though it keeps the slashes of a
+    # path or a URL. Its parser does not count ½, ² or ₂ as a part of a word; isalnum() does.
+    assert snippet_parts(headline, passage) == expected
+
+
+def test_a_headline_passage_without_words_reaches_no_edge_of_its_chunk() -> None:
+    # PostgreSQL never starts or ends a headline with a delimiter; a snippet then shows that
+    # text is left out rather than put back what the empty passages stand next to.
+    headline = f"{DELIMITER}{START}Light{STOP} and water{DELIMITER}"
+
+    assert snippet_parts(headline, "Light and water.") == [
+        _plain("… "),
+        _marked("Light"),
+        _plain(" and water …"),
     ]
 
 
@@ -411,8 +524,17 @@ def test_a_passage_without_words_gives_no_parts() -> None:
         (f"{START}x{STOP}" + "x" * 500 + "y", "x" * HOSTILE_TEXT_LENGTH),
         (f"{START}a{STOP}{DELIMITER}" * 100, ". " * (HOSTILE_TEXT_LENGTH // 2)),
         ("", "a\n" * (HOSTILE_TEXT_LENGTH // 2)),
+        (f"{START}a{STOP}", ". " * (HOSTILE_TEXT_LENGTH // 2) + "a"),
+        (f"{START}a{STOP}", "a" + " ." * (HOSTILE_TEXT_LENGTH // 2)),
     ],
-    ids=["repeated words", "one long word", "only punctuation", "opening of a long passage"],
+    ids=[
+        "repeated words",
+        "one long word",
+        "only punctuation",
+        "opening of a long passage",
+        "punctuation before the only word",
+        "punctuation after the only word",
+    ],
 )
 def test_snippets_of_long_passages_take_linear_time(headline: str, passage: str) -> None:
     started = time.perf_counter()

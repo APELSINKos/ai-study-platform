@@ -46,14 +46,20 @@ def snippet_parts(headline: str, content: str) -> list[SnippetPart]:
 
     A headline without highlighted words belongs to a chunk found by embeddings alone, for
     which PostgreSQL picks only the first few words: the chunk's first OPENING_WORDS words
-    stand in. A snippet holds at most MAX_SNIPPET_CHARS characters after its first ellipsis.
+    stand in. A snippet that reaches the start or the end of its chunk gets back what the
+    headline left out there, such as a quote. Apart from the ellipses at its two ends, a
+    snippet holds at most MAX_SNIPPET_CHARS characters.
     """
-    words = _headline_words(headline)
-    if not any(word.highlighted for word in words):
+    if not any(word.highlighted for word in _headline_words(headline)):
         return _parts(_opening(content))
-    if words[-1] != _CUT_MARK and not _reaches_end(headline, content):
+    before = _left_out_before(headline, content)
+    after = _left_out_after(headline, content)
+    # Put back before the headline is split into words, so that the spacing rules and
+    # MAX_SNIPPET_CHARS apply to it too.
+    words = _headline_words(f"{before or ''}{headline}{after or ''}")
+    if words[-1] != _CUT_MARK and after is None:
         words.append(_CUT_MARK)
-    if not _starts_at_beginning(headline, content):
+    if before is None:
         first = words[0]
         words[0] = _Word(" ", first.text, first.highlighted)
         words.insert(0, _Word("", ELLIPSIS, highlighted=False))
@@ -92,36 +98,51 @@ def _opening(content: str) -> list[_Word]:
     return words
 
 
-# The headline leaves out the punctuation before a chunk's first word and after its last, so
-# only letters and digits decide whether a passage reaches the start or the end of the chunk.
+# ts_headline leaves out what stands before a chunk's first word and after its last, such as
+# a quote or a full stop, though it keeps the slashes of a path or a URL. A word character is
+# a letter or a decimal digit, as for PostgreSQL's parser: Python's isalnum() also takes ², ½
+# and ①, which the parser leaves out with the punctuation.
 
 
-def _starts_at_beginning(headline: str, content: str) -> bool:
-    """Whether the headline's first passage starts where its chunk does."""
+def _left_out_before(headline: str, content: str) -> str | None:
+    """What the headline left out before its chunk's first word; None when its first passage
+    starts later in the chunk, or has no word.
+    """
     first = headline.split(FRAGMENT_DELIMITER, 1)[0].translate(_UNMARK)
-    first = first[_first_word_index(first) :]
-    return content.startswith(first, _first_word_index(content))
+    # What the passage keeps before its first word, such as the slash of a path.
+    kept = _first_word_index(first)
+    start = _first_word_index(content)
+    if kept == len(first) or not content.startswith(first[kept:], start):
+        return None
+    return content[: max(start - kept, 0)]
 
 
-def _reaches_end(headline: str, content: str) -> bool:
-    """Whether the headline's last passage ends where its chunk does."""
+def _left_out_after(headline: str, content: str) -> str | None:
+    """What the headline left out after its chunk's last word; None when its last passage
+    ends earlier in the chunk, or has no word.
+    """
     last = headline.rsplit(FRAGMENT_DELIMITER, 1)[-1].translate(_UNMARK)
-    last = last[: _last_word_end(last)]
-    return content.endswith(last, 0, _last_word_end(content))
+    end = _last_word_end(last)
+    content_end = _last_word_end(content)
+    if end == 0 or not content.endswith(last[:end], 0, content_end):
+        return None
+    # Past what the passage keeps after its last word, such as the slash that ends a URL.
+    return content[content_end + len(last) - end :]
 
 
 def _first_word_index(text: str) -> int:
-    """Where the first letter or digit of a text stands; the text's length when it has none."""
+    """Where the first word character of a text stands; the text's length when it has none."""
     for index, character in enumerate(text):
-        if character.isalnum():
+        if character.isalpha() or character.isdecimal():
             return index
     return len(text)
 
 
 def _last_word_end(text: str) -> int:
-    """Where a text ends once what follows its last letter or digit is left out."""
+    """Where a text ends once what follows its last word character is left out."""
     for index in range(len(text), 0, -1):
-        if text[index - 1].isalnum():
+        character = text[index - 1]
+        if character.isalpha() or character.isdecimal():
             return index
     return 0
 

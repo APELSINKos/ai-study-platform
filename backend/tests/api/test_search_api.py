@@ -275,7 +275,7 @@ def test_a_result_is_a_passage_with_its_place_snippet_score_and_how_it_was_found
             "snippet": [
                 {"text": "Photosynthesis", "highlighted": True},
                 {
-                    "text": " turns light into sugar inside the chloroplasts of a leaf",
+                    "text": " turns light into sugar inside the chloroplasts of a leaf.",
                     "highlighted": False,
                 },
             ],
@@ -297,7 +297,7 @@ def test_a_result_is_a_passage_with_its_place_snippet_score_and_how_it_was_found
                 {"text": "photosynthesis", "highlighted": True},
                 {"text": " makes sugar, and ", "highlighted": False},
                 {"text": "photosynthesis", "highlighted": True},
-                {"text": " feeds the plant", "highlighted": False},
+                {"text": " feeds the plant.", "highlighted": False},
             ],
             "score": pytest.approx(1 / 61),
             "matched_by": ["keyword"],
@@ -362,8 +362,7 @@ def test_a_snippet_keeps_the_short_words_at_the_edges_of_its_passage(
 
     [hit] = _results(user_client, workspace_id, query, mode="keyword")["results"]
 
-    # All of the passage but its full stop, which the headline leaves out.
-    assert "".join(part["text"] for part in hit["snippet"]) == passage.removesuffix(".")
+    assert "".join(part["text"] for part in hit["snippet"]) == passage
 
 
 @pytest.mark.usefixtures("fresh_vector_index")

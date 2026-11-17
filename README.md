@@ -407,7 +407,7 @@ Screenshots will be added once the study features have their finished interface.
 - The interface is in English and Russian only.
 - It is a single-node setup: one Compose stack, with uploaded files on a local volume shared by the API and the worker, and no object storage or replicas. The per-IP rate limits assume a reverse proxy that sets `X-Forwarded-For` (see Authentication).
 - The vector size is fixed at 1,536 dimensions. After a change of embedding model, documents keep their old vectors and are searched by their words only until `make reindex` embeds them again.
-- Vector search is approximate: the HNSW index trades exactness for speed, so a near passage can occasionally be missed. Full-text search uses PostgreSQL's `simple` configuration, which does no stemming: "cell" does not match "cells" by its words, although the embeddings may still bring that passage in. A query that excludes words (`-word`) is matched by its words alone.
+- Vector search is approximate: the HNSW index trades exactness for speed, so a near passage can occasionally be missed. Full-text search uses PostgreSQL's `simple` configuration, which does no stemming: "cell" does not match "cells" by its words, although the embeddings may still bring that passage in. A query that excludes words (`-word`) is matched by its words alone. Text that looks like an HTML tag, such as `<String>` in `List<String>`, is skipped by keyword search and left out of snippets.
 - Processing status is polled rather than pushed, every 2 seconds or every 15 once the files on their way have stalled, and an upload shows no percentage.
 - Synchronous routes: FastAPI's thread pool bounds how many requests run at once.
 
