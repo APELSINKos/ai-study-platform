@@ -12,6 +12,7 @@ import sys
 from collections.abc import Callable, Sequence
 
 from app.core.config import DEFAULT_OPENAI_BASE_URL, ProviderEndpoint, Settings, get_settings
+from app.core.logging import configure_logging
 from app.llm.base import EmbeddingProvider, LLMProvider, ProviderError
 from app.llm.factory import (
     ModelChoice,
@@ -37,6 +38,8 @@ def main(
     """
     chat = _wants_chat(argv)
     settings = get_settings() if settings is None else settings
+    # The report is the output: log only warnings and errors, in the format the settings ask for.
+    configure_logging("WARNING", settings.log_format)
     selection = selected_models(settings)
     print(f"Chat model: {_describe(selection.chat, chat_endpoint(settings))}")
     print(f"Embedding model: {_describe(selection.embedding, embedding_endpoint(settings))}")

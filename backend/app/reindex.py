@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.clock import utcnow
 from app.core.config import Settings, get_settings
+from app.core.logging import configure_logging
 from app.db.session import get_session_factory
 from app.documents.queue import CeleryDocumentQueue, DocumentQueue, QueueUnavailableError
 from app.llm.base import EmbeddingProvider, ProviderError
@@ -82,6 +83,8 @@ def main(  # noqa: PLR0913 -- every dependency is passed in, so a test can repla
         print(_OUTSIDE_THE_STACK_MESSAGE)
         return 1
     settings = get_settings() if settings is None else settings
+    # The report is the output: log only warnings and errors, in the format the settings ask for.
+    configure_logging("WARNING", settings.log_format)
     # Built as the worker builds it, so that its name is the one the pipeline stores.
     embedder = build_embedding_provider(settings) if embedder is None else embedder
     if not _probe(embedder):

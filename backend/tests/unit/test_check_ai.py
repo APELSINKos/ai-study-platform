@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from app.check_ai import main
 from app.core.config import Settings
+from app.core.logging import configure_logging
 from app.llm.base import (
     AnalysisRequest,
     AnalysisResult,
@@ -126,6 +127,23 @@ def test_the_built_in_models_are_named_and_the_embedding_model_answers(
     assert "Embedding model: mock-hashing-v1 (provider mock, built in)" in lines
     assert any(_EMBEDDING_LATENCY.fullmatch(line) for line in lines)
     assert lines[-1] == _NOT_EXERCISED
+
+
+def test_no_info_log_line_interrupts_the_report(capsys: pytest.CaptureFixture[str]) -> None:
+    # Info lines would show in the output, as they do in a process that sets up no logging.
+    configure_logging("INFO", "console")
+    # A process logs each choice of models once, so this test chooses a chat model of its own.
+    settings = _live(llm_model="chat-model-of-a-quiet-check", embedding_provider="mock")
+
+    assert main([], settings=settings) == 0
+
+    lines = _lines(capsys)
+    assert lines[:2] == [
+        "Chat model: chat-model-of-a-quiet-check (provider openai, OpenAI)",
+        "Embedding model: mock-hashing-v1 (provider mock, built in)",
+    ]
+    assert _EMBEDDING_LATENCY.fullmatch(lines[2])
+    assert lines[3:] == [_NOT_EXERCISED]
 
 
 def test_with_chat_the_chat_model_gets_one_small_analysis_request(

@@ -8,10 +8,12 @@ from typing import Final
 import httpx2
 import pytest
 from openai import OpenAI
+from pydantic import SecretStr
 from sqlalchemy import Delete, Update, delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
+from app.core.logging import configure_logging
 from app.documents.queue import QueueUnavailableError
 from app.documents.storage import FileStorage
 from app.llm.base import (
@@ -376,6 +378,30 @@ def test_a_second_run_finds_nothing_left_to_queue(
     assert queue.enqueued == [document.id]
     db_session.refresh(document)
     assert (document.status, document.updated_at) == ("uploaded", _NOW)
+    assert _lines(capsys) == [
+        "The embedding model mock-hashing-v1 answered the probe.",
+        "Nothing to re-index: every ready document was embedded by mock-hashing-v1.",
+    ]
+
+
+def test_no_info_log_line_interrupts_the_output(
+    integration_settings: Settings,
+    session_factory: sessionmaker[Session],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Info lines would show in the output, as they do in a process that sets up no logging.
+    configure_logging("INFO", "console")
+    # A process logs each choice of models once, so this test chooses a chat model of its own.
+    settings = integration_settings.model_copy(
+        update={
+            "llm_provider": "auto",
+            "openai_api_key": SecretStr(_API_KEY),
+            "llm_model": "chat-model-of-a-quiet-reindex",
+        }
+    )
+
+    assert main(["--dry-run"], settings=settings, session_factory=session_factory) == 0
+
     assert _lines(capsys) == [
         "The embedding model mock-hashing-v1 answered the probe.",
         "Nothing to re-index: every ready document was embedded by mock-hashing-v1.",
