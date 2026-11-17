@@ -477,7 +477,7 @@ def test_stale_and_pending_documents_are_counted_and_stale_ones_left_out_of_the_
     workspace_id = _create_workspace(user_client)
     current = _add_document(db_session, workspace_id)
     stale = _add_document(db_session, workspace_id, embedding_model=_OTHER_MODEL)
-    processing = _add_document(db_session, workspace_id, "processing")
+    processing = _add_document(db_session, workspace_id, "processing", embedding_model=_OTHER_MODEL)
     for status in ("uploaded", "indexing", "failed"):
         _add_document(db_session, workspace_id, status)
     embedder.vector = _vector(1.0)
@@ -488,7 +488,7 @@ def test_stale_and_pending_documents_are_counted_and_stale_ones_left_out_of_the_
         _row(0, _LEAF, embedding=_vector(1.0)),
         _row(1, _PIGMENT, embedding=_vector(1.0)),
     )
-    # A document that is processed again keeps its old chunks until new ones replace them.
+    # A document being re-indexed keeps its old model and chunks until new ones replace them.
     _add_chunks(db_session, processing, _row(0, _LEAF, embedding=_vector(1.0)))
 
     body = _results(user_client, workspace_id, "photosynthesis")

@@ -19,6 +19,7 @@ from app.models.document_chunk import EMBEDDING_DIMENSIONS, DocumentChunk
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.rag.vector_store import (
+    FRAGMENT_DELIMITER,
     HIGHLIGHT_START,
     HIGHLIGHT_STOP,
     MAX_KEYWORD_QUERY_CHARS,
@@ -295,6 +296,18 @@ def test_scope_counts_the_ready_stale_and_pending_documents_of_the_workspace(
     )
 
 
+def test_only_ready_documents_of_another_model_count_as_stale(db_session: Session) -> None:
+    # A re-index sends ready documents of the old model back to uploaded, and they keep that
+    # embedding_model until a run completes; a failed run or publish leaves them failed with it.
+    workspace = _workspace(db_session)
+    _document(db_session, workspace, "uploaded", embedding_model=_OTHER_MODEL)
+    _document(db_session, workspace, "failed", embedding_model=_OTHER_MODEL)
+
+    assert VectorStore(db_session).scope(workspace.id, embedding_model=_MODEL) == SearchScope(
+        ready_documents=0, stale_documents=0, pending_documents=1
+    )
+
+
 @pytest.mark.usefixtures("fresh_vector_index")
 def test_a_document_filter_keeps_every_query_to_those_documents(db_session: Session) -> None:
     store = VectorStore(db_session)
@@ -472,6 +485,26 @@ def test_a_word_that_ends_before_the_limit_is_kept(db_session: Session) -> None:
     VectorStore(db_session).matching(uuid.uuid4(), query, limit=_LIMIT)
 
     assert [value.split() for value in sent] == [["photosynthesis"] * 17]
+
+
+def test_a_word_that_ends_at_the_limit_is_kept(db_session: Session) -> None:
+    # 17 words and their spaces fill 255 characters, so the "a" ends at the limit.
+    query = "photosynthesis " * 17 + "a" + " zebra" * 10
+    sent = _sent_texts(db_session, "photosynthesis")
+
+    VectorStore(db_session).matching(uuid.uuid4(), query, limit=_LIMIT)
+
+    assert sent == [query[:MAX_KEYWORD_QUERY_CHARS]]
+
+
+def test_a_query_as_long_as_the_limit_is_sent_whole(db_session: Session) -> None:
+    # 17 words and their spaces fill 255 characters, and the "a" makes 256.
+    query = "photosynthesis " * 17 + "a"
+    sent = _sent_texts(db_session, "photosynthesis")
+
+    VectorStore(db_session).matching(uuid.uuid4(), query, limit=_LIMIT)
+
+    assert sent == [query]
 
 
 @pytest.mark.parametrize(
@@ -679,6 +712,25 @@ def test_hits_never_mark_an_excluded_word(db_session: Session) -> None:
     assert _ids(store.matching(workspace.id, query, limit=_LIMIT)) == [chunk]
     # The query's words that the chunk contains, without the excluded one.
     assert _marked(hit.headline) == ["reaction", "fast"]
+
+
+def test_hits_show_at_most_two_passages_of_24_words_around_the_matched_words(
+    db_session: Session,
+) -> None:
+    store = VectorStore(db_session)
+    workspace = _workspace(db_session)
+    # "calvin" stands three times, 40 words apart, among words that a passage may start and
+    # end on, so that each passage holds exactly MaxWords.
+    words = [f"word{index}" for index in range(120)]
+    for index in (20, 60, 100):
+        words[index] = "calvin"
+    (chunk,) = _texts(db_session, _document(db_session, workspace), " ".join(words))
+
+    (hit,) = store.hits(workspace.id, [chunk], "calvin")
+
+    passages = hit.headline.split(FRAGMENT_DELIMITER)
+    assert [len(passage.split()) for passage in passages] == [24, 24]
+    assert [_marked(passage) for passage in passages] == [["calvin"], ["calvin"]]
 
 
 def test_nearest_turns_iterative_index_scans_on_for_the_rest_of_the_transaction(
