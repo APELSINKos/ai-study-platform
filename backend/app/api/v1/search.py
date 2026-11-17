@@ -60,9 +60,10 @@ def search(  # noqa: PLR0913, PLR0917 -- FastAPI dependency injection, not real 
         ),
     ] = "hybrid",
 ) -> SearchResults:
-    """When the query cannot be embedded, a hybrid search looks for its words alone and
+    """When the embedding model fails, a hybrid search looks for the query's words alone and
     answers with semantic_available false, and a vector search is a 503 with the error code
-    search_unavailable."""
+    search_unavailable. A query that excludes words is never embedded, so a vector search
+    finds nothing for it."""
     rule = RateLimit(_SEARCH_RATE_LIMIT_SCOPE, settings.searches_per_minute, _MINUTE_SECONDS)
     enforce_rate_limit(redis, rule, rate_limit_key(str(current_user.id)))
     return service.search(

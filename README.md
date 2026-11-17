@@ -330,7 +330,7 @@ FastAPI serves interactive documentation at http://localhost:8000/docs (Swagger 
 | Meta | `GET /meta`: upload limits, accepted file types, per-user limits, the longest search query, the models in use (public) |
 | Health | `GET /health/live`, `GET /health/ready` |
 
-`GET /api/v1/search?workspace_id=…&q=…` also takes `limit` (1 to 20, by default 10) and `mode` (`hybrid` by default, `vector` or `keyword`). It returns `results`, each with its document, chunk index, heading path, pages, snippet parts, score, how it was found and its cosine similarity, together with `semantic_available` and the numbers of searched, stale and pending documents. In `vector` mode a query that cannot be embedded is answered with 503 `search_unavailable`, with `Retry-After: 30` when the failure is temporary; `hybrid` falls back to the words instead. A user may search 30 times a minute.
+`GET /api/v1/search?workspace_id=…&q=…` also takes `limit` (1 to 20, by default 10) and `mode` (`hybrid` by default, `vector` or `keyword`). It returns `results`, each with its document, chunk index, heading path, pages, snippet parts, score, how it was found and its cosine similarity, together with `semantic_available` and the numbers of searched, stale and pending documents. In `vector` mode a query whose embedding fails is answered with 503 `search_unavailable`, with `Retry-After: 30` when the failure is temporary; `hybrid` falls back to the words instead. A query that excludes words (`-word`) is never embedded, so `vector` mode finds nothing for it. A user may search 30 times a minute.
 
 Lists take `?page=1&page_size=20` (at most 100) and return `{"items": [...], "total": ..., "page": ..., "page_size": ...}`. Every error has the same shape:
 

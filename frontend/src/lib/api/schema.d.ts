@@ -313,9 +313,10 @@ export interface paths {
         };
         /**
          * Search the ready documents of a workspace for the passages that match a query
-         * @description When the query cannot be embedded, a hybrid search looks for its words alone and
+         * @description When the embedding model fails, a hybrid search looks for the query's words alone and
          *     answers with semantic_available false, and a vector search is a 503 with the error code
-         *     search_unavailable.
+         *     search_unavailable. A query that excludes words is never embedded, so a vector search
+         *     finds nothing for it.
          */
         get: operations["search_api_v1_search_get"];
         put?: never;
