@@ -345,6 +345,27 @@ def test_a_snippet_shows_with_an_ellipsis_where_its_passage_goes_on(
     assert _highlighted(hit) == ["Calvin"]
 
 
+@pytest.mark.parametrize(
+    ("passage", "query"),
+    [
+        ("The French Revolution began in 1789 and changed Europe.", "revolution"),
+        ("It is the chloroplast that captures light.", "chloroplast"),
+        ("Light drives the reaction, and so it is.", "light"),
+    ],
+    ids=["short-first-word", "short-first-words", "short-last-words"],
+)
+def test_a_snippet_keeps_the_short_words_at_the_edges_of_its_passage(
+    user_client: TestClient, db_session: Session, passage: str, query: str
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, passage))
+
+    [hit] = _results(user_client, workspace_id, query, mode="keyword")["results"]
+
+    # All of the passage but its full stop, which the headline leaves out.
+    assert "".join(part["text"] for part in hit["snippet"]) == passage.removesuffix(".")
+
+
 @pytest.mark.usefixtures("fresh_vector_index")
 def test_the_built_in_embeddings_find_a_word_form_that_the_words_miss(
     user_client: TestClient, db_session: Session, embedder: _FakeQueryEmbedder

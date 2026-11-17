@@ -320,10 +320,10 @@ def test_a_snippet_from_the_start_of_a_passage_has_no_ellipsis_before_it() -> No
 
 def test_a_snippet_that_reaches_the_end_of_a_passage_has_no_ellipsis_after_it() -> None:
     # The headline leaves out the full stop after the passage's last word.
-    headline = f"stops within minutes in the dark because the carriers run {START}out{STOP}"
+    headline = f"it stops within minutes in the dark because the carriers run {START}out{STOP}"
 
     assert snippet_parts(headline, _PASSAGE) == [
-        _plain("… stops within minutes in the dark because the carriers run "),
+        _plain("… it stops within minutes in the dark because the carriers run "),
         _marked("out"),
     ]
 
@@ -332,7 +332,7 @@ def test_the_first_passage_of_a_headline_decides_its_start_and_the_last_its_end(
     headline = (
         f"Cells are the basic units of life. Chloroplasts capture {START}light{STOP} energy and"
         " store it in sugar. Inside each chloroplast, stacks of thylakoid membranes hold"
-        f"{DELIMITER}pigment chlorophyll, which absorbs red and blue {START}light{STOP} and"
+        f"{DELIMITER}the pigment chlorophyll, which absorbs red and blue {START}light{STOP} and"
         " reflects green. The Calvin cycle fixes carbon dioxide into three-carbon sugars. It needs"
     )
 
@@ -341,7 +341,7 @@ def test_the_first_passage_of_a_headline_decides_its_start_and_the_last_its_end(
         _marked("light"),
         _plain(
             " energy and store it in sugar. Inside each chloroplast, stacks of thylakoid"
-            " membranes hold … pigment chlorophyll, which absorbs red and blue "
+            " membranes hold … the pigment chlorophyll, which absorbs red and blue "
         ),
         _marked("light"),
         _plain(

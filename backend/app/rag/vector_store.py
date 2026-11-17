@@ -54,10 +54,14 @@ _ITERATIVE_SCAN: Final = text(f"SET LOCAL hnsw.iterative_scan = {ITERATIVE_SCAN_
 HIGHLIGHT_START: Final = "\x01"
 HIGHLIGHT_STOP: Final = "\x02"
 FRAGMENT_DELIMITER: Final = "\x03"
-# Up to two passages of 8 to 24 words around the words that the query matches.
+# Up to two passages of at most 24 words around the words that the query matches. By default
+# a passage never starts or ends on a word of 3 bytes or fewer, so a chunk that begins with
+# "The" would lose that word and show an ellipsis; ShortWord=0 keeps it. MinWords only sets
+# the length of a headline that marks nothing, which snippet_parts replaces with the chunk's
+# opening.
 HEADLINE_OPTIONS: Final = (
     f"StartSel={HIGHLIGHT_START}, StopSel={HIGHLIGHT_STOP}, MaxFragments=2, MaxWords=24,"
-    f" MinWords=8, FragmentDelimiter={FRAGMENT_DELIMITER}"
+    f" MinWords=8, ShortWord=0, FragmentDelimiter={FRAGMENT_DELIMITER}"
 )
 
 
