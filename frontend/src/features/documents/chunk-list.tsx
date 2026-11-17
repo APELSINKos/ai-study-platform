@@ -177,7 +177,8 @@ function ChunkRows({
   // Set by Show more: once the next page renders, focus moves to its first fragment, so a
   // keyboard user goes on reading from there instead of being dropped when the button goes.
   const firstNewRowRef = useRef<number | null>(null);
-  // The fragment the page last went to, so that it goes to each one only once.
+  // The fragment the page last handled: gone to, or left alone because the reader had moved the
+  // focus. Either way, fragments that come in later never take the page back to it.
   const arrivedAtRef = useRef<number | null>(null);
 
   useEffect(() => {

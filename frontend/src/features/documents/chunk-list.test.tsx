@@ -480,10 +480,10 @@ describe("ChunkList opened at a fragment", () => {
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
-  it("leaves the focus where the user has moved it while the pages load", async () => {
+  it("leaves the focus where the user has moved it while the pages load, and never goes there later", async () => {
     const second = Promise.withResolvers<ChunkPage>();
     serveFragments(200, (page) => (page === 2 ? second.promise : undefined));
-    renderWithIntl(
+    const { queryClient } = renderWithIntl(
       <>
         <input aria-label="Notes" />
         <ChunkList document={READY} fragment={60} />
@@ -497,6 +497,23 @@ describe("ChunkList opened at a fragment", () => {
 
     expect(rowOf(60)).toHaveTextContent("The passage you opened");
     expect(screen.getByLabelText("Notes")).toHaveFocus();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    // The reader clicks the page's background, and more fragments come in without Show more.
+    screen.getByLabelText("Notes").blur();
+    act(() => {
+      queryClient.setQueryData<InfiniteData<ChunkPage, number>>(
+        queryKeys.documentChunks(READY.id),
+        (data) =>
+          data && {
+            pages: [...data.pages, fragmentPage(3, 200)],
+            pageParams: [...data.pageParams, 3],
+          },
+      );
+    });
+    await pass(0);
+
+    expect(rows()).toHaveLength(150);
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
