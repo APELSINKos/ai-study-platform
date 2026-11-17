@@ -39,6 +39,10 @@ MAX_KEYWORD_QUERY_CHARS: Final = 256
 # websearch_to_tsquery reads a "-" that starts a word as NOT. A run of them, with only
 # spaces or the signs !&|()< between, is as many NOTs waiting for one word, and the
 # parser fails beyond 32 of those. Two NOTs cancel out, so a run becomes one or none.
+# A run starts only where a word can: at the beginning or after a space, one of those signs
+# or a quote ('"a b"-c' excludes c). The lookbehind refuses any other character before it,
+# so "photo-synthesis" keeps its "-". A quote ends a run rather than joining it: folding it
+# away would break the phrase it opens or closes.
 _NOT_RUN_RE: Final = re.compile(r'(?<![^\s!&|()<"])-[-\s!&|()<]*+')
 # querytree() is '' for a query without words, and 'T' for one that matches a chunk without
 # any of its words, such as "-light" or "light or -eye": nearly every chunk would match it.

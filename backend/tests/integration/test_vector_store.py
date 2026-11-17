@@ -507,10 +507,13 @@ def test_a_query_as_long_as_the_limit_is_sent_whole(db_session: Session) -> None
     assert sent == [query]
 
 
+@pytest.mark.parametrize("before", ["light ", '"light"'], ids=["after-a-space", "after-a-quote"])
 @pytest.mark.parametrize(
     "signs", ["-" * 40, "- " * 40, "-!" * 40], ids=["minus", "minus-space", "minus-operator"]
 )
-def test_minus_signs_in_a_row_cancel_out_in_pairs(db_session: Session, signs: str) -> None:
+def test_minus_signs_in_a_row_cancel_out_in_pairs(
+    db_session: Session, before: str, signs: str
+) -> None:
     # Each sign is a NOT waiting for the next word, and PostgreSQL fails beyond 32 of them.
     store = VectorStore(db_session)
     workspace = _workspace(db_session)
@@ -518,8 +521,8 @@ def test_minus_signs_in_a_row_cancel_out_in_pairs(db_session: Session, signs: st
         db_session, _document(db_session, workspace), "Light and water.", "Light and sugar."
     )
 
-    even = store.matching(workspace.id, f"light {signs}sugar", limit=_LIMIT)
-    odd = store.matching(workspace.id, f"light -{signs}sugar", limit=_LIMIT)
+    even = store.matching(workspace.id, f"{before}{signs}sugar", limit=_LIMIT)
+    odd = store.matching(workspace.id, f"{before}-{signs}sugar", limit=_LIMIT)
 
     assert _ids(even) == [with_sugar]
     assert _ids(odd) == [with_water]
