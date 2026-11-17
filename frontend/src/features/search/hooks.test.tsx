@@ -75,7 +75,7 @@ describe("useSearch", () => {
     expect(apiFetchMock).toHaveBeenCalledWith(LIGHT_PATH, { signal: expect.any(AbortSignal) });
   });
 
-  it("never asks again by itself: not when the tab is shown again, nor when used again", async () => {
+  it("never asks again by itself: not when the tab is shown again, nor when the page comes back soon", async () => {
     apiFetchMock.mockResolvedValue(searchResultsFixture(2));
     const { result, unmount, queryClient } = renderSearch("light reactions");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -109,7 +109,7 @@ describe("useSearch", () => {
     }
   });
 
-  it("never tries a failed search again by itself: not when the tab is shown again, nor when back online", async () => {
+  it("does not try a failed search again when the tab is shown again or the browser is back online", async () => {
     apiFetchMock.mockRejectedValue(
       new ApiError({ status: 503, code: "http_error", message: "Service Unavailable" }),
     );
@@ -122,6 +122,21 @@ describe("useSearch", () => {
     await act(() => Promise.resolve());
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks a failed search again when the page comes back, as it has no answer to show", async () => {
+    apiFetchMock.mockRejectedValue(
+      new ApiError({ status: 503, code: "http_error", message: "Service Unavailable" }),
+    );
+    const { result, unmount, queryClient } = renderSearch("light reactions");
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    unmount();
+    const again = renderSearch("light reactions", queryClient);
+    await waitFor(() => expect(again.result.current.isFetching).toBe(false));
+
+    expect(again.result.current.isError).toBe(true);
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("asks again when told to, for the same query", async () => {

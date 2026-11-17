@@ -76,7 +76,7 @@ describe("queryKeys", () => {
     expect(isInvalidated(queryClient, queryKeys.workspaceDocuments("w1"))).toBe(true);
     expect(isInvalidated(queryClient, queryKeys.document("d1"))).toBe(false);
     expect(isInvalidated(queryClient, queryKeys.meta)).toBe(false);
-    // Uploads and retries invalidate the workspaces; a search runs again only on request.
+    // Uploads and retries invalidate the workspaces, never the searches.
     expect(isInvalidated(queryClient, queryKeys.search("w1", "light"))).toBe(false);
   });
 
