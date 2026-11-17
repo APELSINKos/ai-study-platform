@@ -713,7 +713,7 @@ export interface components {
             searched_document_count: number;
             /**
              * Stale Document Count
-             * @description Ready documents embedded by another model than the current one: only their words are searched until they are re-indexed.
+             * @description Ready documents embedded by a model other than the current one: only their words are searched until they are re-indexed.
              */
             stale_document_count: number;
             /**

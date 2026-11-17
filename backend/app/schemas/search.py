@@ -59,7 +59,7 @@ class SearchResults(BaseModel):
         description="Ready documents of the workspace: the ones searched."
     )
     stale_document_count: int = Field(
-        description="Ready documents embedded by another model than the current one: only"
+        description="Ready documents embedded by a model other than the current one: only"
         " their words are searched until they are re-indexed."
     )
     pending_document_count: int = Field(

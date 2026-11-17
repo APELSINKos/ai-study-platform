@@ -105,7 +105,7 @@ class SearchScope:
 
     # Searched by their words and, unless stale, by their embeddings.
     ready_documents: int
-    # Ready, but embedded by another model than the current one.
+    # Ready, but embedded by a model other than the current one.
     stale_documents: int
     # Still waiting for, or going through, processing: not searched yet.
     pending_documents: int

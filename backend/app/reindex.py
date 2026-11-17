@@ -160,7 +160,7 @@ def _print_counts(candidates: list[ReindexCandidate], chat_model: str, *, dry_ru
     print(f"Documents that {verb} re-indexed: {len(candidates)}")
     print(f"Documents that {verb} re-analysed too: {reanalysed}")
     print(
-        f"A document is re-analysed when another chat model than {chat_model} analysed it, or"
+        f"A document is re-analysed when a chat model other than {chat_model} analysed it, or"
         " its analysis is incomplete; with a live chat model, each re-analysis is a paid"
         " request."
     )
@@ -219,13 +219,14 @@ def _print_refusal(document_id: uuid.UUID, *, failed: bool, left: int) -> None:
 
 
 def _print_summary(summary: _Summary) -> None:
-    """What the run did, then what happens to the queued documents."""
+    """What the run did, then, when it queued any, what happens to them."""
     print(f"Re-indexed (queued): {summary.queued}")
-    print(f"Of them re-analysed: {summary.reanalysed}")
+    print(f"Of them to be re-analysed: {summary.reanalysed}")
     print(f"Skipped because they changed meanwhile: {summary.skipped}")
     print(f"Failed to queue: {summary.failed_to_queue}")
-    for caveat in CAVEATS:
-        print(caveat)
+    if summary.queued:
+        for caveat in CAVEATS:
+            print(caveat)
 
 
 if __name__ == "__main__":

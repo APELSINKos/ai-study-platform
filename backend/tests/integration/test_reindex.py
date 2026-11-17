@@ -360,7 +360,7 @@ def test_the_count_of_re_analysed_documents_says_what_a_re_analysis_costs(
     assert command.run("--dry-run", queue=_Queue()) == 0
 
     output = capsys.readouterr().out
-    assert "another chat model than mock-heuristic-v1 analysed it" in output
+    assert "a chat model other than mock-heuristic-v1 analysed it" in output
     assert "its analysis is incomplete" in output
     assert "each re-analysis is a paid request" in output
 
@@ -454,7 +454,7 @@ def test_a_document_that_changed_after_it_was_listed_is_skipped(
     assert "Documents that will be re-analysed too: 1" in lines
     assert "Re-indexed (queued): 1" in lines
     # Only the queued documents count: the skipped one would have been re-analysed.
-    assert "Of them re-analysed: 0" in lines
+    assert "Of them to be re-analysed: 0" in lines
     assert "Skipped because they changed meanwhile: 1" in lines
     assert "Failed to queue: 0" in lines
 
@@ -546,7 +546,8 @@ def test_a_document_the_queue_does_not_take_is_failed_and_the_run_stops_there(
     )
     assert "Stopped there. Documents left as they were, for a later run: 1" in lines
     assert "Re-indexed (queued): 0" in lines
-    assert "Failed to queue: 1" in lines
+    # Nothing was queued, so nothing happens meanwhile.
+    assert lines[-1] == "Failed to queue: 1"
 
 
 def test_a_failed_publish_whose_document_a_worker_claimed_all_the_same_leaves_it_alone(
@@ -645,7 +646,7 @@ def test_a_queued_document_is_processed_into_chunks_of_the_current_model(
     )
     queue = _Queue()
     assert command.run(queue=queue) == 0
-    assert f"Of them re-analysed: {analysis.requests}" in _lines(capsys)
+    assert f"Of them to be re-analysed: {analysis.requests}" in _lines(capsys)
 
     [result] = [process_document.apply(args=(str(queued),)) for queued in queue.enqueued]
 
