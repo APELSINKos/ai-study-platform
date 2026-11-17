@@ -1,6 +1,6 @@
 {
   "Metadata": {
-    "description": "Upload lecture notes and textbook chapters: each file is split into passages you can search and summed up. Answers with sources, quizzes and flashcards are coming next."
+    "description": "Upload lecture notes and textbook chapters: each file is split into searchable passages and summed up. Answers with sources, quizzes and flashcards are coming next."
   },
   "Locale": {
     "label": "Language",
@@ -24,7 +24,7 @@
     "comingNext": "Coming next",
     "hero": {
       "headline": "<line>Read it once.</line> <line>Recall it on exam day.</line>",
-      "lead": "Upload your lecture notes and textbook chapters: Recall cuts each file into passages you can search and sums it up, with its topics, difficulty and study time. Answers with sources, quizzes and flashcards are coming next.",
+      "lead": "Upload your lecture notes and textbook chapters: Recall cuts each file into searchable passages and sums it up, with its topics, difficulty and study time. Answers with sources, quizzes and flashcards are coming next.",
       "page": {
         "course": "Introduction to psychology, lecture 6",
         "title": "How memory fades",
