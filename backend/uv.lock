@@ -17,6 +17,7 @@ dependencies = [
     { name = "celery", extra = ["redis"] },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "openai" },
     { name = "pgvector" },
     { name = "prometheus-client" },
@@ -34,7 +35,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "celery-types" },
-    { name = "httpx2" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -48,6 +48,7 @@ requires-dist = [
     { name = "celery", extras = ["redis"], specifier = ">=5.6" },
     { name = "email-validator", specifier = ">=2.3" },
     { name = "fastapi", specifier = ">=0.141" },
+    { name = "httpx2", specifier = ">=2.13.1" },
     { name = "openai", specifier = ">=3.31,<4" },
     { name = "pgvector", specifier = ">=0.5.1" },
     { name = "prometheus-client", specifier = ">=0.26" },
@@ -65,7 +66,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "celery-types", specifier = ">=0.26.0" },
-    { name = "httpx2", specifier = ">=2.13.1" },
     { name = "mypy", specifier = ">=2.3.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-cov", specifier = ">=7.1.0" },

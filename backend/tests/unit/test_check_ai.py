@@ -218,22 +218,6 @@ def test_a_chat_key_that_cannot_be_sent_is_named_as_the_failure(
     assert _CHAT_KEY not in captured.err
 
 
-def test_the_models_are_named_before_a_base_url_the_client_refuses(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    settings = _live(
-        embedding_api_key=SecretStr(_EMBEDDING_KEY), embedding_base_url="http://localhost:11434O/v1"
-    )
-
-    with pytest.raises(httpx2.InvalidURL):
-        main([], settings=settings)
-
-    assert _lines(capsys)[:2] == [
-        "Chat model: gpt-5.4-mini (provider openai, OpenAI)",
-        "Embedding model: text-embedding-3-small (provider openai, custom endpoint)",
-    ]
-
-
 @pytest.mark.parametrize(
     ("embedding_error", "chat_error"),
     [(None, None), (_UNAVAILABLE, None), (None, _REJECTED)],

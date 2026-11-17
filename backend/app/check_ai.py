@@ -40,7 +40,6 @@ def main(
     selection = selected_models(settings)
     print(f"Chat model: {_describe(selection.chat, chat_endpoint(settings))}")
     print(f"Embedding model: {_describe(selection.embedding, embedding_endpoint(settings))}")
-    # Built after the lines above, so that they show even when the client refuses a base URL.
     embedder = build_embedding_provider(settings) if embedder is None else embedder
     try:
         latency = probe_embedding(embedder)

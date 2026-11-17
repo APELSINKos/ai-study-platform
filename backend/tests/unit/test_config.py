@@ -326,6 +326,26 @@ def test_an_embedding_url_without_its_own_key_is_rejected(
         Settings()
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["http://localhost:11434O/v1", "http://[fe80::1/v1"],
+    ids=["letter-in-the-port", "unclosed-bracket"],
+)
+@pytest.mark.parametrize("variable", ["LLM_BASE_URL", "EMBEDDING_BASE_URL"])
+def test_a_base_url_that_the_http_client_cannot_parse_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, variable: str, url: str
+) -> None:
+    # The model client would refuse it on every request that needs the model.
+    monkeypatch.setenv("EMBEDDING_API_KEY", EMBEDDING_API_KEY)
+    monkeypatch.setenv(variable, url)
+
+    with pytest.raises(ValidationError, match=variable.lower()) as error:
+        Settings()
+
+    assert "URLs that the HTTP client can parse" in str(error.value)
+    assert url not in str(error.value)
+
+
 def test_an_embedding_key_and_url_are_used_together(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", CHAT_API_KEY)
     monkeypatch.setenv("EMBEDDING_API_KEY", EMBEDDING_API_KEY)

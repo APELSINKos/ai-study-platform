@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Final, Literal, Self
 
+import httpx2
 from pydantic import (
     Field,
     NonNegativeInt,
@@ -143,6 +144,21 @@ class Settings(BaseSettings):
         text = value.get_secret_value() if isinstance(value, SecretStr) else value
         if isinstance(text, str) and not text.strip():
             raise PydanticUseDefault()
+        return value
+
+    @field_validator("llm_base_url", "embedding_base_url")
+    @classmethod
+    def _reject_a_url_the_client_refuses(cls, value: str | None) -> str | None:
+        # The OpenAI client parses its base URL with httpx2 when it is built. A URL that it
+        # refuses stops the start here, rather than every search and every document later.
+        if value is not None:
+            try:
+                httpx2.URL(value)
+            except httpx2.InvalidURL as error:
+                raise ValueError(
+                    "LLM_BASE_URL and EMBEDDING_BASE_URL must be URLs that the HTTP client can"
+                    " parse."
+                ) from error
         return value
 
     @model_validator(mode="after")
