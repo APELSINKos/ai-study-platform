@@ -495,6 +495,18 @@ def test_a_headline_passage_without_words_reaches_no_edge_of_its_chunk() -> None
     ]
 
 
+def test_a_headline_passage_with_more_before_its_first_word_than_its_chunk_starts_later() -> None:
+    # The passage is the path at the end of the chunk, whose name also opens the chunk. It
+    # keeps the slash before that name, and nothing stands before the chunk's first word, so
+    # it cannot be the chunk's opening.
+    headline = f"{START}/opt{STOP}"
+
+    assert snippet_parts(headline, "opt is short for optional, as in /opt") == [
+        _plain("… "),
+        _marked("/opt"),
+    ]
+
+
 def test_a_passage_found_by_embeddings_alone_shows_its_opening() -> None:
     words = [f"word{number}" for number in range(OPENING_WORDS + 5)]
     # PostgreSQL gives a passage without matching words only its first eight words.

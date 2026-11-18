@@ -112,9 +112,11 @@ def _left_out_before(headline: str, content: str) -> str | None:
     # What the passage keeps before its first word, such as the slash of a path.
     kept = _first_word_index(first)
     start = _first_word_index(content)
-    if kept == len(first) or not content.startswith(first[kept:], start):
+    # A passage that keeps more before its first word than the chunk has before its own
+    # cannot start where the chunk does.
+    if kept == len(first) or kept > start or not content.startswith(first[kept:], start):
         return None
-    return content[: max(start - kept, 0)]
+    return content[: start - kept]
 
 
 def _left_out_after(headline: str, content: str) -> str | None:
