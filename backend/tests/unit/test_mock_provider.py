@@ -164,6 +164,7 @@ def test_each_text_without_features_gets_a_unit_vector_of_its_own(
         assert vector.count(0.0) == EMBEDDING_DIMENSIONS - 1
     # Spaces aside, only the same text gets the same vector.
     assert blank == empty
+    assert embedder.embed(["1917  1918"]) == embedder.embed(["1917\n1918"])
     assert len({vector.index(1.0) for vector in (empty, *others)}) == 4
 
 

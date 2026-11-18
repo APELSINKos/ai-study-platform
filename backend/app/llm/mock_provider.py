@@ -242,7 +242,9 @@ def _embed(text: str) -> list[float]:
         # No features, or features that cancel out. pgvector cannot compare a zero vector by
         # cosine, so the text itself picks the one component it sets: two such texts are
         # alike only when they are the same text, spaces aside, or their hashes happen to
-        # pick the same component.
+        # pick the same component. Such texts once shared one component; as only their
+        # vectors changed, the model name stays: a stored one keeps that component, which a
+        # query now sets only by a hash collision.
         vector[_bucket(_EMPTY_TEXT_FEATURE + " ".join(text.split()))[0]] = 1.0
         return vector
     return [value / norm for value in vector]
