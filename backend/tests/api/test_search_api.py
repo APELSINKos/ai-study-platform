@@ -996,6 +996,28 @@ def test_searches_past_the_limit_of_a_minute_are_rate_limited(
     assert len(embedder.calls) == 2
 
 
+def test_a_search_of_another_users_workspace_still_counts_against_the_limit(
+    user_client: TestClient,
+    other_user_client: TestClient,
+    db_session: Session,
+    embedder: _FakeQueryEmbedder,
+    integration_settings: Settings,
+) -> None:
+    integration_settings.searches_per_minute = 1
+    workspace_id = _create_workspace(user_client)
+    other_workspace_id = _create_workspace(other_user_client)
+    _add_chunks(db_session, _add_document(db_session, workspace_id), _row(0, _LEAF))
+
+    # Counted like any other attempt: the limit is the caller's own.
+    not_found = _search(user_client, other_workspace_id, "photosynthesis")
+    limited = _search(user_client, workspace_id, "photosynthesis")
+
+    _assert_error(not_found, HTTPStatus.NOT_FOUND, "workspace_not_found")
+    _assert_error(limited, HTTPStatus.TOO_MANY_REQUESTS, "rate_limited")
+    assert 0 < int(limited.headers["retry-after"]) <= 60
+    assert embedder.calls == []
+
+
 # --- logs and metrics -----------------------------------------------------------
 
 
