@@ -30,7 +30,8 @@ interface SearchSectionProps {
 
 /**
  * Search over the workspace's documents. The query lives in the address, so Back and Forward step
- * through earlier searches; the form only changes the address, and the search follows from it.
+ * through earlier searches; the form puts the query into the address and the search follows from
+ * it. A query the user submits is sent afresh, even one answered before.
  */
 export function SearchSection({ workspaceId, query, className }: SearchSectionProps) {
   const t = useTranslations("Search");

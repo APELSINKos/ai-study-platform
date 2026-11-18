@@ -242,6 +242,32 @@ describe("SearchSection", () => {
     expect(screen.queryByText(/still being processed/)).not.toBeInTheDocument();
   });
 
+  it("still shows the answers kept for the other earlier searches after a new query is typed", async () => {
+    // Each answer has one passage more than the one before, so each search is told apart.
+    let answers = 0;
+    serve(async () => {
+      answers += 1;
+      return searchResultsFixture(answers);
+    });
+    const { showQuery } = renderSection("light");
+    await screen.findByText("1 passage matches.");
+    showQuery("glucose");
+    await screen.findByText("2 passages match.");
+
+    await userEvent.clear(searchbox());
+    await userEvent.type(searchbox(), "chlorophyll{Enter}");
+    expect(push).toHaveBeenLastCalledWith(`${WORKSPACE_URL}?q=chlorophyll`, { scroll: false });
+    showQuery("chlorophyll");
+    await screen.findByText("3 passages match.");
+
+    // Back, and Back again.
+    showQuery("glucose");
+    expect(await screen.findByText("2 passages match.")).toBeInTheDocument();
+    showQuery("light");
+    expect(await screen.findByText("1 passage matches.")).toBeInTheDocument();
+    expect(searchCalls()).toHaveLength(3);
+  });
+
   it("searches again for an unchanged query, without a new history entry", async () => {
     serve();
     renderSection("light");
