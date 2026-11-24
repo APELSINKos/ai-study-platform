@@ -1,13 +1,15 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
+import { Fragment } from "react";
 
 import { isBuiltInModel } from "@/features/meta/models";
 import type { ChatMessageOut } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const PARAGRAPH_BREAK = /\n{2,}/;
+import { CitationPopover } from "./citation-popover";
+import { tokenizeAnswerParagraphs } from "./tokenize-answer";
 
 interface MessageThreadProps {
   messages: readonly ChatMessageOut[];
@@ -17,7 +19,8 @@ interface MessageThreadProps {
 
 /**
  * The chronological conversation turns of a chat session: user prompts, grounded answers in book
- * serif, honest localized callouts when context is insufficient, and any turn still in flight.
+ * serif with interactive inline citations and source previews, honest localized callouts when
+ * context is insufficient, and any turn still in flight.
  */
 export function MessageThread({ messages, pendingMessages, className }: MessageThreadProps) {
   const t = useTranslations("Chat.thread");
@@ -70,10 +73,9 @@ function AssistantMessage({ message }: { message: ChatMessageOut }) {
   const locale = useLocale();
   const hasDuration = message.retrieval_ms !== null || message.generation_ms !== null;
   const totalMs = (message.retrieval_ms ?? 0) + (message.generation_ms ?? 0);
-  const paragraphs = message.content
-    .split(PARAGRAPH_BREAK)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0);
+  const paragraphs = message.insufficient_context
+    ? []
+    : tokenizeAnswerParagraphs(message.content, message.citations);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -87,13 +89,36 @@ function AssistantMessage({ message }: { message: ChatMessageOut }) {
           </p>
         </div>
       ) : (
-        <div className="font-display text-ink max-w-[65ch] space-y-3 text-base leading-7 break-words">
-          {paragraphs.map((paragraph, index) => (
-            <p key={index} className="whitespace-pre-line">
-              {paragraph}
-            </p>
-          ))}
-        </div>
+        <>
+          <div className="font-display text-ink max-w-[65ch] space-y-3 text-base leading-7 break-words">
+            {paragraphs.map((parts, paragraphIndex) => (
+              <p key={paragraphIndex} className="whitespace-pre-line">
+                {parts.map((part, partIndex) =>
+                  part.kind === "text" ? (
+                    <Fragment key={partIndex}>{part.text}</Fragment>
+                  ) : (
+                    <CitationPopover key={partIndex} citation={part.citation} />
+                  ),
+                )}
+              </p>
+            ))}
+          </div>
+          {message.citations.length > 0 ? (
+            <div className="mt-2 max-w-[65ch]">
+              <p className="text-ink-soft text-xs font-medium">{t("sourcesHeading")}</p>
+              <ol
+                aria-label={t("sourcesHeading")}
+                className="mt-1.5 flex flex-wrap items-center gap-2"
+              >
+                {message.citations.map((citation) => (
+                  <li key={`${citation.index}-${citation.chunk_id}`} className="max-w-full">
+                    <CitationPopover citation={citation} variant="source" />
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </>
       )}
       <p className="text-ink-soft mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
         {hasDuration ? <span>{formatDuration(totalMs, locale)}</span> : null}

@@ -30,6 +30,7 @@ import {
   chatSessionFixture,
   chatSessionPageFixture,
   chatTurnFixture,
+  citationFixture,
 } from "./test-fixtures";
 import type { SessionParam } from "./url-params";
 
@@ -342,6 +343,49 @@ describe("ChatView", () => {
       await waitFor(() =>
         expect(screen.getByRole("heading", { level: 1, name: "Chat" })).toHaveFocus(),
       );
+    });
+
+    it("paginates chat sessions with Show more and deduplicates overlapping rows", async () => {
+      const session3 = chatSessionFixture(3, {
+        workspace_id: WORKSPACE_A.id,
+        workspace_name: WORKSPACE_A.name,
+        title: "Third session",
+      });
+      apiFetchMock.mockImplementation(async (path) => {
+        if (path === "/meta") {
+          return CHAT_META_FIXTURE;
+        }
+        if (path.startsWith("/workspaces?")) {
+          return workspacePageFixture([WORKSPACE_A]);
+        }
+        if (path.startsWith("/chat/sessions?") && path.includes("page=1")) {
+          return chatSessionPageFixture([SESSION_1, SESSION_2], {
+            page: 1,
+            pageSize: 2,
+            total: 3,
+          });
+        }
+        if (path.startsWith("/chat/sessions?") && path.includes("page=2")) {
+          // SESSION_2 arrives again due to offset shift; uniqueSessions keeps only the first copy.
+          return chatSessionPageFixture([SESSION_2, session3], {
+            page: 2,
+            pageSize: 2,
+            total: 3,
+          });
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      });
+
+      renderChat();
+
+      const list = await screen.findByRole("list", { name: "Chat sessions" });
+      expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+
+      await userEvent.click(screen.getByRole("button", { name: "Show more" }));
+
+      expect(await within(list).findByRole("link", { name: "Third session" })).toBeInTheDocument();
+      expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+      expect(within(list).getAllByRole("link", { name: "Alkenes review" })).toHaveLength(1);
     });
   });
 
@@ -685,6 +729,78 @@ describe("ChatView", () => {
       expect(screen.getByRole("button", { name: "Переименовать" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Материалы" })).toBeInTheDocument();
       expect(primaryActions()).toEqual(["Отправить"]);
+    });
+
+    it("opens inline citation popovers and exposes non-inline citations via the Sources list", async () => {
+      const c1 = citationFixture(1, {
+        document_id: DOC_1.id,
+        document_title: "Forgetting curve",
+        chunk_index: 4,
+        heading: "Forgetting curve › Spacing effect",
+        page_start: 2,
+        page_end: 3,
+        quote: "Spaced reviews keep memory stable longer.",
+      });
+      const c2 = citationFixture(2, {
+        document_id: DOC_2.id,
+        document_title: "Spaced repetition",
+        chunk_index: 9,
+        heading: "Spaced repetition",
+        page_start: null,
+        page_end: null,
+        quote: "Testing yourself strengthens recall more than rereading.",
+      });
+      const groundedSession = chatSessionDetailFixture(7, {
+        workspace_id: WORKSPACE_A.id,
+        workspace_name: WORKSPACE_A.name,
+        title: "Citations test",
+        messages: [
+          chatMessageFixture(1, { role: "user", content: "What happened in 2024?" }),
+          chatMessageFixture(2, {
+            role: "assistant",
+            // [2024] is unmapped and stays plain text; [2] is not inline but appears in Sources.
+            content: "Studies in [2024] still confirm Ebbinghaus [1].",
+            citations: [c1, c2],
+          }),
+        ],
+      });
+      serveChat({ sessions: [groundedSession] });
+      renderChat({ sessionParam: { kind: "valid", id: groundedSession.id } });
+
+      await screen.findByRole("heading", { level: 1, name: "Citations test" });
+      expect(screen.getByText(/Studies in \[2024\] still confirm Ebbinghaus/)).toBeInTheDocument();
+
+      // Clicking inline [1] opens its popover preview with quote and passageHref link.
+      const source1Buttons = screen.getAllByRole("button", { name: "Source 1: Forgetting curve" });
+      expect(source1Buttons).toHaveLength(2);
+      await userEvent.click(source1Buttons[0]!);
+
+      expect(
+        await screen.findByText("Spaced reviews keep memory stable longer."),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Spacing effect")).toBeInTheDocument();
+      expect(screen.getByText("Pages 2–3")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Open passage" })).toHaveAttribute(
+        "href",
+        `/documents/${DOC_1.id}?fragment=4`,
+      );
+      expect(primaryActions()).toEqual(["Send"]);
+      expect(document.body.textContent).not.toContain("·");
+
+      await userEvent.keyboard("{Escape}");
+
+      // Citation [2] had no inline marker, yet is accessible from the compact Sources list.
+      const sourcesList = screen.getByRole("list", { name: "Sources" });
+      await userEvent.click(
+        within(sourcesList).getByRole("button", { name: "Source 2: Spaced repetition" }),
+      );
+      expect(
+        await screen.findByText("Testing yourself strengthens recall more than rereading."),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Open passage" })).toHaveAttribute(
+        "href",
+        `/documents/${DOC_2.id}?fragment=9`,
+      );
     });
   });
 });

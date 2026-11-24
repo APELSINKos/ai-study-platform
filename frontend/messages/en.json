@@ -624,10 +624,18 @@
       "you": "You",
       "assistant": "Recall",
       "thinking": "Reading your notes…",
+      "sourcesHeading": "Sources",
       "sourcesCount": "{count, plural, one {# source} other {# sources}}",
       "offlineAnswer": "Offline answer",
       "insufficientNoPassages": "No relevant passages were found in the selected materials, so Recall did not guess. Try rephrasing your question or widening the document scope.",
       "insufficientNotCovered": "Your notes do not contain enough information to answer this question. Try rephrasing it or uploading material that covers this topic."
+    },
+    "citation": {
+      "citationLabel": "Source {index}: {title}",
+      "closePreview": "Close source preview",
+      "openPassage": "Open passage",
+      "page": "Page {page}",
+      "pages": "Pages {start}–{end}"
     },
     "composer": {
       "label": "Your question",
