@@ -31,20 +31,21 @@ describe("HowItWorks", () => {
       "1Your file becomes passages",
       "2Each passage gets a place on a map",
       "3Your search finds its neighbours",
-      "4The answer will cite them",
+      "4The answer cites them",
     ]);
   });
 
   it.each([
     ["en", "Coming next"],
     ["ru", "Скоро"],
-  ] as const)("marks the steps Recall does not take yet as coming next (%s)", (locale, label) => {
+  ] as const)("marks none of the four steps as coming next (%s)", (locale, label) => {
     renderWithIntl(<HowItWorks />, { locale });
 
     const marked = screen
       .getAllByRole("heading", { level: 3 })
       .map((title) => within(title.closest("li") as HTMLElement).queryByText(label) !== null);
-    expect(marked).toEqual([false, false, false, true]);
+    expect(marked).toEqual([false, false, false, false]);
+    expect(screen.queryByText(label)).not.toBeInTheDocument();
   });
 
   it("does not claim that the built-in model maps passages by meaning", () => {
@@ -55,9 +56,9 @@ describe("HowItWorks", () => {
   });
 
   it.each([
-    ["en", /^The first three steps already work on every file you upload/],
-    ["ru", /^Первые три шага уже проходит каждый загруженный файл/],
-  ] as const)("says that search works today (%s)", (locale, lead) => {
+    ["en", /^All four steps already work on every file you upload/],
+    ["ru", /^Все четыре шага уже работают для каждого загруженного файла/],
+  ] as const)("says that search and questions work today (%s)", (locale, lead) => {
     renderWithIntl(<HowItWorks />, { locale });
 
     expect(screen.getByText(lead)).toBeInTheDocument();
@@ -84,7 +85,7 @@ describe("HowItWorks", () => {
     );
     expect(screen.getByTestId("answer-card")).toHaveAttribute("data-shown", "true");
     expect(screen.getByRole("listitem", { current: "step" })).toHaveTextContent(
-      "The answer will cite them",
+      "The answer cites them",
     );
   });
 

@@ -55,17 +55,19 @@ describe("the landing page's account of what Recall does", () => {
   it("tells what works today and what comes next from the first screen", () => {
     renderWithIntl(<Hero />);
 
-    expect(screen.getByText(/cuts each file into searchable passages/)).toHaveTextContent(
-      "Answers with sources, quizzes and flashcards are coming next.",
+    const lead = screen.getByText(/cuts each file into searchable passages/);
+    expect(lead).toHaveTextContent(
+      "answers your questions with links to the source passages. Quizzes and flashcards are coming next.",
     );
+    expect(lead).not.toHaveTextContent(/Answers with sources.*coming next/i);
   });
 
-  it("invites a first upload rather than a first question", () => {
+  it("invites a first upload, search and cited questions", () => {
     renderWithIntl(<ClosingCta />);
 
     expect(
       screen.getByText(
-        "Create an account, upload the chapter you are studying now and see its summary, topics and study time.",
+        "Create an account, upload the chapter you are studying now, see its summary, topics and study time, search its passages and ask questions with cited sources.",
       ),
     ).toBeInTheDocument();
   });

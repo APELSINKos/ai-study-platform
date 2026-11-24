@@ -1,6 +1,6 @@
 {
   "Metadata": {
-    "description": "Upload lecture notes and textbook chapters: each file is split into searchable passages and summed up. Answers with sources, quizzes and flashcards are coming next."
+    "description": "Upload lecture notes and textbook chapters: search passages, see summaries and ask questions with cited sources. Quizzes and flashcards are coming next."
   },
   "Locale": {
     "label": "Language",
@@ -24,7 +24,7 @@
     "comingNext": "Coming next",
     "hero": {
       "headline": "<line>Read it once.</line> <line>Recall it on exam day.</line>",
-      "lead": "Upload your lecture notes and textbook chapters: Recall cuts each file into searchable passages and sums it up, with its topics, difficulty and study time. Answers with sources, quizzes and flashcards are coming next.",
+      "lead": "Upload your lecture notes and textbook chapters: Recall cuts each file into searchable passages, sums it up with its topics, difficulty and study time, and answers your questions with links to the source passages. Quizzes and flashcards are coming next.",
       "page": {
         "course": "Introduction to psychology, lecture 6",
         "title": "How memory fades",
@@ -38,7 +38,7 @@
     },
     "how": {
       "title": "How it works",
-      "lead": "The first three steps already work on every file you upload, so you can search your notes today. Asking questions comes next: each answer will come from your own material, and you will always see where.",
+      "lead": "All four steps already work on every file you upload, so you can search your notes and ask questions today. Each answer comes from your own material, and you always see where.",
       "steps": {
         "passages": {
           "title": "Your file becomes passages",
@@ -53,8 +53,8 @@
           "body": "A search lands on the same map and brings back the passages nearest to it, along with any that use its exact words. Each result opens your file at that passage."
         },
         "answer": {
-          "title": "The answer will cite them",
-          "body": "The answer will be written only from those passages, and each claim will point to its source. If your notes do not cover the question, Recall will say so instead of guessing."
+          "title": "The answer cites them",
+          "body": "The answer is written only from those passages, and each claim points to its source. If your notes do not cover the question, Recall says so instead of guessing."
         }
       },
       "question": "How does reviewing slow down forgetting?",
@@ -138,7 +138,7 @@
     },
     "closing": {
       "title": "Start with one chapter.",
-      "body": "Create an account, upload the chapter you are studying now and see its summary, topics and study time."
+      "body": "Create an account, upload the chapter you are studying now, see its summary, topics and study time, search its passages and ask questions with cited sources."
     },
     "footer": {
       "status": "System status"
