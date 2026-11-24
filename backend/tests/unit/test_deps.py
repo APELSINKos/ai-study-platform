@@ -5,11 +5,16 @@ import pytest
 from openai import Timeout
 from pydantic import SecretStr
 
-from app.api.deps import collapse_ipv6, get_query_embedder
+from app.api.deps import (
+    collapse_ipv6,
+    get_chat_llm_provider,
+    get_chat_query_embedder,
+    get_query_embedder,
+)
 from app.core.config import Settings
 from app.llm.factory import CONNECT_TIMEOUT_SECONDS, get_openai_client
-from app.llm.mock_provider import HashingEmbeddingProvider
-from app.llm.openai_provider import OpenAIEmbeddingProvider
+from app.llm.mock_provider import HashingEmbeddingProvider, MockLLMProvider
+from app.llm.openai_provider import OpenAIEmbeddingProvider, OpenAILLMProvider
 
 _API_KEY: Final = "query-api-key-used-only-in-tests-000000"
 
@@ -65,3 +70,30 @@ def test_a_search_gets_the_embeddings_model_with_the_search_limits() -> None:
     assert provider.model_name == settings.embedding_model
     assert provider.client.timeout == Timeout(4.0, connect=min(CONNECT_TIMEOUT_SECONDS, 4.0))
     assert provider.client.max_retries == 0
+
+
+def test_chat_without_keys_gets_the_built_in_providers(settings: Settings) -> None:
+    assert isinstance(get_chat_query_embedder(settings), HashingEmbeddingProvider)
+    assert isinstance(get_chat_llm_provider(settings), MockLLMProvider)
+
+
+@pytest.mark.usefixtures("_fresh_clients")
+def test_chat_gets_the_live_providers_with_chat_limits() -> None:
+    settings = Settings(
+        environment="test",
+        openai_api_key=SecretStr(_API_KEY),
+        chat_embedding_timeout_seconds=3.5,
+        chat_llm_timeout_seconds=16.0,
+        chat_max_output_tokens=1400,
+    )
+
+    embedder = get_chat_query_embedder(settings)
+    llm = get_chat_llm_provider(settings)
+
+    assert isinstance(embedder, OpenAIEmbeddingProvider)
+    assert embedder.client.timeout == Timeout(3.5, connect=3.5)
+    assert embedder.client.max_retries == 0
+    assert isinstance(llm, OpenAILLMProvider)
+    assert llm.client.timeout == Timeout(16.0, connect=CONNECT_TIMEOUT_SECONDS)
+    assert llm.client.max_retries == 0
+    assert llm.options.max_output_tokens == 1400

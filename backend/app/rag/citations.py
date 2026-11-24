@@ -82,6 +82,11 @@ class GroundedAnswer:
     grounding_overridden: bool
 
 
+def clean_chat_text(text: str) -> str:
+    """Normalize line breaks, drop control/format/surrogate chars, preserve paragraphs and NFC."""
+    return _finalize_paragraphs(_normalize_raw_text(text))
+
+
 def ground_answer(raw: ChatAnswer, context: BuiltContext) -> GroundedAnswer:
     """Validate and renumber citations in raw against context, enforcing strict grounding."""
     normalized_text = _normalize_raw_text(raw.answer)

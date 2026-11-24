@@ -13,10 +13,15 @@ from app.core.request_auth import authenticate_request, check_csrf
 from app.db.session import get_session_factory
 from app.documents.queue import CeleryDocumentQueue, DocumentQueue
 from app.documents.storage import FileStorage
-from app.llm.base import EmbeddingProvider
-from app.llm.factory import build_query_embedder
+from app.llm.base import EmbeddingProvider, LLMProvider
+from app.llm.factory import (
+    build_chat_llm_provider,
+    build_chat_query_embedder,
+    build_query_embedder,
+)
 from app.models.user import User
 from app.services.auth import AuthService
+from app.services.chat import ChatService
 from app.services.documents import DocumentService
 from app.services.search import SearchService
 from app.services.workspaces import WorkspaceService
@@ -100,6 +105,32 @@ def get_search_service(
 
 
 SearchServiceDep = Annotated[SearchService, Depends(get_search_service)]
+
+
+def get_chat_query_embedder(settings: SettingsDep) -> EmbeddingProvider:
+    return build_chat_query_embedder(settings)
+
+
+ChatQueryEmbedderDep = Annotated[EmbeddingProvider, Depends(get_chat_query_embedder)]
+
+
+def get_chat_llm_provider(settings: SettingsDep) -> LLMProvider:
+    return build_chat_llm_provider(settings)
+
+
+ChatLLMDep = Annotated[LLMProvider, Depends(get_chat_llm_provider)]
+
+
+def get_chat_service(
+    db: DbSession,
+    settings: SettingsDep,
+    embedder: ChatQueryEmbedderDep,
+    llm: ChatLLMDep,
+) -> ChatService:
+    return ChatService(db, settings, embedder, llm)
+
+
+ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 
 # tokenUrl points Swagger's "Authorize" dialog at /api/v1/auth/token; auto_error is
 # disabled because a missing bearer token is not necessarily a failure here, the
