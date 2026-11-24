@@ -28,7 +28,12 @@ from app.llm.base import (
 )
 from app.llm.prompts import build_analysis_messages, chat_messages
 from app.llm.schemas import ChatAnswer, DocumentAnalysis
-from app.llm.structured import ChatOptions, complete_structured, split_user_text
+from app.llm.structured import (
+    ChatOptions,
+    complete_structured,
+    split_user_text,
+    validate_timeout_budget,
+)
 
 # A 429 with one of these codes means a spent balance or budget, which waiting does not restore.
 BILLING_ERROR_CODES: Final = frozenset(
@@ -89,7 +94,8 @@ class OpenAILLMProvider:
     def answer_question(
         self, request: ChatRequest, *, timeout_budget_seconds: float | None = None
     ) -> ChatResult:
-        # Split outside the block below, which takes any ValueError for an unreadable answer.
+        # Validate and split outside _provider_errors, which turns ValueError into invalid output.
+        validate_timeout_budget(timeout_budget_seconds)
         messages, user_text = split_user_text(chat_messages(request))
         with _provider_errors():
             output = complete_structured(

@@ -939,3 +939,147 @@ def test_broken_chat_messages_raise_value_error_instead_of_invalid_output(
         _llm(endpoint.client).answer_question(CHAT_REQUEST)
 
     assert endpoint.requests == []
+
+
+def test_chat_timeout_budget_clamps_client_timeout_without_expanding_existing_caps() -> None:
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _chat(json.dumps(VALID_CHAT_ANSWER))
+
+    client_timeout = openai.Timeout(18.0, connect=5.0)
+    with OpenAI(
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        max_retries=0,
+        timeout=client_timeout,
+        http_client=httpx2.Client(
+            transport=httpx2.MockTransport(handler),
+            timeout=client_timeout,
+        ),
+    ) as client:
+        _llm(client).answer_question(CHAT_REQUEST, timeout_budget_seconds=22.75)
+        _llm(client).answer_question(CHAT_REQUEST, timeout_budget_seconds=2.0)
+
+    large_budget_timeout = requests[0].extensions["timeout"]
+    assert large_budget_timeout == {"connect": 5.0, "read": 18.0, "write": 18.0, "pool": 18.0}
+
+    small_budget_timeout = requests[1].extensions["timeout"]
+    for key in ("connect", "read", "write", "pool"):
+        assert 0.0 < small_budget_timeout[key] <= 2.0
+
+
+def test_chat_timeout_budget_fills_missing_client_timeout_components() -> None:
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _chat(json.dumps(VALID_CHAT_ANSWER))
+
+    unbounded = openai.Timeout(None, connect=5.0)
+    with OpenAI(
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        max_retries=0,
+        timeout=unbounded,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler), timeout=unbounded),
+    ) as client:
+        _llm(client).answer_question(CHAT_REQUEST, timeout_budget_seconds=12.0)
+
+    resolved = requests[0].extensions["timeout"]
+    assert resolved["connect"] == 5.0
+    for key in ("read", "write", "pool"):
+        assert 0.0 < resolved[key] <= 12.0
+
+
+@pytest.mark.parametrize("budget", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "neg-inf"])
+def test_non_finite_timeout_budget_raises_value_error(
+    endpoint: FakeEndpoint, budget: float
+) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        _llm(endpoint.client).answer_question(CHAT_REQUEST, timeout_budget_seconds=budget)
+
+    messages, user_text = split_user_text(chat_messages(CHAT_REQUEST))
+    with pytest.raises(ValueError, match="finite"):
+        complete_structured(
+            endpoint.client,
+            _options(),
+            messages,
+            user_text,
+            ChatAnswer,
+            timeout_budget_seconds=budget,
+        )
+
+    assert endpoint.requests == []
+
+
+def test_repair_attempt_pins_exact_min_repair_budget_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [100.0]
+    monkeypatch.setattr("app.llm.structured.time.monotonic", lambda: now[0])
+    client_timeout = openai.Timeout(18.0, connect=5.0)
+    budget = 10.0
+
+    # At exact MIN_REPAIR_BUDGET_SECONDS remaining, repair runs with timeout clamped to remaining.
+    exact_requests: list[httpx2.Request] = []
+    exact_answers = [_chat(json.dumps(INVALID_CHAT_JSON)), _chat(json.dumps(VALID_CHAT_ANSWER))]
+
+    def exact_handler(request: httpx2.Request) -> httpx2.Response:
+        exact_requests.append(request)
+        if len(exact_requests) == 1:
+            now[0] += budget - MIN_REPAIR_BUDGET_SECONDS
+        return exact_answers.pop(0)
+
+    with OpenAI(
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        max_retries=0,
+        timeout=client_timeout,
+        http_client=httpx2.Client(
+            transport=httpx2.MockTransport(exact_handler), timeout=client_timeout
+        ),
+    ) as client:
+        result = _llm(client).answer_question(CHAT_REQUEST, timeout_budget_seconds=budget)
+
+    assert result.answer == ChatAnswer.model_validate(VALID_CHAT_ANSWER)
+    assert len(exact_requests) == 2
+    assert exact_requests[0].extensions["timeout"] == {
+        "connect": 5.0,
+        "read": 10.0,
+        "write": 10.0,
+        "pool": 10.0,
+    }
+    assert exact_requests[1].extensions["timeout"] == {
+        "connect": MIN_REPAIR_BUDGET_SECONDS,
+        "read": MIN_REPAIR_BUDGET_SECONDS,
+        "write": MIN_REPAIR_BUDGET_SECONDS,
+        "pool": MIN_REPAIR_BUDGET_SECONDS,
+    }
+
+    # Strictly below MIN_REPAIR_BUDGET_SECONDS remaining, repair is skipped.
+    now[0] = 200.0
+    short_requests: list[httpx2.Request] = []
+
+    def short_handler(request: httpx2.Request) -> httpx2.Response:
+        short_requests.append(request)
+        now[0] += budget - MIN_REPAIR_BUDGET_SECONDS + 0.001
+        return _chat(json.dumps(INVALID_CHAT_JSON))
+
+    with (
+        OpenAI(
+            api_key=API_KEY,
+            base_url=BASE_URL,
+            max_retries=0,
+            timeout=client_timeout,
+            http_client=httpx2.Client(
+                transport=httpx2.MockTransport(short_handler), timeout=client_timeout
+            ),
+        ) as client,
+        pytest.raises(ProviderRequestError) as caught,
+    ):
+        _llm(client).answer_question(CHAT_REQUEST, timeout_budget_seconds=budget)
+
+    assert caught.value.code == "ai_invalid_output"
+    assert len(short_requests) == 1

@@ -1,11 +1,12 @@
 """Asking a chat model for JSON that matches a Pydantic model, with one chance to repair it."""
 
+import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from openai import NOT_GIVEN, NotGiven, OpenAI
+from openai import NOT_GIVEN, NotGiven, OpenAI, Timeout
 from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletion, ChatCompletionMessage, ChatCompletionMessageParam
 from openai.types.chat.chat_completion import Choice
@@ -30,6 +31,7 @@ _REFUSED_MESSAGE: Final = "The model refused the request."
 _CUT_OFF_MESSAGE: Final = "The model's answer was cut off by the output token limit."
 _INVALID_ANSWER_MESSAGE: Final = "The model's answer did not match the schema, even after a repair."
 _TIMED_OUT_MESSAGE: Final = "The AI provider timed out."
+_INVALID_TIMEOUT_BUDGET_MESSAGE: Final = "timeout_budget_seconds must be a finite number."
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +84,14 @@ def split_user_text(
     return list(messages[:-1]), user_text
 
 
+def validate_timeout_budget(timeout_budget_seconds: float | None) -> None:
+    """Reject non-finite or boolean timeout budgets before issuing an API call."""
+    if timeout_budget_seconds is not None and (
+        isinstance(timeout_budget_seconds, bool) or not math.isfinite(timeout_budget_seconds)
+    ):
+        raise ValueError(_INVALID_TIMEOUT_BUDGET_MESSAGE)
+
+
 def complete_structured[T: BaseModel](  # noqa: PLR0913 -- timeout budget is optional for callers
     client: OpenAI,
     options: ChatOptions,
@@ -101,19 +111,20 @@ def complete_structured[T: BaseModel](  # noqa: PLR0913 -- timeout budget is opt
     raises ProviderUnavailableError; errors of the API call itself propagate as the SDK
     raises them.
     """
+    validate_timeout_budget(timeout_budget_seconds)
     request: list[ChatCompletionMessageParam] = [*messages, {"role": "user", "content": user_text}]
     requested_format = response_format(schema, options.structured_output)
     prompt_tokens = completion_tokens = 0
     deadline = None if timeout_budget_seconds is None else time.monotonic() + timeout_budget_seconds
     for attempt in range(STRUCTURED_OUTPUT_ATTEMPTS):
-        timeout: float | NotGiven = NOT_GIVEN
+        timeout: Timeout | NotGiven = NOT_GIVEN
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 if attempt == 0:
                     raise ProviderUnavailableError(_TIMED_OUT_MESSAGE)
                 break
-            timeout = remaining
+            timeout = _clamped_timeout(client.timeout, remaining)
         completion = client.chat.completions.create(
             model=options.model,
             messages=request,
@@ -141,6 +152,19 @@ def complete_structured[T: BaseModel](  # noqa: PLR0913 -- timeout budget is opt
             value=value, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
     raise ProviderRequestError(_INVALID_ANSWER_MESSAGE, code="ai_invalid_output")
+
+
+def _clamped_timeout(base: float | Timeout | None, remaining: float) -> Timeout:
+    """Clamp every component of base to remaining without expanding existing limits."""
+    if isinstance(base, Timeout):
+        return Timeout(
+            connect=remaining if base.connect is None else min(base.connect, remaining),
+            read=remaining if base.read is None else min(base.read, remaining),
+            write=remaining if base.write is None else min(base.write, remaining),
+            pool=remaining if base.pool is None else min(base.pool, remaining),
+        )
+    cap = remaining if base is None else min(base, remaining)
+    return Timeout(cap)
 
 
 def _answer_text(completion: ChatCompletion) -> str:
