@@ -5,36 +5,12 @@ import { useTranslations } from "next-intl";
 
 import { Snippet } from "@/components/snippet";
 import { passageHref } from "@/features/documents/passage-href";
+import { headingBelowTitle, pageRange } from "@/features/documents/passage-meta";
 import { isBuiltInModel } from "@/features/meta/models";
 import type { MatchKind, SearchHit, SearchResults } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 type RowTranslator = ReturnType<typeof useTranslations<"Search.row">>;
-
-/** How the API joins the headings above a passage. */
-const HEADING_SEPARATOR = " › ";
-
-/**
- * The headings above a passage, without the document's title when they start with it: a Markdown
- * file is named after its first heading. Null when no other heading is left.
- */
-function headingBelowTitle(hit: SearchHit): string | null {
-  if (hit.heading === null || hit.heading === hit.document_title) {
-    return null;
-  }
-  const title = hit.document_title + HEADING_SEPARATOR;
-  return hit.heading.startsWith(title) ? hit.heading.slice(title.length) : hit.heading;
-}
-
-function pageRange(hit: SearchHit, t: RowTranslator): string | null {
-  if (hit.page_start === null) {
-    return null;
-  }
-  const end = hit.page_end ?? hit.page_start;
-  return end === hit.page_start
-    ? t("page", { page: hit.page_start })
-    : t("pages", { start: hit.page_start, end });
-}
 
 /**
  * The name of a passage's link: the document's title, then what tells the passage apart from the
@@ -138,7 +114,10 @@ interface ResultRowProps {
 function ResultRow({ hit, labels }: ResultRowProps) {
   const t = useTranslations("Search.row");
   const heading = headingBelowTitle(hit);
-  const pages = pageRange(hit, t);
+  const pages = pageRange(hit, {
+    page: (page) => t("page", { page }),
+    pages: (start, end) => t("pages", { start, end }),
+  });
 
   return (
     <li className="group relative py-4">

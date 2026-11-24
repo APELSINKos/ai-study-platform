@@ -1,10 +1,10 @@
 import { useTranslations } from "next-intl";
 import { Fragment, type CSSProperties } from "react";
 
+import { CitationMark } from "@/components/citation-mark";
 import { cn } from "@/lib/utils";
 
 import styles from "./answer-card.module.css";
-import { CitationMark } from "./citation-mark";
 import { tokenizeAnswer } from "./tokenize-answer";
 
 /**

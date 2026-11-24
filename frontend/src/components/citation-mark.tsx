@@ -11,7 +11,7 @@ export function CitationMark({
   return (
     <span
       className={cn(
-        "bg-pen text-on-pen inline-flex size-5 items-center justify-center rounded-full text-[0.6875rem] leading-none font-semibold tabular-nums",
+        "bg-pen text-on-pen inline-flex size-5 items-center justify-center rounded-full border border-transparent text-[0.6875rem] leading-none font-semibold tabular-nums forced-colors:border-[ButtonBorder]",
         className,
       )}
       {...props}

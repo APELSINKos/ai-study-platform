@@ -1,6 +1,7 @@
 import { motion, useTransform } from "motion/react";
 
-import { CitationMark } from "./citation-mark";
+import { CitationMark } from "@/components/citation-mark";
+
 import { CUE, cue, ramp, type Progress } from "./map-cues";
 import {
   MAP_HEIGHT,
