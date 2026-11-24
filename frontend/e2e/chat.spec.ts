@@ -215,8 +215,8 @@ test.describe.serial("grounded chat and citations", () => {
     await expect(page).toHaveURL(/\/chat$/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Chat");
 
-    // Deleting replaced the session history entry, so Back does not return to the deleted session.
+    // Deleting replaced the session history entry, so Back returns to the prior /chat?workspace= view.
     await page.goBack();
-    await expect(page).not.toHaveURL(CHAT_SESSION_URL);
+    await expect(page).toHaveURL(new RegExp(`/chat\\?workspace=${workspaceId}$`));
   });
 });
