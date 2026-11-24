@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import ChatPage from "./chat/page";
 import DocumentDetailPage from "./documents/[id]/page";
 import WorkspacePage from "./workspaces/[id]/page";
 
@@ -43,5 +44,37 @@ describe("the workspace page", () => {
     });
 
     expect(page.props).toEqual({ id: "w1", query: expected });
+  });
+});
+
+describe("the chat page", () => {
+  const sessionId = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const workspaceId = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+
+  it("parses absent, uppercase and malformed ?session= and ?workspace= params", async () => {
+    const empty = await ChatPage({ searchParams: Promise.resolve({}) });
+    expect(empty.props).toEqual({ sessionParam: { kind: "none" }, initialWorkspaceId: null });
+
+    const valid = await ChatPage({
+      searchParams: Promise.resolve({
+        session: sessionId.toUpperCase(),
+        workspace: workspaceId.toUpperCase(),
+      }),
+    });
+    expect(valid.props).toEqual({
+      sessionParam: { kind: "valid", id: sessionId },
+      initialWorkspaceId: workspaceId,
+    });
+
+    const malformed = await ChatPage({
+      searchParams: Promise.resolve({
+        session: "not-a-uuid",
+        workspace: "also-not-a-uuid",
+      }),
+    });
+    expect(malformed.props).toEqual({
+      sessionParam: { kind: "invalid" },
+      initialWorkspaceId: null,
+    });
   });
 });

@@ -535,5 +535,135 @@
       "emptyTitle": "Start with a workspace",
       "emptyBody": "A workspace keeps the files for one course or exam together and counts down the days to the exam."
     }
+  },
+  "Chat": {
+    "metaTitle": "Chat",
+    "title": "Chat",
+    "marginNote": "Ask your notes, check every source.",
+    "newChat": "New chat",
+    "untitled": "New chat",
+    "emptyWorkspaces": {
+      "title": "Start with a workspace",
+      "lead": "Create a workspace and upload your study materials before starting a chat.",
+      "action": "Create workspace"
+    },
+    "filter": {
+      "label": "Filter by workspace",
+      "all": "All workspaces"
+    },
+    "form": {
+      "title": "New chat",
+      "workspaceLabel": "Workspace",
+      "scopeLegend": "Materials",
+      "scopeAll": "All ready documents",
+      "scopeSelected": "Selected documents",
+      "scopeEmpty": "No ready documents in this workspace yet. You can still start a chat and upload files before asking.",
+      "scopeNoReadyForSelection": "No ready documents to choose from yet.",
+      "scopeSelectionRequired": "Select at least one document, or choose all ready documents.",
+      "scopeLimitHint": "You can select up to {max, plural, one {# document} other {# documents}}.",
+      "scopeSelectedCount": "{count, plural, =0 {No documents selected} one {# document selected} other {# documents selected}}",
+      "documentsLoading": "Loading documents…",
+      "documentsShowMore": "Show more documents",
+      "documentsRetry": "Try again",
+      "submit": "Start chat",
+      "cancel": "Cancel"
+    },
+    "list": {
+      "label": "Chat sessions",
+      "loading": "Loading chats…",
+      "empty": "No chats yet.",
+      "emptyFiltered": "No chats in this workspace yet.",
+      "showMore": "Show more",
+      "retry": "Try again",
+      "messages": "{count, plural, =0 {No messages yet} one {# message} other {# messages}}",
+      "scopeCount": "{count, plural, one {# document} other {# documents}}",
+      "deleteLabel": "Delete {title}"
+    },
+    "deleteDialog": {
+      "title": "Delete this chat?",
+      "description": "“{title}” and all of its messages will be deleted. This cannot be undone.",
+      "confirm": "Delete chat"
+    },
+    "session": {
+      "loading": "Loading chat…",
+      "retry": "Try again",
+      "workspaceLabel": "Workspace",
+      "scopeAll": "All ready documents",
+      "scopeSelected": "{count, plural, one {# document} other {# documents}}",
+      "sessionsButton": "Sessions",
+      "renameButton": "Rename",
+      "scopeButton": "Scope",
+      "deleteButton": "Delete",
+      "drawer": {
+        "title": "Chat sessions",
+        "description": "Switch between your chat sessions or start a new one.",
+        "close": "Close sessions",
+        "newChat": "New chat"
+      },
+      "rename": {
+        "title": "Rename chat",
+        "label": "Chat title",
+        "hint": "Leave blank to name the chat automatically from the first question.",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
+      "scope": {
+        "title": "Document scope",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
+      "notFound": {
+        "title": "Chat not found",
+        "lead": "It may have been deleted, or the link is incomplete.",
+        "back": "All chats"
+      }
+    },
+    "thread": {
+      "label": "Conversation",
+      "empty": "Ask a question about your notes. Answers stay grounded in your uploaded passages.",
+      "you": "You",
+      "assistant": "Recall",
+      "thinking": "Reading your notes…",
+      "sourcesCount": "{count, plural, one {# source} other {# sources}}",
+      "offlineAnswer": "Offline answer",
+      "insufficientNoPassages": "No relevant passages were found in the selected materials, so Recall did not guess. Try rephrasing your question or widening the document scope.",
+      "insufficientNotCovered": "Your notes do not contain enough information to answer this question. Try rephrasing it or uploading material that covers this topic."
+    },
+    "composer": {
+      "label": "Your question",
+      "placeholder": "Ask about your notes…",
+      "hint": "Press Enter to send, Shift+Enter for a new line.",
+      "send": "Send",
+      "limitReached": "This chat has reached the limit of {max, plural, one {# message} other {# messages}}. Start a new chat to keep asking.",
+      "startNewChat": "Start new chat"
+    },
+    "status": {
+      "replyArrived": "{count, plural, =0 {Answer received.} one {Answer received with # source.} other {Answer received with # sources.}}",
+      "insufficientReply": "Reply received: your notes do not cover this question."
+    },
+    "errors": {
+      "networkError": "The API could not be reached. Check your connection and try again.",
+      "csrfFailed": "Your session could not be confirmed. Reload the page and try again.",
+      "sessionExpired": "Your session has ended. Sign in again to continue.",
+      "workspaceNotFound": "This workspace no longer exists.",
+      "documentNotFound": "One of the selected documents no longer exists. Refresh the list and try again.",
+      "sessionNotFound": "This chat no longer exists.",
+      "sessionLimitReached": "This chat has reached its message limit. Start a new chat to continue.",
+      "validationError": "Check your input and try again.",
+      "rateLimited": "Too many messages. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+      "rateLimitedMinutes": "Too many messages. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+      "rateLimitedGeneric": "Too many messages. Try again in a moment.",
+      "unavailable": "The AI chat service is temporarily unavailable. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+      "unavailableMinutes": "The AI chat service is temporarily unavailable. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+      "unavailableGeneric": "The AI chat service is temporarily unavailable. Try again later.",
+      "quotaExceeded": "The AI service has reached its usage limit.",
+      "loadSessionsFailed": "Your chats could not be loaded.",
+      "loadMoreSessionsFailed": "More chats could not be loaded.",
+      "createFailed": "The chat could not be started. Try again.",
+      "openFailed": "This chat could not be loaded.",
+      "updateFailed": "Your changes could not be saved. Try again.",
+      "deleteFailed": "The chat could not be deleted. Try again.",
+      "sendFailed": "Your message could not be sent. Try again."
+    }
   }
 }
