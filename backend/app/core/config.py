@@ -116,6 +116,12 @@ class Settings(BaseSettings):
     # Kept well below the 30 s after which the web app's proxy gives up.
     search_embedding_timeout_seconds: PositiveFloat = 10.0
 
+    chat_messages_per_minute: PositiveInt = 20
+    # Together with the query embedding timeout, kept within the web app's 30 s proxy limit.
+    chat_llm_timeout_seconds: PositiveFloat = 18.0
+    chat_embedding_timeout_seconds: PositiveFloat = 5.0
+    chat_max_output_tokens: PositiveInt = 1500
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_comma_separated(cls, value: object) -> object:

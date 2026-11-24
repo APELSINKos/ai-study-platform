@@ -1,10 +1,11 @@
 """Asking a chat model for JSON that matches a Pydantic model, with one chance to repair it."""
 
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from openai import OpenAI
+from openai import NOT_GIVEN, NotGiven, OpenAI
 from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletion, ChatCompletionMessage, ChatCompletionMessageParam
 from openai.types.chat.chat_completion import Choice
@@ -13,10 +14,11 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.config import StructuredOutputMode
 from app.documents.text import shorten
-from app.llm.base import ProviderRequestError
+from app.llm.base import ProviderRequestError, ProviderUnavailableError
 
 # The first answer and one repaired answer.
 STRUCTURED_OUTPUT_ATTEMPTS: Final = 2
+MIN_REPAIR_BUDGET_SECONDS: Final = 4.0
 REPAIR_PROBLEMS_MAX_CHARS: Final = 1000
 REPAIR_NOTE: Final = (
     "An earlier answer to this request did not match the required JSON schema. "
@@ -24,9 +26,10 @@ REPAIR_NOTE: Final = (
 )
 _NOT_USER_TEXT_MESSAGE: Final = "The last message of a structured request must be the user's text."
 _NO_ANSWER_MESSAGE: Final = "The model returned no answer."
-_REFUSED_MESSAGE: Final = "The model refused to analyse the document."
+_REFUSED_MESSAGE: Final = "The model refused the request."
 _CUT_OFF_MESSAGE: Final = "The model's answer was cut off by the output token limit."
 _INVALID_ANSWER_MESSAGE: Final = "The model's answer did not match the schema, even after a repair."
+_TIMED_OUT_MESSAGE: Final = "The AI provider timed out."
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,29 +82,44 @@ def split_user_text(
     return list(messages[:-1]), user_text
 
 
-def complete_structured[T: BaseModel](
+def complete_structured[T: BaseModel](  # noqa: PLR0913 -- timeout budget is optional for callers
     client: OpenAI,
     options: ChatOptions,
     messages: Sequence[ChatCompletionMessageParam],
     user_text: str,
     schema: type[T],
+    *,
+    timeout_budget_seconds: float | None = None,
 ) -> StructuredOutput[T]:
     """Ask for an answer that validates as schema; after a mismatch, ask once more.
 
     The request is the messages followed by the user's text, to which the repeated request
-    adds a note of what was wrong. A refusal, a cut-off answer or a second mismatch raises
-    ProviderRequestError (ai_invalid_output); errors of the API call itself propagate as the
-    SDK raises them.
+    adds a note of what was wrong. When timeout_budget_seconds is given, both attempts share
+    that deadline, and the repair attempt is skipped if fewer than MIN_REPAIR_BUDGET_SECONDS
+    remain. A refusal, a cut-off answer or an unrepairable mismatch raises
+    ProviderRequestError (ai_invalid_output); an exhausted budget before the first attempt
+    raises ProviderUnavailableError; errors of the API call itself propagate as the SDK
+    raises them.
     """
     request: list[ChatCompletionMessageParam] = [*messages, {"role": "user", "content": user_text}]
     requested_format = response_format(schema, options.structured_output)
     prompt_tokens = completion_tokens = 0
-    for _ in range(STRUCTURED_OUTPUT_ATTEMPTS):
+    deadline = None if timeout_budget_seconds is None else time.monotonic() + timeout_budget_seconds
+    for attempt in range(STRUCTURED_OUTPUT_ATTEMPTS):
+        timeout: float | NotGiven = NOT_GIVEN
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if attempt == 0:
+                    raise ProviderUnavailableError(_TIMED_OUT_MESSAGE)
+                break
+            timeout = remaining
         completion = client.chat.completions.create(
             model=options.model,
             messages=request,
             response_format=requested_format,
             max_completion_tokens=options.max_output_tokens,
+            timeout=timeout,
         )
         content = _answer_text(completion)
         usage = completion.usage
@@ -111,6 +129,8 @@ def complete_structured[T: BaseModel](
         try:
             value = schema.model_validate_json(content)
         except ValidationError as error:
+            if deadline is not None and deadline - time.monotonic() < MIN_REPAIR_BUDGET_SECONDS:
+                break
             # Only the problems go back, not the rejected answer, whose text the document may
             # have steered. They join the user's turn, as some chat templates refuse two user
             # messages in a row.
@@ -141,7 +161,9 @@ def _answer_text(completion: ChatCompletion) -> str:
 
 def _token_count(tokens: object) -> int:
     """A count from the usage report, or 0 when the server left it out or sent another type."""
-    return tokens if isinstance(tokens, int) else 0
+    if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0:
+        return tokens
+    return 0
 
 
 def _problems(error: ValidationError) -> str:

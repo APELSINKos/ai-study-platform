@@ -185,6 +185,34 @@ def test_search_limits_must_be_positive(monkeypatch: pytest.MonkeyPatch, variabl
         Settings()
 
 
+def test_chat_settings_default_to_the_documented_limits() -> None:
+    settings = Settings()
+
+    assert settings.chat_messages_per_minute == 20
+    assert settings.chat_llm_timeout_seconds == 18.0
+    assert settings.chat_embedding_timeout_seconds == 5.0
+    assert settings.chat_max_output_tokens == 1500
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "CHAT_MESSAGES_PER_MINUTE",
+        "CHAT_LLM_TIMEOUT_SECONDS",
+        "CHAT_EMBEDDING_TIMEOUT_SECONDS",
+        "CHAT_MAX_OUTPUT_TOKENS",
+    ],
+)
+@pytest.mark.parametrize("bad_value", ["0", "-1"], ids=["zero", "negative"])
+def test_chat_limits_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch, variable: str, bad_value: str
+) -> None:
+    monkeypatch.setenv(variable, bad_value)
+
+    with pytest.raises(ValidationError, match=variable.lower()):
+        Settings()
+
+
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_blank_pass_through_variables_fall_back_to_the_defaults(
     monkeypatch: pytest.MonkeyPatch, blank: str

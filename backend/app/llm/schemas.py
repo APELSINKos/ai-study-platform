@@ -32,6 +32,16 @@ class DocumentAnalysis(BaseModel):
     difficulty: Difficulty
 
 
+# Strict structured output allows neither defaults nor field constraints, and a docstring
+# would become the schema description sent to the model.
+class ChatAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    answer: str
+    citations: list[str]
+    insufficient_context: bool
+
+
 @dataclass(frozen=True, slots=True)
 class NormalizedAnalysis:
     """An analysis that fits the document columns; a blank title or summary is None."""

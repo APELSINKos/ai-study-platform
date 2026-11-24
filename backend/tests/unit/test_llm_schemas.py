@@ -8,6 +8,7 @@ from app.documents.text import ELLIPSIS
 from app.llm.schemas import (
     MAX_TOPICS,
     TOPIC_MAX_LENGTH,
+    ChatAnswer,
     DocumentAnalysis,
     NormalizedAnalysis,
     normalize_analysis,
@@ -195,3 +196,41 @@ def test_normalizing_twice_changes_nothing() -> None:
     )
 
     assert twice == once
+
+
+def test_chat_answer_wire_schema_is_strict_without_defaults_constraints_or_docstring() -> None:
+    schema = ChatAnswer.model_json_schema()
+    schema_text = json.dumps(schema)
+
+    assert schema["additionalProperties"] is False
+    assert (
+        set(schema["required"])
+        == set(schema["properties"])
+        == {
+            "answer",
+            "citations",
+            "insufficient_context",
+        }
+    )
+    assert "description" not in schema
+    for keyword in ('"default"', '"maxLength"', '"minLength"', '"minItems"', '"maxItems"'):
+        assert keyword not in schema_text
+
+
+def test_chat_answer_accepts_valid_payload_and_rejects_extra_or_missing_fields() -> None:
+    valid = {
+        "answer": "Review slows forgetting [S1].",
+        "citations": ["S1"],
+        "insufficient_context": False,
+    }
+
+    parsed = ChatAnswer.model_validate(valid)
+
+    assert parsed == ChatAnswer(
+        answer="Review slows forgetting [S1].", citations=["S1"], insufficient_context=False
+    )
+    with pytest.raises(ValidationError):
+        ChatAnswer.model_validate(valid | {"extra": True})
+    for missing in valid:
+        with pytest.raises(ValidationError):
+            ChatAnswer.model_validate({k: v for k, v in valid.items() if k != missing})

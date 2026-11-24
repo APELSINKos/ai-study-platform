@@ -8,7 +8,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from app.llm.schemas import DocumentAnalysis
+from app.llm.schemas import ChatAnswer, DocumentAnalysis
+from app.models.chat_message import ChatMessageRole
 from app.models.document import Difficulty, DocumentErrorCode
 from app.models.document_chunk import EMBEDDING_DIMENSIONS
 
@@ -16,6 +17,11 @@ __all__ = [
     "EMBEDDING_DIMENSIONS",
     "AnalysisRequest",
     "AnalysisResult",
+    "ChatContextPassage",
+    "ChatHistoryTurn",
+    "ChatMessageRole",
+    "ChatRequest",
+    "ChatResult",
     "Difficulty",
     "EmbeddingProvider",
     "LLMProvider",
@@ -45,6 +51,45 @@ class AnalysisResult:
     """An analysis with the model that wrote it and the tokens it took (zero offline)."""
 
     analysis: DocumentAnalysis
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
+class ChatContextPassage:
+    """One retrieved passage shown to the chat model under a server-assigned label (S1..Sn)."""
+
+    label: str
+    document_title: str
+    heading: str | None
+    page_start: int | None
+    page_end: int | None
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class ChatHistoryTurn:
+    """One prior turn of a chat session, passed for conversational continuity only."""
+
+    role: ChatMessageRole
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class ChatRequest:
+    """What the chat model is shown: the student's question, passages and recent turns."""
+
+    question: str
+    sources: tuple[ChatContextPassage, ...]
+    history: tuple[ChatHistoryTurn, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ChatResult:
+    """A structured chat answer with the model that wrote it and the tokens it took."""
+
+    answer: ChatAnswer
     model: str
     prompt_tokens: int
     completion_tokens: int
