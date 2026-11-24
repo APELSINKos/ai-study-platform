@@ -4,7 +4,7 @@
 
 ## Overview
 
-Recall is a self-hosted web application for preparing for exams from your own material. You create a workspace for each course or exam and upload lecture notes or textbook chapters as PDF, Markdown or plain-text files. A background worker reads every file, cleans its text, splits it into passages, analyses it (title, summary, topics, difficulty and estimated study time) and stores a vector embedding for each passage in PostgreSQL with pgvector. A search finds a workspace's passages by their words and their embeddings together and opens any of them at its place in the document. The next features build on the same passages: answers with citations, quizzes and flashcards with spaced repetition. The whole stack starts with one Docker Compose command and needs no API key: built-in offline models stand in until an OpenAI-compatible endpoint is configured.
+Recall is a self-hosted web application for preparing for exams from your own material. You create a workspace for each course or exam and upload lecture notes or textbook chapters as PDF, Markdown or plain-text files. A background worker reads every file, cleans its text, splits it into passages, analyses it (title, summary, topics, difficulty and estimated study time) and stores a vector embedding for each passage in PostgreSQL with pgvector. Search finds a workspace's passages by their words and embeddings together, and chat answers questions strictly from those passages with inline citations that preview and open the source passage—or says honestly when the material does not cover the question. The next features build on the same passages: quizzes and flashcards with spaced repetition. The whole stack starts with one Docker Compose command and needs no API key: built-in offline models stand in until an OpenAI-compatible endpoint is configured.
 
 | Area | Status |
 | --- | --- |
@@ -12,8 +12,8 @@ Recall is a self-hosted web application for preparing for exams from your own ma
 | Workspaces, one per course or exam, with an exam-date countdown | Working |
 | Document upload and background processing: extraction, cleaning, chunking, analysis, embeddings | Working |
 | Search: hybrid vector and full-text search over a workspace's passages, each result opening its document at the passage | Working |
+| Chat: workspace- or document-scoped grounded Q&A with numbered inline citations, source previews and passage deep links | Working |
 | Web interface in English and Russian, with light and dark themes | Working |
-| Chat with citations to the source passages | Planned |
 | Quizzes generated from the material | Planned |
 | Flashcards with spaced repetition | Planned |
 | Progress dashboard (today the dashboard lists the recent workspaces) | Planned |
@@ -36,9 +36,11 @@ Recall is a self-hosted web application for preparing for exams from your own ma
 
 **Search.** Each workspace page has a search box. A search looks through the passages of the workspace's ready documents by their words and their embeddings at once and lists the best ten, each with its document, heading path and pages, a snippet with the matching words marked, and how it was found: "Matching words", and "Similar meaning", or "Similar words" while the built-in embeddings, which compare words, are in use. A result opens its document scrolled to that passage, with the focus on it. The query stays in the address, so Back and Forward step through earlier searches. Notes say when files are still being processed, when some were embedded by another model and wait for a re-index, and when only the words were searched. A query holds at most 200 characters, a user may search 30 times a minute, and the API never writes a query to its logs or metrics.
 
-**Interface.** English and Russian, switched in the header and remembered in a cookie (the browser's language decides on the first visit); light, dark and system themes; layouts for phones and desktops; animations that respect reduced motion; a landing page that shows what a file becomes today and marks the features still to come, such as answers, quizzes and flashcards, as coming next; and a system status page that checks the database and the task queue.
+**Chat.** Signed-in users can start chat sessions scoped to a workspace or narrowed to up to 50 specific documents (from the Chat navigation tab or "Ask in chat" on a workspace with ready files). Each turn retrieves relevant passages, generates a grounded answer with numbered inline citations (`[1]`, `[2]`) and a Sources list, and stores immutable passage snapshots on the assistant message. Clicking any citation opens a preview popover with the document title, heading path, page range, quoted excerpt and an "Open passage" link to that exact passage in its document. When retrieval finds no relevant passages, the chat model is skipped and Recall shows a localized insufficient-context callout instead of guessing; the same callout appears if retrieved passages do not cover the question or an answer fails citation verification. Built-in offline answering (`mock-heuristic-v1`) works without API keys. Sessions can be renamed, re-scoped, switched through a slide-over drawer and deleted; each holds up to 200 messages (2,000 characters each), users may send 20 messages a minute, and question, answer or passage text is never written to logs or metrics.
 
-**Operations.** Structured logs, JSON or console, with a request ID that follows an upload into the worker; Prometheus metrics at `/metrics` for HTTP requests and for the time a search spends retrieving passages and waiting for its query's embedding; liveness and readiness probes; health checks on every long-running Compose service.
+**Interface.** English and Russian, switched in the header and remembered in a cookie (the browser's language decides on the first visit); light, dark and system themes; layouts for phones and desktops; animations that respect reduced motion; a landing page that shows what uploading, searching and cited chat do today and marks the features still to come—quizzes and flashcards—as coming next; and a system status page that checks the database and the task queue.
+
+**Operations.** Structured logs, JSON or console, with a request ID that follows an upload into the worker; Prometheus metrics at `/metrics` for HTTP requests, passage retrieval duration (`retrieval_duration_seconds`), AI call durations (`llm_request_duration_seconds` for `query_embedding` and `chat`) and reported model token counts (`llm_tokens_total`); liveness and readiness probes; health checks on every long-running Compose service.
 
 ## Architecture
 
@@ -53,13 +55,13 @@ flowchart LR
     worker --> pg
     worker --> files
     worker --> llm["LLM provider<br/>OpenAI-compatible API<br/>or built-in offline models"]
-    api -->|"query embeddings"| llm
+    api -->|"query embeddings & chat"| llm
 ```
 
 - The browser talks only to Next.js. It renders the pages and rewrites `/api/*` to FastAPI, so the session cookies are first-party and CORS plays no part in normal use.
 - An upload is stored on a volume shared with the worker, recorded as `uploaded` and queued in Redis; the API answers `202 Accepted` at once.
 - The Celery worker processes the document and records each stage in PostgreSQL; the browser polls for it.
-- The worker, and the API for the query of a search, reach models only through provider interfaces: an OpenAI-compatible API, or the built-in offline models when no key is set.
+- The worker, and the API for search queries and chat turns, reach models only through provider interfaces: an OpenAI-compatible API, or the built-in offline models when no key is set.
 
 The backend is layered so that HTTP, rules and SQL stay apart:
 
@@ -73,7 +75,7 @@ repository   app/repositories/  SQLAlchemy queries (repositories only flush)
 PostgreSQL   app/models/, migrations in alembic/versions/
 ```
 
-Document processing lives in `app/documents/` (upload checks, storage, extraction, cleaning, chunking and the pipeline), model access in `app/llm/` (provider protocols, the OpenAI-compatible and offline implementations, prompts), search in `app/rag/` (the store that runs the SQL, the retriever that merges its two lists, and snippets), and the Celery app and its task in `app/workers/`. Abstractions exist where they pay for themselves: the model providers have two implementations and a protocol between them, while file storage is a single class that tests simply give a temporary root folder.
+Document processing lives in `app/documents/` (upload checks, storage, extraction, cleaning, chunking and the pipeline), model access in `app/llm/` (provider protocols, the OpenAI-compatible and offline implementations, structured output and prompts), retrieval and grounded answering in `app/rag/` (`vector_store.py`, `retriever.py`, `snippets.py`, `query.py`, `context.py`, `citations.py` and the HTTP-free `service.py`), chat session lifecycle and endpoints in `app/services/chat.py`, `app/repositories/chat.py` and `app/api/v1/chat.py`, the Celery app and its task in `app/workers/`, and the chat interface in `frontend/src/features/chat/`. Abstractions exist where they pay for themselves: the model providers have two implementations and a protocol between them, while file storage is a single class that tests simply give a temporary root folder.
 
 ```
 backend/     FastAPI application, Celery worker, Alembic migrations, tests
@@ -104,7 +106,7 @@ Makefile     Shortcuts for the commands below
 
 ## RAG Pipeline
 
-Answering from your material needs the material prepared first and the right passages found. Ingestion and retrieval work today; answering comes next.
+Answering from your material needs the material prepared first, the right passages found and every claim checked against them. Ingestion, retrieval and grounded answering with citations all work today.
 
 ```mermaid
 flowchart TD
@@ -124,7 +126,7 @@ flowchart TD
     reading --> indexing
     save --> ready(["ready"])
     ready --> retrieve["Retrieve: vector and full-text results merged by rank"]
-    retrieve -.-> answer["Answer with citations (planned)"]
+    retrieve --> answer["Answer: budgeted context, structured JSON, verified citations"]
 ```
 
 1. **Upload.** The API checks the file and stores it as `{workspace_id}/{document_id}{extension}`; the name the user chose is kept for display and never becomes part of a path.
@@ -168,7 +170,15 @@ Retrieval (`GET /api/v1/search`) works on the ready documents of one workspace:
 4. **Merge.** Reciprocal Rank Fusion gives each passage 1 / (60 + rank) from every list it appears in. Ties go to the better rank in a single list, then to the passage id, so the same query always returns the same order.
 5. **Snippets.** `ts_headline` picks up to two short excerpts around the matching words, and the API returns them as plain and highlighted parts, with an ellipsis wherever text is left out. A passage found by its embedding alone shows its first 30 words.
 
-When the query cannot be embedded, a hybrid search returns the keyword list and reports `semantic_available: false`. Answers written only from the retrieved passages, citing them, or saying that the material does not cover the question, come next.
+When the query cannot be embedded, a hybrid search returns the keyword list and reports `semantic_available: false`.
+
+Grounded chat (`POST /api/v1/chat/sessions/{id}/messages`) builds directly on the same retriever:
+
+1. **Query building (`app/rag/query.py`).** Extracts up to 14 folded alphanumeric content words from the question (skipping English and Russian chat stop words and augmenting short follow-ups with the most recent prior user turn) and joins them with `or` within 256 characters for full-text search, without `-word` exclusions. The embedding query appends the prior user turn on short follow-ups up to 1,000 characters.
+2. **Scoped retrieval and empty short-circuit (`app/rag/service.py`).** Runs hybrid search for the top 5 passages (`CHAT_TOP_K = 5`) inside the session's workspace and optional `document_ids`, degrading to keyword-only if query embedding fails (5-second limit, no retries). If no ready documents or no passages match, the chat model is skipped completely and the turn records `insufficient_context: true` with `model: null`.
+3. **Context budget and prompt-injection boundaries (`app/rag/context.py`, `app/llm/prompts.py`).** Packs passages under server-generated labels `S1`..`Sn` up to 12,000 characters (`S1` is always kept, truncated cleanly if needed) and up to 3 recent conversation turns (3,000 characters, evicting oldest turns first and stripping prior `[1]` markers). All untrusted text (question, history turns, document titles, headings and passages) is neutralised against look-alike ASCII and Unicode delimiter tags and placed inside `<sources>`, `<history>` and `<question>` data blocks under a fixed system prompt; the original chunks stay unmodified for citation snapshots.
+4. **Structured JSON output (`app/llm/structured.py`).** Requests one JSON object (`answer`, `citations`, `insufficient_context`) via `json_schema` (or `json_object` for compatible servers), capped at 1,500 output tokens, within a shared 23-second turn budget (5 s embedding + 18 s chat generation, skipping schema repair when fewer than 4 seconds remain) so every turn settles before Next.js's 30-second proxy cutoff.
+5. **Citation verification and immutable snapshots (`app/rag/citations.py`).** Validates every `[S1]` / `[S1, S2]` marker against the passages sent to the model, strips fabricated markers without leaving stray spaces, renumbers surviving citations contiguously to `[1]`..`[k]`, caps answers at 8,000 characters without splitting markers, and saves an immutable `CitationSnapshot` (document title, chunk index, heading path, page range and up to 320 characters of plain quote) for each citation. If a non-refusal answer has no valid surviving citations or becomes blank, its prose is discarded and replaced with `insufficient_context: true`.
 
 ## Database Schema
 
@@ -178,6 +188,8 @@ erDiagram
     users ||--o{ workspaces : owns
     workspaces ||--o{ documents : contains
     documents ||--o{ document_chunks : "is split into"
+    workspaces ||--o{ chat_sessions : scopes
+    chat_sessions ||--o{ chat_messages : contains
     users {
         uuid id PK
         string email UK "stored in lower case"
@@ -228,17 +240,42 @@ erDiagram
         vector embedding "1,536 dimensions"
         tsvector search_vector "generated"
     }
+    chat_sessions {
+        uuid id PK
+        uuid workspace_id FK
+        uuid user_id FK "with workspace_id, one composite key"
+        string title "nullable, auto-filled on first question"
+        uuid_array document_ids "optional 1 to 50 doc scope"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    chat_messages {
+        uuid id PK
+        uuid session_id FK
+        int sequence "unique per session, >= 1"
+        string role "user or assistant"
+        text content
+        jsonb citations "immutable passage snapshots"
+        boolean insufficient_context
+        string model
+        int retrieval_ms
+        int generation_ms
+        int prompt_tokens
+        int completion_tokens
+    }
 ```
 
 | Table | Key constraints |
 | --- | --- |
 | `users` | Unique e-mail, stored in lower case |
 | `refresh_tokens` | Unique token hash; indexes on the user and the session family; revocation reason limited to `rotated`, `signed_out`, `reuse_detected` |
-| `workspaces` | Owner foreign key with cascading delete; index on (owner, last change) for the list |
+| `workspaces` | Owner foreign key with cascading delete; unique `(id, owner_id)` for tenant-scoped chat foreign keys; index on (owner, last change) for the list |
 | `documents` | Unique (workspace, SHA-256), so a repeated upload is a 409; checks on the status, content type, difficulty, size, SHA-256 format, topics (a JSON array) and counts; the error code must come from the closed set and a failed document must have one; a ready document must have its passage count, embedding model and finish time |
 | `document_chunks` | Composite foreign key (document, workspace) → documents with cascading delete, so a passage cannot sit in another workspace than its document; unique (document, chunk index); HNSW index on the embedding for cosine distance (m = 16, ef_construction = 64); a generated `tsvector` over heading and content (the `simple` configuration) with a GIN index; checks on the chunk index, length and page range |
+| `chat_sessions` | Composite foreign key `(workspace_id, user_id)` → `workspaces(id, owner_id)` with cascading delete, enforcing tenant ownership in the database; check on `document_ids` (NULL or a 1-D non-null UUID array of 1 to 50 items); indexes on `(user_id, updated_at)` and `(workspace_id, updated_at)` |
+| `chat_messages` | Foreign key to `chat_sessions` with cascading delete; unique `(session_id, sequence)` with `sequence >= 1`; checks on `role` (`user`, `assistant`), non-empty `content`, `citations` JSON array, `NOT insufficient_context OR jsonb_array_length(citations) = 0`, and non-negative timings and token counts |
 
-Primary keys are UUIDs and times are `timestamptz`. Enumerated columns are strings guarded by named CHECK constraints. The schema is created only by Alembic migrations, which the `migrate` service applies on start; application code never creates tables. Planned tables: chat sessions and messages, generation jobs, quizzes with questions, attempts and answers, flashcards with their rating history, and study sessions.
+Primary keys are UUIDs and times are `timestamptz`. Enumerated columns are strings guarded by named CHECK constraints. The schema is created only by Alembic migrations, which the `migrate` service applies on start; application code never creates tables. Planned tables: generation jobs, quizzes with questions, attempts and answers, flashcards with their rating history, and study sessions.
 
 ## Local Development
 
@@ -288,19 +325,19 @@ Every variable is optional: Compose reads it from the environment or a `.env` fi
 | `SECRET_KEY` | blank (a development key) | Signs access tokens; production requires at least 32 characters |
 | `COOKIE_SECURE` | blank | Blank means Secure cookies in production only |
 | `LLM_PROVIDER` | `auto` | `auto`, `mock` or `openai`; `auto` uses the API once `OPENAI_API_KEY` is set |
-| `OPENAI_API_KEY` | blank | Key for the analysis model, and for embeddings unless they have an endpoint of their own |
+| `OPENAI_API_KEY` | blank | Key for the chat and analysis model, and for embeddings unless they have an endpoint of their own |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible API, such as OpenRouter or a local Ollama server |
-| `LLM_MODEL` | `gpt-5.4-mini` | The model that analyses documents; at most 100 characters |
+| `LLM_MODEL` | `gpt-5.4-mini` | The model that analyses documents and answers chat questions; at most 100 characters |
 | `EMBEDDING_PROVIDER` | `auto` | As `LLM_PROVIDER`, for embeddings: `auto` uses the API once embeddings have a key (see below) |
 | `EMBEDDING_API_KEY` | blank | Key for an embeddings endpoint of its own |
 | `EMBEDDING_BASE_URL` | blank | That endpoint; needs `EMBEDDING_API_KEY` |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Must return 1,536-dimensional vectors; at most 100 characters |
 
-With no key set, the built-in models do the work: `mock-heuristic-v1` analyses documents and `mock-hashing-v1` embeds passages. Setting `OPENAI_API_KEY` switches both to the API at `LLM_BASE_URL`. Keys and URLs are paired, so a key only ever reaches the endpoint it was configured for: with `EMBEDDING_API_KEY` and `EMBEDDING_BASE_URL` both blank, embeddings use the `OPENAI_API_KEY` and `LLM_BASE_URL` pair; otherwise they use `EMBEDDING_API_KEY` with `EMBEDDING_BASE_URL` (OpenAI when blank) and never fall back to `OPENAI_API_KEY`. The API and the worker refuse to start with `EMBEDDING_BASE_URL` but no `EMBEDDING_API_KEY`, with a provider forced to `openai` without a key, with an `LLM_BASE_URL` or `EMBEDDING_BASE_URL` that the HTTP client cannot parse, or with a model name longer than the 100 characters a document records; local servers accept any placeholder key. `GET /api/v1/meta` reports the models in use and the mode, `offline` while either of them is built in and `live` otherwise, never keys or addresses.
+With no key set, the built-in models do the work: `mock-heuristic-v1` analyses documents and answers chat questions, and `mock-hashing-v1` embeds passages. Setting `OPENAI_API_KEY` switches both to the API at `LLM_BASE_URL`. Keys and URLs are paired, so a key only ever reaches the endpoint it was configured for: with `EMBEDDING_API_KEY` and `EMBEDDING_BASE_URL` both blank, embeddings use the `OPENAI_API_KEY` and `LLM_BASE_URL` pair; otherwise they use `EMBEDDING_API_KEY` with `EMBEDDING_BASE_URL` (OpenAI when blank) and never fall back to `OPENAI_API_KEY`. The API and the worker refuse to start with `EMBEDDING_BASE_URL` but no `EMBEDDING_API_KEY`, with a provider forced to `openai` without a key, with an `LLM_BASE_URL` or `EMBEDDING_BASE_URL` that the HTTP client cannot parse, or with a model name longer than the 100 characters a document records; local servers accept any placeholder key. `GET /api/v1/meta` reports the models in use and the mode, `offline` while either of them is built in and `live` otherwise, never keys or addresses.
 
 A local server such as Ollama works the same way. Set `OPENAI_API_KEY` to any placeholder, since `auto` needs a key even where the server checks none, `LLM_BASE_URL` to `http://host.docker.internal:11434/v1`, the host as the containers see it on every platform, and `LLM_MODEL` to a model the server has pulled, since the default `gpt-5.4-mini` exists only at OpenAI. On Linux, start Ollama with `OLLAMA_HOST=0.0.0.0`: by default it listens on 127.0.0.1 only, which the containers cannot reach. Embeddings then go to that server as well and ask it for `text-embedding-3-small` unless `EMBEDDING_MODEL` names another model: set `EMBEDDING_PROVIDER=mock` to keep the built-in embeddings, or name a model there that returns 1,536-dimensional vectors.
 
-Limits such as the upload size are settings with fixed defaults in `backend/app/core/config.py`, not Compose variables; the upload limit is tied to `frontend/next.config.ts` (see Design Decisions).
+Limits and timeouts—such as the upload size, search rate limit, and chat settings (`CHAT_MESSAGES_PER_MINUTE`, default `20`; `CHAT_LLM_TIMEOUT_SECONDS`, default `18.0`; `CHAT_EMBEDDING_TIMEOUT_SECONDS`, default `5.0`; `CHAT_MAX_OUTPUT_TOKENS`, default `1500`)—are settings with fixed defaults in `backend/app/core/config.py`, not Compose variables; the upload limit is tied to `frontend/next.config.ts` (see Design Decisions).
 
 ## Running Tests
 
@@ -310,7 +347,7 @@ Limits such as the upload size are settings with fixed defaults in `backend/app/
 - **No network, no paid model.** Tests use the offline providers or fakes, and the Celery task runs in-process without a broker.
 - **Hostile input.** Text processing runs on untrusted files, so its regular expressions are written to stay linear, and timing tests feed it 2,000,000-character runs of the characters that would make a careless pattern backtrack. They run with coverage's tracer paused, so that under `--cov` in CI they time the code rather than the tracing.
 - **Frontend (Vitest, Testing Library).** Component and hook tests in jsdom, including keyboard use, polling and both languages.
-- **End to end (Playwright).** The landing and status pages, the account lifecycle, and a document's whole way: upload, processing to ready, the document page with its summary and passages, a duplicate turned down, a 12 MiB file that fails as too long, a file over 20 MiB turned down in the browser without a request, a search that finds a passage by one of its words and opens the document at it with the focus there, Back to the same results, a search that finds nothing, and the workspace's deletion. The two suites that need an account register one each, since registration is rate-limited, and the document suite first checks `GET /api/v1/meta` and stops unless the offline models are in use.
+- **End to end (Playwright).** The landing and status pages, the account lifecycle, a document's whole way (upload, processing to ready, the document page with its summary and passages, duplicate refusal, a 12 MiB file failing as too long, a file over 20 MiB rejected in the browser without a request, search opening the focused passage, Back to the same results, empty search, workspace deletion), and grounded chat with citations (opening chat from a ready workspace, creating a session, receiving a grounded answer with inline citations, opening the citation preview popover and deep-linking to the focused passage, returning to persisted history, seeing an insufficient-context callout on an unrelated question, renaming inline with reload persistence, and deleting the session so Back does not return to it). The three suites that need an account register one each, since registration is rate-limited, and both the document and chat suites check `GET /api/v1/meta` and stop unless the offline models are in use.
 - **CI (GitHub Actions)** on every push to `main` and every pull request: the backend job installs the dependencies locked in `uv.lock`, failing when the lock no longer matches `pyproject.toml`, and runs ruff, mypy and pytest with coverage against PostgreSQL with pgvector and Redis service containers; the frontend job runs ESLint, Prettier, TypeScript, Vitest and a production build on the Node version in `.nvmrc`; a contract job regenerates the TypeScript API types from the backend's OpenAPI schema and fails on any difference.
 
 ## Evaluation
@@ -327,10 +364,13 @@ FastAPI serves interactive documentation at http://localhost:8000/docs (Swagger 
 | Workspaces | `GET`, `POST /workspaces`; `GET`, `PATCH`, `DELETE /workspaces/{id}` |
 | Documents | `POST`, `GET /workspaces/{id}/documents`; `GET`, `DELETE /documents/{id}`; `GET /documents/{id}/chunks`; `GET /documents/{id}/file`; `POST /documents/{id}/retry` |
 | Search | `GET /search`: the passages of a workspace that best match a query |
-| Meta | `GET /meta`: upload limits, accepted file types, per-user limits, the longest search query, the models in use (public) |
+| Chat | `GET`, `POST /chat/sessions`; `GET`, `PATCH`, `DELETE /chat/sessions/{id}`; `POST /chat/sessions/{id}/messages` |
+| Meta | `GET /meta`: upload, search and chat limits (`max_message_chars`, `max_scope_documents`, `max_messages_per_session`), accepted file types, per-user limits, the models in use (public) |
 | Health | `GET /health/live`, `GET /health/ready` |
 
 `GET /api/v1/search?workspace_id=…&q=…` also takes `limit` (1 to 20, by default 10) and `mode` (`hybrid` by default, `vector` or `keyword`). It returns `results`, each with its document, chunk index, heading path, pages, snippet parts, score, how it was found and its cosine similarity, together with `semantic_available` and the numbers of searched, stale and pending documents. In `vector` mode a query whose embedding fails is answered with 503 `search_unavailable`, with `Retry-After: 30` when the failure is temporary; `hybrid` falls back to the words instead. A query that excludes words (`-word`) is never embedded, so `vector` mode finds nothing for it. A user may search 30 times a minute.
+
+`GET /api/v1/chat/sessions` lists a user's sessions most recently updated first, optionally filtered by `workspace_id`. `POST /api/v1/chat/sessions` creates a session scoped to a workspace and an optional `document_ids` list (1 to 50 documents in that workspace); `PATCH /api/v1/chat/sessions/{id}` renames it or updates its scope (`null` resets to all ready documents), and `DELETE /api/v1/chat/sessions/{id}` removes the session and its messages (`204`). `POST /api/v1/chat/sessions/{id}/messages` takes a question of up to 2,000 characters, enforces 20 messages a minute per user and 200 messages per session (`409 chat_session_limit_reached`), skips the chat model when retrieval finds no passages, and returns the updated session summary alongside both `user_message` and `assistant_message` (with immutable `citations`, `insufficient_context`, timings and token counts). Temporary model failures answer `503 chat_unavailable` with a clamped `Retry-After` (1 to 300 seconds, default 30); spent provider quotas answer `503 chat_quota_exceeded`.
 
 Lists take `?page=1&page_size=20` (at most 100) and return `{"items": [...], "total": ..., "page": ..., "page_size": ...}`. Every error has the same shape:
 
@@ -349,14 +389,14 @@ Lists take `?page=1&page_size=20` (at most 100) and return `{"items": [...], "to
 | --- | --- |
 | 401 | `not_authenticated`, `token_expired`, `invalid_token`, `invalid_credentials`, `invalid_refresh_token` |
 | 403 | `csrf_failed` |
-| 404 | `workspace_not_found`, `document_not_found`, `document_file_missing` |
-| 409 | `email_taken`, `duplicate_document`, `document_not_retryable`, `storage_quota_exceeded` |
+| 404 | `workspace_not_found`, `document_not_found`, `document_file_missing`, `chat_session_not_found` |
+| 409 | `email_taken`, `duplicate_document`, `document_not_retryable`, `storage_quota_exceeded`, `chat_session_limit_reached` |
 | 413 | `payload_too_large` |
 | 415 | `unsupported_file_type` |
 | 422 | `validation_error`, `invalid_text_encoding`, `empty_file` |
 | 429 | `rate_limited`, `too_many_active_documents`, with `Retry-After` |
 | 500 | `internal_error`, without internals; the `request_id` finds it in the logs |
-| 503 | `search_unavailable`, with `Retry-After` when the model may answer later |
+| 503 | `search_unavailable`, `chat_unavailable` (with `Retry-After` when temporary), `chat_quota_exceeded` |
 
 Other errors, such as an unknown route or a method a route does not take, carry a generic code for their status: `bad_request`, `permission_denied`, `not_found`, `method_not_allowed`, `unsupported_media_type`, or `http_error` for any status without a code of its own.
 
@@ -386,7 +426,15 @@ Screenshots will be added once the study features have their finished interface.
 
 **Search degrades instead of failing.** If the query embedding times out or fails, a search still returns the keyword list and says that only words were searched; only `vector` mode, with nothing else to return, answers 503. No model is called while the API or the worker starts, so an outage at a model provider cannot keep the stack down; `make check-ai` checks the models on request.
 
-**Provider interfaces with offline models.** The pipeline depends on two small protocols, `LLMProvider` and `EmbeddingProvider`, not on a vendor's SDK. One implementation talks to any OpenAI-compatible API through the official SDK, with an explicit key, URL, timeouts and retries; the other is built in: a heuristic analysis and hashed word embeddings that are deterministic and need no network. So the stack runs and every test passes without an API key, and no test depends on a model or pays for one. A model's answer is requested as JSON matching a Pydantic schema and validated again on arrival, with one chance to repair it. Keys are resolved together with their URLs because chat and embeddings often come from different vendors: a key must never be sent to a host it was not issued for (the pairing rule under Environment Variables). For the same reason the client takes no address or header from the OpenAI SDK's own variables: `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and `OPENAI_CUSTOM_HEADERS` are ignored.
+**Immutable citation snapshots.** Each assistant message stores a JSONB snapshot of its cited passages (document title, chunk index, heading path, page range and quote) as they stood at answer time. Citations stay readable even if a document is later deleted or re-indexed, while "Open passage" still deep-links to live documents.
+
+**Three short transactions per chat turn and cascade-safe locking.** No database transaction or row lock stays open while waiting on embedding or chat models. A turn reads ownership, scope and recent history and commits (Tx 1), retrieves passages inside `RAGService` and commits before calling the LLM (Tx 2), and finally touches the workspace row before locking the chat session row (`FOR UPDATE`, matching workspace delete cascades so concurrent deletes cannot deadlock), re-checks the 200-message cap and writes both messages (Tx 3).
+
+**Strict grounding and prompt-injection boundaries.** Untrusted passages, conversation history and questions have invisible format characters stripped and look-alike ASCII and Unicode tags neutralised before entering `<sources>`, `<history>` and `<question>` data blocks under a fixed system prompt. Every citation marker in model output is validated against retrieved passages and renumbered; any non-refusal answer with no surviving valid citations has its prose discarded and replaced with `insufficient_context: true`, and the web client renders localized refusal copy rather than raw model text whenever `insufficient_context` is true.
+
+**Single chat turn deadline inside the proxy limit.** Query embedding (5 seconds, no retries) and chat generation (18 seconds, no retries, 1,500 output tokens) share one 23-second deadline—skipping schema repair when under 4 seconds remain—so slow providers fail cleanly with 503 instead of hitting Next.js's 30-second proxy cutoff.
+
+**Provider interfaces with offline models.** The pipeline depends on two small protocols, `LLMProvider` and `EmbeddingProvider`, not on a vendor's SDK. One implementation talks to any OpenAI-compatible API through the official SDK, with an explicit key, URL, timeouts and retries; the other is built in: heuristic document analysis, lexical extractive Q&A and hashed word embeddings that are deterministic and need no network. So the stack runs and every test passes without an API key, and no test depends on a model or pays for one. A model's answer is requested as JSON matching a Pydantic schema and validated again on arrival, with one chance to repair it. Keys are resolved together with their URLs because chat and embeddings often come from different vendors: a key must never be sent to a host it was not issued for (the pairing rule under Environment Variables). For the same reason the client takes no address or header from the OpenAI SDK's own variables: `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` and `OPENAI_CUSTOM_HEADERS` are ignored.
 
 **A run token, retries and the stale Retry.** A run claims its document with one compare-and-set update, from `uploaded` to `processing` with `attempts` increased by one, and keeps the new `attempts` as its token; every later write checks it. A duplicate or redelivered message for a claimed document therefore finds nothing to claim, and a run whose document was deleted or claimed again writes nothing more. Database work happens in short transactions, never while a file is parsed or a model answers, and locks the document row before its passages: the order in which a delete takes them through its cascade, so the two cannot deadlock. A model that is only unavailable leaves the document `uploaded` for a later attempt, unless none is left; other errors fail it with their code, except an analysis the model refuses, which the built-in one replaces. A run that died with its worker leaves a document stuck in an earlier status; once its status has not changed for 15 minutes, longer than any run may take, Retry is offered for it.
 
@@ -396,13 +444,15 @@ Screenshots will be added once the study features have their finished interface.
 
 **Cookie sessions with CSRF and refresh-token rotation.** The web client never handles a token: the API sets an access JWT (15 minutes, sent only to `/api`) and an opaque refresh token (14 days, sent only to `/api/v1/auth`, stored as a SHA-256 hash) as httpOnly cookies, out of reach of any script injected into the page. Because the browser sends cookies by itself, every unsafe request authenticated by cookie must also repeat the `recall_csrf` cookie's value in an `X-CSRF-Token` header. Each refresh rotates the refresh token; a rotated token presented again revokes the whole session family, except within 10 seconds of its rotation, which covers two tabs refreshing at once.
 
-**One error contract.** Every error, from validation and rate limits to an unexpected crash, has the same body with a stable snake_case `code` for one condition and a `request_id` to find it in the logs. The English `message` is for developers: the web client maps codes to its own English and Russian sentences. Another user's workspace or document is answered with 404, never 403, so ids cannot be probed, and ownership is checked before anything is saved; only the caller's own hourly count of uploads or retries, or per-minute count of searches, goes up before that check. A failed document's `error_code` comes from a closed set that a CHECK constraint enforces and the generated TypeScript types carry, so a code without a translation fails the frontend's type check.
+**One error contract.** Every error, from validation and rate limits to an unexpected crash, has the same body with a stable snake_case `code` for one condition and a `request_id` to find it in the logs. The English `message` is for developers: the web client maps codes to its own English and Russian sentences. Another user's workspace, document or chat session is answered with 404, never 403, so ids cannot be probed, and ownership is checked before anything is saved; only the caller's own hourly count of uploads or retries, or per-minute count of searches or chat messages, goes up before that check. A failed document's `error_code` comes from a closed set that a CHECK constraint enforces and the generated TypeScript types carry, so a code without a translation fails the frontend's type check.
 
-**Documents are untrusted input.** A file name never becomes part of a path. PDF decompression is capped at 8 MiB per stream, and the content that pages and the forms they draw decode to at 2 MiB per page and 32 MiB per document. Font maps and object streams fall outside those counts, so each worker process may address at most 768 MiB of memory: a file that needs more fails as unreadable (`pdf_unreadable`) rather than get the process killed and leave its document stuck in `processing`. The worker container may use at most 2 GiB in all. Every regular expression applied to document text stays linear on hostile input. Document text reaches a model only inside one delimited block of the user message, under a fixed system prompt that calls it data, with look-alike delimiters in the text replaced.
+**Documents are untrusted input.** A file name never becomes part of a path. PDF decompression is capped at 8 MiB per stream, and the content that pages and the forms they draw decode to at 2 MiB per page and 32 MiB per document. Font maps and object streams fall outside those counts, so each worker process may address at most 768 MiB of memory: a file that needs more fails as unreadable (`pdf_unreadable`) rather than get the process killed and leave its document stuck in `processing`. The worker container may use at most 2 GiB in all. Every regular expression applied to document text, prompts or model citations stays linear on hostile input. Document text reaches a model only inside delimited blocks of the user message, under a fixed system prompt that calls it data, with look-alike delimiters in the text replaced.
 
 ## Limitations
 
-- The offline analysis is heuristic: the title comes from the front matter, the first heading or first lines that stand alone like a title; the summary from the first sentences; the topics from the headings the text returns to and its repeated phrases, then from word frequencies; and the difficulty from a readability score. Code blocks, HTML blocks, tables, images and badges are left out. The offline embeddings compare words and their beginnings, not meaning, so search labels their matches "Similar words". Real models need an API key.
+- The offline analysis is heuristic: the title comes from the front matter, the first heading or first lines that stand alone like a title; the summary from the first sentences; the topics from the headings the text returns to and its repeated phrases, then from word frequencies; and the difficulty from a readability score. Code blocks, HTML blocks, tables, images and badges are left out. Offline chat (`mock-heuristic-v1`) is lexical and extractive, selecting matching sentences from retrieved passages rather than synthesising prose, and the offline embeddings compare words and their beginnings rather than meaning (so search labels their matches "Similar words"). Real models need an API key.
+- Chat retrieval has no cross-encoder reranking or calibrated relevance-floor tuning yet (planned alongside the evaluation harness, `make evaluate`); short follow-ups append the previous user turn rather than running a separate query-rewriting LLM call.
+- Chat replies arrive as one schema-validated JSON response rather than streaming token by token, so every citation is verified before the reply is persisted or shown.
 - There is no OCR: a scanned PDF without a text layer fails with `no_text`.
 - The interface is in English and Russian only.
 - It is a single-node setup: one Compose stack, with uploaded files on a local volume shared by the API and the worker, and no object storage or replicas. The per-IP rate limits assume a reverse proxy that sets `X-Forwarded-For` (see Authentication).
@@ -413,11 +463,10 @@ Screenshots will be added once the study features have their finished interface.
 
 ## Future Improvements
 
-- Chat that answers only from the retrieved passages, cites them and says when the material does not cover a question.
 - Quizzes generated as schema-validated JSON, with results, history and mistakes turned into flashcards.
 - Flashcards with spaced repetition (Again, Hard, Good, Easy) and export to Anki.
 - A dashboard with study time, accuracy, weak topics, upcoming repetitions and recommendations.
-- Evaluation with `make evaluate`.
+- Evaluation with `make evaluate`, followed by retrieval relevance tuning, optional reranking, multi-turn query rewriting and streaming chat replies.
 - Hardening and delivery: production images built in CI, dependency and secret scanning, end-to-end tests in CI, OCR for scanned PDFs.
 
 ## License
