@@ -17,6 +17,9 @@ from app.llm.base import (
     EMBEDDING_DIMENSIONS,
     AnalysisRequest,
     AnalysisResult,
+    ChatContextPassage,
+    ChatRequest,
+    ChatResult,
     EmbeddingProvider,
     LLMProvider,
     ProviderRequestError,
@@ -30,9 +33,10 @@ from app.llm.openai_provider import (
     OpenAILLMProvider,
     classify_openai_error,
 )
-from app.llm.prompts import DOCUMENT_CLOSE, build_analysis_messages
-from app.llm.schemas import DocumentAnalysis
+from app.llm.prompts import DOCUMENT_CLOSE, build_analysis_messages, chat_messages
+from app.llm.schemas import ChatAnswer, DocumentAnalysis
 from app.llm.structured import (
+    MIN_REPAIR_BUDGET_SECONDS,
     REPAIR_NOTE,
     REPAIR_PROBLEMS_MAX_CHARS,
     ChatOptions,
@@ -62,6 +66,25 @@ REQUEST: Final = AnalysisRequest(
     filename="lecture-3.pdf",
     outline="Normal forms",
     sample="Normalisation removes redundancy from a relational schema.",
+)
+VALID_CHAT_ANSWER: Final[dict[str, Any]] = {
+    "answer": "Review slows down forgetting [S1].",
+    "citations": ["S1"],
+    "insufficient_context": False,
+}
+INVALID_CHAT_JSON: Final[dict[str, Any]] = {"answer": "Missing fields only."}
+CHAT_REQUEST: Final = ChatRequest(
+    question="How does review affect forgetting?",
+    sources=(
+        ChatContextPassage(
+            label="S1",
+            document_title="forgetting-curve.md",
+            heading="Spaced repetition",
+            page_start=None,
+            page_end=None,
+            content="Each review makes the next loss slower than the one before.",
+        ),
+    ),
 )
 TEXTS: Final = ("first chunk", "second chunk")
 # Nested deeper than the JSON decoder's recursion limit.
@@ -117,11 +140,19 @@ def _analyze(client: OpenAI) -> object:
     return _llm(client).analyze_document(REQUEST)
 
 
+def _answer(client: OpenAI) -> object:
+    return _llm(client).answer_question(CHAT_REQUEST)
+
+
 def _embed(client: OpenAI) -> object:
     return _embedder(client).embed(TEXTS)
 
 
-OPERATIONS: Final = [pytest.param(_analyze, id="analyze"), pytest.param(_embed, id="embed")]
+OPERATIONS: Final = [
+    pytest.param(_analyze, id="analyze"),
+    pytest.param(_answer, id="chat"),
+    pytest.param(_embed, id="embed"),
+]
 
 
 def _chat(
@@ -768,3 +799,143 @@ def test_every_code_the_openai_providers_can_store_is_a_document_error_code() ->
         "embedding_dimension_mismatch",
     }
     assert codes <= set(DOCUMENT_ERROR_CODES)
+
+
+def test_chat_request_holds_the_model_to_the_strict_chat_answer_schema(
+    endpoint: FakeEndpoint,
+) -> None:
+    endpoint.answers.append(_chat(json.dumps(VALID_CHAT_ANSWER), usage=(200, 45)))
+
+    result = _llm(endpoint.client).answer_question(CHAT_REQUEST, timeout_budget_seconds=12.0)
+
+    [request] = endpoint.requests
+    assert request.method == "POST"
+    assert str(request.url) == f"{BASE_URL}/chat/completions"
+    timeout_ext = request.extensions.get("timeout")
+    assert isinstance(timeout_ext, dict)
+    assert 0.0 < timeout_ext["read"] <= 12.0
+    [body] = endpoint.bodies()
+    assert body.keys() == {"model", "messages", "response_format", "max_completion_tokens"}
+    assert body["model"] == CHAT_MODEL
+    assert body["max_completion_tokens"] == MAX_OUTPUT_TOKENS
+    assert body["messages"] == chat_messages(CHAT_REQUEST)
+    assert body["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "ChatAnswer",
+            "schema": ChatAnswer.model_json_schema(),
+            "strict": True,
+        },
+    }
+    assert body["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
+    assert result == ChatResult(
+        answer=ChatAnswer.model_validate(VALID_CHAT_ANSWER),
+        model=CHAT_MODEL,
+        prompt_tokens=200,
+        completion_tokens=45,
+    )
+
+
+def test_chat_json_object_mode_repairs_an_invalid_first_answer(endpoint: FakeEndpoint) -> None:
+    endpoint.answers += [
+        _chat(json.dumps(INVALID_CHAT_JSON), usage=(100, 15)),
+        _chat(json.dumps(VALID_CHAT_ANSWER), usage=(140, 30)),
+    ]
+
+    result = _llm(endpoint.client, mode="json_object").answer_question(
+        CHAT_REQUEST, timeout_budget_seconds=12.0
+    )
+
+    assert result == ChatResult(
+        answer=ChatAnswer.model_validate(VALID_CHAT_ANSWER),
+        model=CHAT_MODEL,
+        prompt_tokens=240,
+        completion_tokens=45,
+    )
+    assert [body["response_format"] for body in endpoint.bodies()] == [{"type": "json_object"}] * 2
+
+
+def test_chat_skips_repair_when_remaining_timeout_budget_is_below_minimum(
+    endpoint: FakeEndpoint,
+) -> None:
+    endpoint.answers += [
+        _chat(json.dumps(INVALID_CHAT_JSON), usage=(100, 10)),
+        _chat(json.dumps(VALID_CHAT_ANSWER), usage=(100, 10)),
+    ]
+
+    with pytest.raises(ProviderRequestError) as caught:
+        _llm(endpoint.client).answer_question(
+            CHAT_REQUEST, timeout_budget_seconds=MIN_REPAIR_BUDGET_SECONDS - 0.5
+        )
+
+    assert caught.value.code == "ai_invalid_output"
+    assert len(endpoint.requests) == 1
+
+
+@pytest.mark.parametrize("budget", [0.0, -2.5], ids=["zero", "negative"])
+def test_chat_with_exhausted_timeout_budget_fails_immediately_as_unavailable(
+    endpoint: FakeEndpoint, budget: float
+) -> None:
+    with pytest.raises(ProviderUnavailableError) as caught:
+        _llm(endpoint.client).answer_question(CHAT_REQUEST, timeout_budget_seconds=budget)
+
+    assert caught.value.code == "ai_unavailable"
+    assert caught.value.transient
+    assert endpoint.requests == []
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected"),
+    [
+        ({"prompt_tokens": True, "completion_tokens": False}, (0, 0)),
+        ({"prompt_tokens": -10, "completion_tokens": -1}, (0, 0)),
+        ({"prompt_tokens": True, "completion_tokens": 12}, (0, 12)),
+    ],
+    ids=["booleans", "negatives", "mixed-bool-and-int"],
+)
+def test_boolean_and_negative_token_counts_are_clamped_to_zero(
+    endpoint: FakeEndpoint, usage: dict[str, object], expected: tuple[int, int]
+) -> None:
+    body = _chat(json.dumps(VALID_CHAT_ANSWER)).json() | {"usage": usage}
+    endpoint.answers.append(httpx2.Response(200, json=body))
+
+    result = _llm(endpoint.client).answer_question(CHAT_REQUEST)
+
+    assert (result.prompt_tokens, result.completion_tokens) == expected
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        lambda _: _chat(None, refusal="Cannot answer."),
+        lambda _: _chat(None, finish_reason="content_filter"),
+        lambda _: _chat('{"answer": "Cut', finish_reason="length"),
+    ],
+    ids=["refusal", "content-filter", "length"],
+)
+def test_chat_refusal_and_length_truncation_map_to_invalid_output_without_repair(
+    endpoint: FakeEndpoint, answer: Handler
+) -> None:
+    endpoint.answers.append(answer)
+
+    with pytest.raises(ProviderRequestError) as caught:
+        _llm(endpoint.client).answer_question(CHAT_REQUEST)
+
+    assert caught.value.code == "ai_invalid_output"
+    assert not caught.value.transient
+    assert "document" not in caught.value.message
+    assert len(endpoint.requests) == 1
+
+
+def test_broken_chat_messages_raise_value_error_instead_of_invalid_output(
+    endpoint: FakeEndpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.llm.openai_provider.chat_messages",
+        lambda request: chat_messages(request)[:1],
+    )
+
+    with pytest.raises(ValueError, match="user"):
+        _llm(endpoint.client).answer_question(CHAT_REQUEST)
+
+    assert endpoint.requests == []

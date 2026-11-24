@@ -11,8 +11,11 @@ from app.core.logging import configure_logging
 from app.llm import factory
 from app.llm.base import EmbeddingProvider, LLMProvider
 from app.llm.factory import (
+    CHAT_LLM_MAX_RETRIES,
     CONNECT_TIMEOUT_SECONDS,
     ModelChoice,
+    build_chat_llm_provider,
+    build_chat_query_embedder,
     build_embedding_provider,
     build_llm_provider,
     build_query_embedder,
@@ -107,8 +110,10 @@ def test_building_the_offline_providers_creates_no_api_client(
     settings = _settings()
 
     build_llm_provider(settings)
+    build_chat_llm_provider(settings)
     build_embedding_provider(settings)
     build_query_embedder(settings)
+    build_chat_query_embedder(settings)
 
 
 def test_an_openai_key_selects_the_chat_model_with_explicit_limits() -> None:
@@ -427,3 +432,65 @@ def test_the_log_names_the_offline_analyser_next_to_a_live_embeddings_model(
     }
     for secret in (EMBEDDING_API_KEY, EMBEDDING_BASE_URL, "host.docker.internal"):
         assert secret not in output
+
+
+def test_chat_builders_stay_offline_without_keys() -> None:
+    settings = _settings()
+
+    assert isinstance(build_chat_llm_provider(settings), MockLLMProvider)
+    assert isinstance(build_chat_query_embedder(settings), HashingEmbeddingProvider)
+
+
+def test_build_chat_llm_provider_uses_chat_timeout_output_tokens_and_no_retries() -> None:
+    settings = _settings(
+        openai_api_key=SecretStr(CHAT_API_KEY),
+        llm_base_url=CHAT_BASE_URL,
+        llm_structured_output="json_object",
+        llm_max_retries=3,
+        chat_llm_timeout_seconds=18.0,
+        chat_max_output_tokens=1500,
+    )
+
+    provider = build_chat_llm_provider(settings)
+    assert isinstance(provider, OpenAILLMProvider)
+
+    assert provider.options == ChatOptions(
+        model=settings.llm_model,
+        structured_output="json_object",
+        max_output_tokens=1500,
+    )
+    assert _endpoint(provider.client) == (CHAT_API_KEY, CHAT_BASE_URL)
+    assert provider.client.timeout == Timeout(18.0, connect=CONNECT_TIMEOUT_SECONDS)
+    assert provider.client.max_retries == CHAT_LLM_MAX_RETRIES == 0
+    assert provider.client is not _chat_provider(settings).client
+
+
+def test_build_chat_query_embedder_uses_chat_embedding_timeout_and_no_retries() -> None:
+    settings = _settings(
+        openai_api_key=SecretStr(CHAT_API_KEY),
+        embedding_api_key=SecretStr(EMBEDDING_API_KEY),
+        embedding_base_url=EMBEDDING_BASE_URL,
+        llm_max_retries=2,
+        chat_embedding_timeout_seconds=5.0,
+    )
+
+    provider = build_chat_query_embedder(settings)
+    assert isinstance(provider, OpenAIEmbeddingProvider)
+
+    assert provider.model_name == settings.embedding_model
+    assert _endpoint(provider.client) == (EMBEDDING_API_KEY, EMBEDDING_BASE_URL)
+    assert provider.client.timeout == Timeout(5.0, connect=CONNECT_TIMEOUT_SECONDS)
+    assert provider.client.max_retries == 0
+    assert provider.client is not _query_embedder(settings).client
+
+
+def test_a_short_timeout_clamps_the_connect_timeout() -> None:
+    settings = _settings(
+        openai_api_key=SecretStr(CHAT_API_KEY),
+        chat_embedding_timeout_seconds=2.5,
+    )
+
+    provider = build_chat_query_embedder(settings)
+    assert isinstance(provider, OpenAIEmbeddingProvider)
+
+    assert provider.client.timeout == Timeout(2.5, connect=2.5)

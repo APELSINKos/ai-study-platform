@@ -36,6 +36,8 @@ from app.documents.validation import content_type_for
 from app.llm.base import (
     AnalysisRequest,
     AnalysisResult,
+    ChatRequest,
+    ChatResult,
     EmbeddingProvider,
     LLMProvider,
     ProviderRequestError,
@@ -166,6 +168,13 @@ class _FakeLLM:
         analysis = self._analysis or MockLLMProvider().analyze_document(request).analysis
         return AnalysisResult(
             analysis=analysis, model=self._model, prompt_tokens=120, completion_tokens=40
+        )
+
+    def answer_question(
+        self, request: ChatRequest, *, timeout_budget_seconds: float | None = None
+    ) -> ChatResult:
+        return MockLLMProvider().answer_question(
+            request, timeout_budget_seconds=timeout_budget_seconds
         )
 
 

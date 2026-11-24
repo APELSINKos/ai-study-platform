@@ -63,5 +63,5 @@ def test_a_search_gets_the_embeddings_model_with_the_search_limits() -> None:
 
     assert isinstance(provider, OpenAIEmbeddingProvider)
     assert provider.model_name == settings.embedding_model
-    assert provider.client.timeout == Timeout(4.0, connect=CONNECT_TIMEOUT_SECONDS)
+    assert provider.client.timeout == Timeout(4.0, connect=min(CONNECT_TIMEOUT_SECONDS, 4.0))
     assert provider.client.max_retries == 0

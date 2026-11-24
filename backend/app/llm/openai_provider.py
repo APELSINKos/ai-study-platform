@@ -20,12 +20,14 @@ from app.llm.base import (
     EMBEDDING_DIMENSIONS,
     AnalysisRequest,
     AnalysisResult,
+    ChatRequest,
+    ChatResult,
     ProviderError,
     ProviderRequestError,
     ProviderUnavailableError,
 )
-from app.llm.prompts import build_analysis_messages
-from app.llm.schemas import DocumentAnalysis
+from app.llm.prompts import build_analysis_messages, chat_messages
+from app.llm.schemas import ChatAnswer, DocumentAnalysis
 from app.llm.structured import ChatOptions, complete_structured, split_user_text
 
 # A 429 with one of these codes means a spent balance or budget, which waiting does not restore.
@@ -59,7 +61,7 @@ _INVALID_VECTOR_MESSAGE: Final = (
 
 @dataclass(frozen=True, slots=True)
 class OpenAILLMProvider:
-    """Analyses documents with a chat model held to the DocumentAnalysis schema."""
+    """Analyses documents and answers chat questions with a chat model held to strict schemas."""
 
     client: OpenAI
     options: ChatOptions
@@ -79,6 +81,27 @@ class OpenAILLMProvider:
         # recognises the analysis it saved.
         return AnalysisResult(
             analysis=output.value,
+            model=self.model_name,
+            prompt_tokens=output.prompt_tokens,
+            completion_tokens=output.completion_tokens,
+        )
+
+    def answer_question(
+        self, request: ChatRequest, *, timeout_budget_seconds: float | None = None
+    ) -> ChatResult:
+        # Split outside the block below, which takes any ValueError for an unreadable answer.
+        messages, user_text = split_user_text(chat_messages(request))
+        with _provider_errors():
+            output = complete_structured(
+                self.client,
+                self.options,
+                messages,
+                user_text,
+                ChatAnswer,
+                timeout_budget_seconds=timeout_budget_seconds,
+            )
+        return ChatResult(
+            answer=output.value,
             model=self.model_name,
             prompt_tokens=output.prompt_tokens,
             completion_tokens=output.completion_tokens,

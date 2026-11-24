@@ -20,6 +20,8 @@ from app.llm.base import (
     EMBEDDING_DIMENSIONS,
     AnalysisRequest,
     AnalysisResult,
+    ChatRequest,
+    ChatResult,
     EmbeddingProvider,
     ProviderUnavailableError,
 )
@@ -169,6 +171,13 @@ class _CountingLLM:
     def analyze_document(self, request: AnalysisRequest) -> AnalysisResult:
         self.calls += 1
         return MockLLMProvider().analyze_document(request)
+
+    def answer_question(
+        self, request: ChatRequest, *, timeout_budget_seconds: float | None = None
+    ) -> ChatResult:
+        return MockLLMProvider().answer_question(
+            request, timeout_budget_seconds=timeout_budget_seconds
+        )
 
 
 @dataclass

@@ -13,6 +13,8 @@ from app.core.logging import configure_logging
 from app.llm.base import (
     AnalysisRequest,
     AnalysisResult,
+    ChatRequest,
+    ChatResult,
     ProviderError,
     ProviderRequestError,
     ProviderUnavailableError,
@@ -82,6 +84,15 @@ class _ChatModel:
         if self._error is not None:
             raise self._error
         return MockLLMProvider().analyze_document(request)
+
+    def answer_question(
+        self, request: ChatRequest, *, timeout_budget_seconds: float | None = None
+    ) -> ChatResult:
+        if self._error is not None:
+            raise self._error
+        return MockLLMProvider().answer_question(
+            request, timeout_budget_seconds=timeout_budget_seconds
+        )
 
 
 def _offline() -> Settings:

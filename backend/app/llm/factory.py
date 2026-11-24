@@ -21,9 +21,10 @@ from app.llm.structured import ChatOptions
 logger = structlog.get_logger(__name__)
 
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
-# A search waits for its query's embedding, and a retry would wait for another timeout: the
-# web app's proxy gives up after 30 s.
+# A search or chat turn waits for its remote calls, and a retry would exceed the web app's
+# 30 s proxy limit.
 QUERY_EMBEDDING_MAX_RETRIES: Final = 0
+CHAT_LLM_MAX_RETRIES: Final = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,17 +56,22 @@ def selected_models(settings: Settings) -> ModelSelection:
 
 def build_llm_provider(settings: Settings) -> LLMProvider:
     """The chat model the settings select, or the offline heuristic analysis."""
-    _log_selection(settings)
-    endpoint = chat_endpoint(settings)
-    if endpoint is None:
-        return MockLLMProvider()
-    options = ChatOptions(
-        model=settings.llm_model,
-        structured_output=settings.llm_structured_output,
+    return _llm_provider(
+        settings,
+        timeout_seconds=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
         max_output_tokens=settings.llm_max_output_tokens,
     )
-    client = _client(endpoint, settings.llm_timeout_seconds, settings.llm_max_retries)
-    return OpenAILLMProvider(client=client, options=options)
+
+
+def build_chat_llm_provider(settings: Settings) -> LLMProvider:
+    """The chat model held to a chat turn's time and output limits, never retried."""
+    return _llm_provider(
+        settings,
+        timeout_seconds=settings.chat_llm_timeout_seconds,
+        max_retries=CHAT_LLM_MAX_RETRIES,
+        max_output_tokens=settings.chat_max_output_tokens,
+    )
 
 
 def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
@@ -86,6 +92,13 @@ def build_query_embedder(settings: Settings) -> EmbeddingProvider:
     )
 
 
+def build_chat_query_embedder(settings: Settings) -> EmbeddingProvider:
+    """The embeddings model held to a chat turn's shorter query-embedding timeout."""
+    return _embedding_provider(
+        settings, settings.chat_embedding_timeout_seconds, QUERY_EMBEDDING_MAX_RETRIES
+    )
+
+
 @lru_cache
 def get_openai_client(
     api_key: str, base_url: str, timeout_seconds: float, max_retries: int
@@ -100,7 +113,7 @@ def get_openai_client(
     client = OpenAI(
         api_key=api_key,
         base_url=base_url,
-        timeout=Timeout(timeout_seconds, connect=CONNECT_TIMEOUT_SECONDS),
+        timeout=Timeout(timeout_seconds, connect=min(CONNECT_TIMEOUT_SECONDS, timeout_seconds)),
         max_retries=max_retries,
     )
     # No argument keeps the SDK from filling these from OPENAI_ORG_ID, OPENAI_PROJECT_ID and
@@ -128,6 +141,22 @@ def embedding_endpoint(settings: Settings) -> ProviderEndpoint | None:
     if settings.resolved_embedding_provider == "mock":
         return None
     return settings.embedding_endpoint
+
+
+def _llm_provider(
+    settings: Settings, *, timeout_seconds: float, max_retries: int, max_output_tokens: int
+) -> LLMProvider:
+    _log_selection(settings)
+    endpoint = chat_endpoint(settings)
+    if endpoint is None:
+        return MockLLMProvider()
+    options = ChatOptions(
+        model=settings.llm_model,
+        structured_output=settings.llm_structured_output,
+        max_output_tokens=max_output_tokens,
+    )
+    client = _client(endpoint, timeout_seconds, max_retries)
+    return OpenAILLMProvider(client=client, options=options)
 
 
 def _embedding_provider(

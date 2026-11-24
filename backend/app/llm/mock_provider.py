@@ -29,8 +29,16 @@ from app.documents.text import (
     word_matches,
     words,
 )
-from app.llm.base import EMBEDDING_DIMENSIONS, AnalysisRequest, AnalysisResult, Difficulty
-from app.llm.schemas import TOPIC_MAX_LENGTH, DocumentAnalysis
+from app.llm.base import (
+    EMBEDDING_DIMENSIONS,
+    AnalysisRequest,
+    AnalysisResult,
+    ChatContextPassage,
+    ChatRequest,
+    ChatResult,
+    Difficulty,
+)
+from app.llm.schemas import TOPIC_MAX_LENGTH, ChatAnswer, DocumentAnalysis
 from app.models.document import TITLE_MAX_LENGTH
 
 MOCK_EMBEDDING_MODEL: Final = "mock-hashing-v1"
@@ -55,6 +63,155 @@ _STOPWORDS: Final = STOPWORDS_EN | STOPWORDS_RU
 # vectors were made of.
 _ALL_STOPWORDS: Final = _STOPWORDS | STOPWORDS_FR
 _TOPIC_STOPWORDS: Final = _ALL_STOPWORDS | NUMBER_WORDS
+# Chat-only filler and question words kept separate from document analysis and embeddings.
+_CHAT_STOPWORDS: Final = _STOPWORDS | frozenset(
+    {
+        "about",
+        "answer",
+        "briefly",
+        "can",
+        "could",
+        "define",
+        "describe",
+        "detail",
+        "details",
+        "difference",
+        "different",
+        "does",
+        "elaborate",
+        "example",
+        "examples",
+        "explain",
+        "give",
+        "help",
+        "how",
+        "important",
+        "know",
+        "list",
+        "main",
+        "make",
+        "makes",
+        "mean",
+        "means",
+        "more",
+        "please",
+        "provide",
+        "say",
+        "says",
+        "short",
+        "show",
+        "summarize",
+        "summary",
+        "tell",
+        "understand",
+        "use",
+        "used",
+        "using",
+        "what",
+        "when",
+        "where",
+        "which",
+        "why",
+        "work",
+        "works",
+        "более",
+        "бывает",
+        "бывают",
+        "вопрос",
+        "главное",
+        "говорится",
+        "давай",
+        "делает",
+        "делают",
+        "делать",
+        "еще",
+        "зачем",
+        "значит",
+        "именно",
+        "какая",
+        "какие",
+        "каким",
+        "каких",
+        "какого",
+        "какое",
+        "какой",
+        "какую",
+        "коротко",
+        "кратко",
+        "лучше",
+        "можно",
+        "надо",
+        "назови",
+        "например",
+        "нужна",
+        "нужно",
+        "нужны",
+        "объясни",
+        "объясните",
+        "означает",
+        "опиши",
+        "опишите",
+        "основные",
+        "ответь",
+        "подробнее",
+        "подробно",
+        "пожалуйста",
+        "покажи",
+        "почему",
+        "приведи",
+        "пример",
+        "примеры",
+        "просто",
+        "работает",
+        "работают",
+        "расскажи",
+        "расскажите",
+        "самое",
+        "скажи",
+        "скажите",
+        "сколько",
+        "стоит",
+        "суть",
+        "такая",
+        "такие",
+        "такое",
+        "такой",
+        "тема",
+        "тему",
+        "чем",
+        "что",
+    }
+)
+_CHAT_MIN_KEYWORD_CHARS: Final = 2
+_CHAT_MAX_QUERY_KEYWORDS: Final = 64
+_CHAT_MAX_FOLLOWUP_KEYWORDS: Final = 32
+_CHAT_FOLLOWUP_TRIGGER_KEYWORDS: Final = 2
+_CHAT_FOLLOWUP_WEIGHT: Final = 0.6
+_CHAT_EXACT_SCORE: Final = 2.0
+_CHAT_PREFIX5_SCORE: Final = 1.5
+_CHAT_PREFIX4_SCORE: Final = 1.2
+_CHAT_PREFIX5_LEN: Final = 5
+_CHAT_PREFIX4_LEN: Final = 4
+_CHAT_PREFIX4_MAX_MIN_LEN: Final = 6
+_CHAT_PREFIX4_MAX_LEN: Final = 7
+_CHAT_COVERAGE_MIN_QUERY_KEYWORDS: Final = 3
+_CHAT_COVERAGE_MIN_MATCHED: Final = 2
+_CHAT_EXACT_LONG_MIN_LEN: Final = 5
+_CHAT_HEADING_WEIGHT: Final = 0.35
+_CHAT_MAX_ANSWER_SENTENCES: Final = 3
+_CHAT_MAX_ANSWER_SOURCES: Final = 2
+_CHAT_SENTENCE_MAX_CHARS: Final = 600
+_EMBEDDED_SOURCE_MARKER_RE: Final = re.compile(
+    r"(?<![ \t])[ \t]++\[\s*+S\d{1,3}(?:\s*+[,;]\s*+S\d{1,3})*+\s*+\]"
+    r"|\[\s*+S\d{1,3}(?:\s*+[,;]\s*+S\d{1,3})*+\s*+\]",
+    re.IGNORECASE,
+)
+_CHAT_INSUFFICIENT_EN: Final = (
+    "The uploaded materials do not contain enough information to answer this question."
+)
+_CHAT_INSUFFICIENT_RU: Final = (
+    "В загруженных материалах недостаточно информации, чтобы ответить на этот вопрос."
+)
 # French articles and pronouns elided before a vowel: "l'algèbre", "d'une", "qu'il".
 _ELIDED_WORDS: Final = frozenset(
     {"c", "d", "j", "l", "m", "n", "s", "t", "qu", "jusqu", "lorsqu", "puisqu"}
@@ -105,6 +262,7 @@ _MARKUP_LINE_RE: Final = re.compile(r"[ \t]*+(?:<[A-Za-z/!]|\||\[[^\[\]]*+\]:)")
 _EXCERPT_SEPARATOR_LINE: Final = EXCERPT_SEPARATOR.strip()
 _TITLE_LINE_ENDINGS: Final = (".", "!", "?", "…", ":", ";", ",")
 _SENTENCE_END_CHARS: Final = ".!?…"
+_CLOSING_MARKS: Final = "\"'»”’)]"
 _OPENING_MARKS: Final = "\"'«“‘(["
 _LETTER_RE: Final = re.compile(r"[^\W\d_]")
 _ALNUM_RE: Final = re.compile(r"[^\W_]")
@@ -158,7 +316,7 @@ class HashingEmbeddingProvider:
 
 
 class MockLLMProvider:
-    """A title, summary, topics and difficulty taken from the text itself."""
+    """Offline heuristic document analysis and grounded extractive Q&A."""
 
     @property
     def model_name(self) -> str:
@@ -179,6 +337,15 @@ class MockLLMProvider:
         )
         return AnalysisResult(
             analysis=analysis, model=MOCK_ANALYSIS_MODEL, prompt_tokens=0, completion_tokens=0
+        )
+
+    def answer_question(
+        self, request: ChatRequest, *, timeout_budget_seconds: float | None = None
+    ) -> ChatResult:
+        _ = timeout_budget_seconds
+        answer = _answer_chat(request)
+        return ChatResult(
+            answer=answer, model=MOCK_ANALYSIS_MODEL, prompt_tokens=0, completion_tokens=0
         )
 
 
@@ -668,3 +835,263 @@ def _difficulty(sentences: list[str]) -> Difficulty:
     if reading_ease >= MEDIUM_MIN_READING_EASE:
         return "medium"
     return "hard"
+
+
+@dataclass(frozen=True, slots=True)
+class _QueryIndex:
+    weights: dict[str, float]
+    prefix5: dict[str, tuple[str, ...]]
+    prefix4_le6: dict[str, tuple[str, ...]]
+    prefix4_len7: dict[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class _TokenMatch:
+    matched: dict[str, float]
+    has_exact_long: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _CandidateSentence:
+    source_index: int
+    source_label: str
+    sentence_index: int
+    text: str
+    score: float
+    sentence_score: float
+    is_question: bool
+
+
+def _answer_chat(request: ChatRequest) -> ChatAnswer:
+    """Deterministic extractive grounded Q&A across retrieved passages."""
+    if not request.sources:
+        return _insufficient_chat_answer(request.question)
+    query = _build_query_index(request)
+    if query is None:
+        return _insufficient_chat_answer(request.question)
+    candidates: list[_CandidateSentence] = []
+    for source_index, source in enumerate(request.sources):
+        candidates.extend(_score_source(query, source_index, source))
+    picked = _select_candidates(candidates)
+    if not picked:
+        return _insufficient_chat_answer(request.question)
+    return _render_chat_answer(picked)
+
+
+def _insufficient_chat_answer(question: str) -> ChatAnswer:
+    message = _CHAT_INSUFFICIENT_RU if has_cyrillic(question) else _CHAT_INSUFFICIENT_EN
+    return ChatAnswer(answer=message, citations=[], insufficient_context=True)
+
+
+def _build_query_index(request: ChatRequest) -> _QueryIndex | None:
+    primary = _chat_keywords(request.question, limit=_CHAT_MAX_QUERY_KEYWORDS)
+    weights: dict[str, float] = dict.fromkeys(primary, 1.0)
+    if len(primary) < _CHAT_FOLLOWUP_TRIGGER_KEYWORDS:
+        for turn in reversed(request.history):
+            if turn.role != "user":
+                continue
+            prior = _chat_keywords(turn.content, limit=_CHAT_MAX_FOLLOWUP_KEYWORDS)
+            if prior:
+                for keyword in prior:
+                    weights.setdefault(keyword, _CHAT_FOLLOWUP_WEIGHT)
+                break
+    if not weights:
+        return None
+    prefix5: dict[str, list[str]] = {}
+    prefix4_le6: dict[str, list[str]] = {}
+    prefix4_len7: dict[str, list[str]] = {}
+    for keyword in weights:
+        length = len(keyword)
+        if length >= _CHAT_PREFIX5_LEN:
+            prefix5.setdefault(keyword[:_CHAT_PREFIX5_LEN], []).append(keyword)
+        if _CHAT_PREFIX4_LEN <= length <= _CHAT_PREFIX4_MAX_MIN_LEN:
+            prefix4_le6.setdefault(keyword[:_CHAT_PREFIX4_LEN], []).append(keyword)
+        elif length == _CHAT_PREFIX4_MAX_LEN:
+            prefix4_len7.setdefault(keyword[:_CHAT_PREFIX4_LEN], []).append(keyword)
+    return _QueryIndex(
+        weights=weights,
+        prefix5={key: tuple(values) for key, values in prefix5.items()},
+        prefix4_le6={key: tuple(values) for key, values in prefix4_le6.items()},
+        prefix4_len7={key: tuple(values) for key, values in prefix4_len7.items()},
+    )
+
+
+def _chat_keywords(text: str, *, limit: int) -> list[str]:
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for match in word_matches(_composed(text)):
+        word = match.group()
+        if len(word) > TOKEN_MAX_CHARS:
+            continue
+        folded = _fold(word)
+        if len(folded) < _CHAT_MIN_KEYWORD_CHARS or folded in _CHAT_STOPWORDS or folded in seen:
+            continue
+        seen.add(folded)
+        keywords.append(folded)
+        if len(keywords) == limit:
+            break
+    return keywords
+
+
+def _chat_token_set(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for match in word_matches(_composed(text)):
+        word = match.group()
+        if len(word) > TOKEN_MAX_CHARS:
+            continue
+        folded = _fold(word)
+        if len(folded) >= _CHAT_MIN_KEYWORD_CHARS and folded not in _CHAT_STOPWORDS:
+            tokens.add(folded)
+    return tokens
+
+
+def _match_tokens(query: _QueryIndex, tokens: set[str]) -> _TokenMatch:
+    matched: dict[str, float] = {}
+    has_exact_long = False
+    for token in tokens:
+        if token in query.weights:
+            matched[token] = _CHAT_EXACT_SCORE
+            if len(token) >= _CHAT_EXACT_LONG_MIN_LEN:
+                has_exact_long = True
+        length = len(token)
+        if length >= _CHAT_PREFIX5_LEN:
+            for keyword in query.prefix5.get(token[:_CHAT_PREFIX5_LEN], ()):
+                if matched.get(keyword, 0.0) < _CHAT_PREFIX5_SCORE:
+                    matched[keyword] = _CHAT_PREFIX5_SCORE
+        if _CHAT_PREFIX4_LEN <= length <= _CHAT_PREFIX4_MAX_MIN_LEN:
+            prefix = token[:_CHAT_PREFIX4_LEN]
+            for keyword in (
+                *query.prefix4_le6.get(prefix, ()),
+                *query.prefix4_len7.get(prefix, ()),
+            ):
+                if matched.get(keyword, 0.0) < _CHAT_PREFIX4_SCORE:
+                    matched[keyword] = _CHAT_PREFIX4_SCORE
+        elif length == _CHAT_PREFIX4_MAX_LEN:
+            for keyword in query.prefix4_le6.get(token[:_CHAT_PREFIX4_LEN], ()):
+                if matched.get(keyword, 0.0) < _CHAT_PREFIX4_SCORE:
+                    matched[keyword] = _CHAT_PREFIX4_SCORE
+    return _TokenMatch(matched=matched, has_exact_long=has_exact_long)
+
+
+def _score_source(
+    query: _QueryIndex, source_index: int, source: ChatContextPassage
+) -> list[_CandidateSentence]:
+    heading_match = _match_tokens(query, _chat_token_set(source.heading or ""))
+    heading_score = sum(
+        tier * query.weights[keyword] for keyword, tier in heading_match.matched.items()
+    )
+    heading_only_ok = len(heading_match.matched) >= min(
+        len(query.weights), _CHAT_COVERAGE_MIN_MATCHED
+    )
+    needs_coverage = len(query.weights) >= _CHAT_COVERAGE_MIN_QUERY_KEYWORDS
+    candidates: list[_CandidateSentence] = []
+    for sentence_index, sentence in enumerate(_source_sentences(source.content)):
+        sentence_match = _match_tokens(query, _chat_token_set(sentence))
+        sentence_score = sum(
+            tier * query.weights[keyword] for keyword, tier in sentence_match.matched.items()
+        )
+        if sentence_score == 0.0 and not heading_only_ok:
+            continue
+        combined_count = len(sentence_match.matched.keys() | heading_match.matched.keys())
+        has_exact_long = sentence_match.has_exact_long or (
+            sentence_score > 0.0 and heading_match.has_exact_long
+        )
+        if needs_coverage and combined_count < _CHAT_COVERAGE_MIN_MATCHED and not has_exact_long:
+            continue
+        total_score = sentence_score + _CHAT_HEADING_WEIGHT * heading_score
+        if total_score <= 0.0:
+            continue
+        candidates.append(
+            _CandidateSentence(
+                source_index=source_index,
+                source_label=source.label,
+                sentence_index=sentence_index,
+                text=sentence,
+                score=total_score,
+                sentence_score=sentence_score,
+                is_question=sentence.endswith("?"),
+            )
+        )
+    return candidates
+
+
+def _source_sentences(content: str) -> list[str]:
+    sentences: list[str] = []
+    in_code_block = False
+    for raw_line in content.splitlines():
+        if _is_code_fence(raw_line):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block or _MARKUP_LINE_RE.match(raw_line):
+            continue
+        if _heading_text(raw_line) is not None:
+            continue
+        cleaned, _ = _body_text(raw_line)
+        cleaned = " ".join(_EMBEDDED_SOURCE_MARKER_RE.sub("", cleaned).split())
+        if not cleaned or _ALNUM_RE.search(cleaned) is None:
+            continue
+        if (
+            len(cleaned) <= TITLE_LINE_MAX_CHARS
+            and cleaned.rstrip(_CLOSING_MARKS)[-1:] not in _SENTENCE_END_CHARS
+        ):
+            continue
+        for sentence in split_sentences(cleaned):
+            stripped = sentence.strip()
+            if stripped and _ALNUM_RE.search(stripped) is not None:
+                sentences.append(stripped)
+    return sentences
+
+
+def _select_candidates(candidates: Sequence[_CandidateSentence]) -> list[_CandidateSentence]:
+    if not candidates:
+        return []
+    direct = [item for item in candidates if item.sentence_score > 0.0]
+    pool = direct if direct else list(candidates)
+    declarative = [item for item in pool if not item.is_question]
+    ranked = sorted(
+        declarative if declarative else pool,
+        key=lambda item: (
+            -item.score,
+            -item.sentence_score,
+            item.source_index,
+            item.sentence_index,
+        ),
+    )
+    picked: list[_CandidateSentence] = []
+    seen_text: set[str] = set()
+    chosen_sources: set[str] = set()
+    for item in ranked:
+        key = _fold(shorten(item.text, _CHAT_SENTENCE_MAX_CHARS))
+        if key in seen_text:
+            continue
+        if (
+            item.source_label not in chosen_sources
+            and len(chosen_sources) >= _CHAT_MAX_ANSWER_SOURCES
+        ):
+            continue
+        seen_text.add(key)
+        chosen_sources.add(item.source_label)
+        picked.append(item)
+        if len(picked) == _CHAT_MAX_ANSWER_SENTENCES:
+            break
+    return picked
+
+
+def _render_chat_answer(picked: Sequence[_CandidateSentence]) -> ChatAnswer:
+    source_order: list[str] = []
+    by_source: dict[str, list[_CandidateSentence]] = {}
+    for item in picked:
+        if item.source_label not in by_source:
+            source_order.append(item.source_label)
+            by_source[item.source_label] = []
+        by_source[item.source_label].append(item)
+    parts: list[str] = []
+    for label in source_order:
+        ordered = sorted(by_source[label], key=lambda item: item.sentence_index)
+        text = " ".join(_finished(shorten(item.text, _CHAT_SENTENCE_MAX_CHARS)) for item in ordered)
+        parts.append(f"{text} [{label}]")
+    return ChatAnswer(
+        answer=" ".join(parts),
+        citations=source_order,
+        insufficient_context=False,
+    )

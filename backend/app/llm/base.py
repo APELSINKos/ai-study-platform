@@ -96,12 +96,16 @@ class ChatResult:
 
 
 class LLMProvider(Protocol):
-    """Analyses documents; raises ProviderError when it cannot."""
+    """Analyses documents and answers chat questions; raises ProviderError when it cannot."""
 
     @property
     def model_name(self) -> str: ...
 
     def analyze_document(self, request: AnalysisRequest) -> AnalysisResult: ...
+
+    def answer_question(
+        self, request: ChatRequest, *, timeout_budget_seconds: float | None = None
+    ) -> ChatResult: ...
 
 
 class EmbeddingProvider(Protocol):
