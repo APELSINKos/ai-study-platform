@@ -151,7 +151,9 @@ describe("DocumentView", () => {
     renderView();
 
     await screen.findByRole("heading", { level: 1, name: "Normal forms" });
-    expect(apiFetchMock).toHaveBeenCalledWith(DOCUMENT_PATH);
+    expect(apiFetchMock).toHaveBeenCalledWith(DOCUMENT_PATH, {
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it("keeps an odd id inside its own path segment", async () => {
@@ -161,7 +163,9 @@ describe("DocumentView", () => {
     renderView("../auth/me");
 
     await screen.findByRole("heading", { level: 1, name: "Document not found" });
-    expect(apiFetchMock).toHaveBeenCalledWith("/documents/..%2Fauth%2Fme");
+    expect(apiFetchMock).toHaveBeenCalledWith("/documents/..%2Fauth%2Fme", {
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it("shows the title in the display serif, with the file it came from", async () => {
@@ -745,7 +749,9 @@ describe("DocumentView while the document is processed", () => {
 
   /** How many times the page has asked for the document, apart from deleting it. */
   function documentLoads(): number {
-    return apiFetchMock.mock.calls.filter(([path, init]) => isDocumentPath(path) && !init).length;
+    return apiFetchMock.mock.calls.filter(
+      ([path, init]) => isDocumentPath(path) && init?.method === undefined,
+    ).length;
   }
 
   /**
@@ -765,7 +771,7 @@ describe("DocumentView while the document is processed", () => {
     });
     const served = apiFetchMock.getMockImplementation();
     apiFetchMock.mockImplementation((path, init) =>
-      deleted && isDocumentPath(path) && !init
+      deleted && isDocumentPath(path) && init?.method === undefined
         ? Promise.reject(new ApiError({ status: 404, code: "document_not_found", message: "x" }))
         : (served?.(path, init) ?? Promise.resolve(undefined)),
     );

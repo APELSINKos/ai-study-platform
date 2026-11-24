@@ -25,6 +25,10 @@ interface CitationPopoverProps {
  */
 export function CitationPopover({ citation, variant = "inline", className }: CitationPopoverProps) {
   const t = useTranslations("Chat.citation");
+  const citationLabel = t("citationLabel", {
+    index: citation.index,
+    title: citation.document_title,
+  });
   const heading = headingBelowTitle(citation);
   const pages = pageRange(citation, {
     page: (page) => t("page", { page }),
@@ -37,10 +41,7 @@ export function CitationPopover({ citation, variant = "inline", className }: Cit
         {variant === "inline" ? (
           <button
             type="button"
-            aria-label={t("citationLabel", {
-              index: citation.index,
-              title: citation.document_title,
-            })}
+            aria-label={citationLabel}
             className={cn(
               "focus-visible:outline-pen inline-flex size-6 cursor-pointer items-center justify-center rounded-full align-middle focus-visible:outline-2 focus-visible:outline-offset-2 motion-safe:transition-transform motion-safe:hover:scale-105",
               className,
@@ -51,10 +52,7 @@ export function CitationPopover({ citation, variant = "inline", className }: Cit
         ) : (
           <button
             type="button"
-            aria-label={t("citationLabel", {
-              index: citation.index,
-              title: citation.document_title,
-            })}
+            aria-label={citationLabel}
             className={cn(
               "border-rule-strong bg-sheet text-ink hover:bg-paper focus-visible:outline-pen rounded-control inline-flex max-w-full cursor-pointer items-center gap-2 border px-2.5 py-1 text-left text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2",
               className,
@@ -67,6 +65,7 @@ export function CitationPopover({ citation, variant = "inline", className }: Cit
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
+          aria-label={citationLabel}
           sideOffset={8}
           collisionPadding={16}
           className="index-card z-30 w-[min(22rem,calc(100vw-2rem))] overflow-hidden p-0 focus:outline-none"

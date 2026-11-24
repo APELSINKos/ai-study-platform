@@ -29,6 +29,8 @@ export const queryKeys = {
   chatSessionLists: ["chat", "sessions"] as const,
   /** Infinite, `CHAT_SESSION_LIST_PAGE_SIZE` per page. */
   chatSessions: (workspaceId: string | null) => ["chat", "sessions", workspaceId ?? "all"] as const,
+  /** Every cached chat session detail query. */
+  chatSessionDetails: ["chat", "detail"] as const,
   /** A plain query: one chat session with all of its messages. */
   chatSession: (id: string) => ["chat", "detail", id] as const,
   /** Mutation key for sending a message in one session, read via `useMutationState`. */

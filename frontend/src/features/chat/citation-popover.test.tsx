@@ -26,7 +26,9 @@ describe("CitationPopover", () => {
     trigger.focus();
     await userEvent.keyboard("{Enter}");
 
-    expect(await screen.findByText("Each review makes the next loss slower.")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Source 1: Lecture 6" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("Each review makes the next loss slower.")).toBeInTheDocument();
     expect(screen.getByText("Spaced repetition")).toBeInTheDocument();
     expect(screen.getByText("Pages 4–5")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("·");
@@ -78,7 +80,8 @@ describe("CitationPopover", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Источник 1: Лекция 6" }));
 
-    expect(await screen.findByText("Каждое повторение замедляет забывание.")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Источник 1: Лекция 6" })).toBeInTheDocument();
+    expect(screen.getByText("Каждое повторение замедляет забывание.")).toBeInTheDocument();
     expect(screen.getByText("Страница 3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Открыть фрагмент" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Закрыть фрагмент" })).toBeInTheDocument();

@@ -19,6 +19,7 @@ const DEFAULT_MAX_SCOPE_DOCUMENTS = 50;
 interface NewChatFormProps {
   workspaces: WorkspaceOut[];
   initialWorkspaceId: string | null;
+  autoFocus?: boolean;
   onCancel?: () => void;
   className?: string;
 }
@@ -30,6 +31,7 @@ interface NewChatFormProps {
 export function NewChatForm({
   workspaces,
   initialWorkspaceId,
+  autoFocus = false,
   onCancel,
   className,
 }: NewChatFormProps) {
@@ -119,6 +121,7 @@ export function NewChatForm({
           <select
             value={selectedWorkspaceId}
             onChange={(event) => handleWorkspaceChange(event.target.value)}
+            autoFocus={autoFocus}
             className="border-rule-strong bg-sheet text-ink focus-visible:outline-pen rounded-control h-10 w-full border px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2"
           >
             {workspaces.map((workspace) => (

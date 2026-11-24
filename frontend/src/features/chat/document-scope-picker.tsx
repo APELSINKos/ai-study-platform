@@ -35,6 +35,7 @@ interface DocumentScopePickerProps {
   selectedIds: readonly string[];
   onSelectedIdsChange: (nextIds: string[]) => void;
   maxScopeDocuments: number;
+  autoFocus?: boolean;
   validationError?: string | null;
   className?: string;
 }
@@ -50,6 +51,7 @@ export function DocumentScopePicker({
   selectedIds,
   onSelectedIdsChange,
   maxScopeDocuments,
+  autoFocus = false,
   validationError = null,
   className,
 }: DocumentScopePickerProps) {
@@ -89,6 +91,7 @@ export function DocumentScopePicker({
             type="radio"
             name={radioName}
             checked={scopeMode === "all"}
+            autoFocus={autoFocus && scopeMode === "all"}
             onChange={() => onScopeModeChange("all")}
             className="accent-pen focus-visible:outline-pen size-4 focus-visible:outline-2 focus-visible:outline-offset-2"
           />
@@ -99,6 +102,7 @@ export function DocumentScopePicker({
             type="radio"
             name={radioName}
             checked={scopeMode === "selected"}
+            autoFocus={autoFocus && scopeMode === "selected"}
             onChange={() => onScopeModeChange("selected")}
             className="accent-pen focus-visible:outline-pen size-4 focus-visible:outline-2 focus-visible:outline-offset-2"
           />
@@ -106,7 +110,10 @@ export function DocumentScopePicker({
         </label>
       </div>
 
-      {scopeMode === "all" && documents.data !== undefined && readyDocs.length === 0 ? (
+      {scopeMode === "all" &&
+      documents.data !== undefined &&
+      readyDocs.length === 0 &&
+      !documents.hasNextPage ? (
         <p className="text-ink-soft text-xs">{t("scopeEmpty")}</p>
       ) : null}
 
@@ -130,42 +137,46 @@ export function DocumentScopePicker({
                 {t("documentsRetry")}
               </Button>
             </div>
-          ) : readyDocs.length === 0 ? (
-            <p className="text-ink-soft text-sm">{t("scopeNoReadyForSelection")}</p>
           ) : (
             <>
-              <div className="text-ink-soft flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
-                <span>{t("scopeSelectedCount", { count: effectiveSelectedIds.length })}</span>
-                <span>{t("scopeLimitHint", { max: maxScopeDocuments })}</span>
-              </div>
-              <ul className="divide-rule max-h-56 divide-y overflow-y-auto pr-1">
-                {readyDocs.map((doc) => {
-                  const isChecked = selectedSet.has(doc.id);
-                  const isDisabled = !isChecked && atLimit;
-                  const label = doc.title ?? doc.original_filename;
-                  return (
-                    <li key={doc.id} className="py-2 first:pt-0 last:pb-0">
-                      <label
-                        className={cn(
-                          "flex items-start gap-2.5 text-sm",
-                          isDisabled
-                            ? "text-ink-soft cursor-not-allowed"
-                            : "text-ink cursor-pointer",
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={isDisabled}
-                          onChange={(event) => toggleDocument(doc.id, event.target.checked)}
-                          className="accent-pen focus-visible:outline-pen mt-0.5 size-4 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2"
-                        />
-                        <span className="min-w-0 break-words">{label}</span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
+              {readyDocs.length === 0 ? (
+                <p className="text-ink-soft text-sm">{t("scopeNoReadyForSelection")}</p>
+              ) : (
+                <>
+                  <div className="text-ink-soft flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
+                    <span>{t("scopeSelectedCount", { count: effectiveSelectedIds.length })}</span>
+                    <span>{t("scopeLimitHint", { max: maxScopeDocuments })}</span>
+                  </div>
+                  <ul className="divide-rule max-h-56 divide-y overflow-y-auto pr-1">
+                    {readyDocs.map((doc) => {
+                      const isChecked = selectedSet.has(doc.id);
+                      const isDisabled = !isChecked && atLimit;
+                      const label = doc.title ?? doc.original_filename;
+                      return (
+                        <li key={doc.id} className="py-2 first:pt-0 last:pb-0">
+                          <label
+                            className={cn(
+                              "flex items-start gap-2.5 text-sm",
+                              isDisabled
+                                ? "text-ink-soft cursor-not-allowed"
+                                : "text-ink cursor-pointer",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isDisabled}
+                              onChange={(event) => toggleDocument(doc.id, event.target.checked)}
+                              className="accent-pen focus-visible:outline-pen mt-0.5 size-4 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2"
+                            />
+                            <span className="min-w-0 break-words">{label}</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
               {documents.hasNextPage ? (
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <Button

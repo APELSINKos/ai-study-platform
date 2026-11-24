@@ -132,7 +132,9 @@ describe("DocumentList", () => {
     renderList();
 
     await screen.findByRole("link", { name: "Reaction mechanisms" });
-    expect(apiFetchMock).toHaveBeenCalledWith(FIRST_PAGE_PATH);
+    expect(apiFetchMock).toHaveBeenCalledWith(FIRST_PAGE_PATH, {
+      signal: expect.any(AbortSignal),
+    });
     expect(rowNames()).toEqual(["Reaction mechanisms", "lecture-2.pdf"]);
   });
 
@@ -240,7 +242,9 @@ describe("DocumentList", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
 
     const added = await screen.findByRole("link", { name: "Lecture 51" });
-    expect(apiFetchMock).toHaveBeenLastCalledWith(SECOND_PAGE_PATH);
+    expect(apiFetchMock).toHaveBeenLastCalledWith(SECOND_PAGE_PATH, {
+      signal: expect.any(AbortSignal),
+    });
     expect(rowNames()).toHaveLength(51);
     await waitFor(() => expect(added).toHaveFocus());
     expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();

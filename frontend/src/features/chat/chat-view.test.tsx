@@ -271,9 +271,10 @@ describe("ChatView", () => {
       expect(list.textContent).not.toContain("·");
       expect(primaryActions()).toEqual(["New chat"]);
 
-      // Opening New chat switches the sole primary action to Start chat.
+      // Opening New chat switches the sole primary action to Start chat and focuses Workspace.
       await userEvent.click(screen.getByRole("button", { name: "New chat" }));
       expect(primaryActions()).toEqual(["Start chat"]);
+      expect(screen.getByLabelText("Workspace")).toHaveFocus();
 
       // Closing returns focus to New chat.
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -387,6 +388,55 @@ describe("ChatView", () => {
       expect(within(list).getAllByRole("listitem")).toHaveLength(3);
       expect(within(list).getAllByRole("link", { name: "Alkenes review" })).toHaveLength(1);
     });
+
+    it("loads initialWorkspaceId via useWorkspace fallback when absent from page 1 of workspaces", async () => {
+      const workspacePage2 = workspaceFixture(25, {
+        name: "Linear algebra",
+        stats: { document_count: 1, ready_count: 1 },
+      });
+      serveChat({ workspaces: [WORKSPACE_A], sessions: [SESSION_1] });
+      const baseImpl = apiFetchMock.getMockImplementation();
+      apiFetchMock.mockImplementation((path, init) => {
+        if (path === `/workspaces/${workspacePage2.id}`) {
+          return Promise.resolve(workspacePage2);
+        }
+        return baseImpl ? baseImpl(path, init) : Promise.reject(new Error("no impl"));
+      });
+
+      renderChat({ initialWorkspaceId: workspacePage2.id });
+
+      const select = await screen.findByLabelText("Workspace");
+      expect(select).toHaveValue(workspacePage2.id);
+      expect(within(select).getByRole("option", { name: "Linear algebra" })).toBeInTheDocument();
+      expect(apiFetchMock).toHaveBeenCalledWith(`/workspaces/${workspacePage2.id}`);
+    });
+
+    it("reconciles filterWorkspaceId back to All when the filtered workspace is removed", async () => {
+      let currentWorkspaces = [WORKSPACE_A, WORKSPACE_B];
+      serveChat({ workspaces: currentWorkspaces, sessions: [SESSION_1, SESSION_2] });
+      const baseImpl = apiFetchMock.getMockImplementation();
+      apiFetchMock.mockImplementation((path, init) => {
+        if (path.startsWith("/workspaces?")) {
+          return Promise.resolve(workspacePageFixture(currentWorkspaces));
+        }
+        return baseImpl ? baseImpl(path, init) : Promise.reject(new Error("no impl"));
+      });
+
+      const { queryClient } = renderChat();
+      await screen.findByRole("list", { name: "Chat sessions" });
+
+      await userEvent.selectOptions(screen.getByLabelText("Filter by workspace"), WORKSPACE_B.id);
+      await waitFor(() =>
+        expect(screen.queryByRole("link", { name: "Ebbinghaus study" })).not.toBeInTheDocument(),
+      );
+
+      // Workspace B disappears from the list: filter reconciles to All without staying stuck.
+      currentWorkspaces = [WORKSPACE_A];
+      await act(() => queryClient.refetchQueries({ queryKey: queryKeys.workspaceList }));
+
+      expect(await screen.findByRole("link", { name: "Ebbinghaus study" })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Filter by workspace")).not.toBeInTheDocument();
+    });
   });
 
   describe("active session mode", () => {
@@ -487,6 +537,7 @@ describe("ChatView", () => {
 
       await screen.findByRole("heading", { level: 1, name: "Scoped session" });
       await userEvent.click(screen.getByRole("button", { name: "Scope" }));
+      expect(screen.getByRole("radio", { name: "Selected documents" })).toHaveFocus();
       expect(screen.getByRole("button", { name: "Save" }).dataset.variant).toBe("secondary");
       expect(primaryActions()).toEqual(["Send"]);
 
@@ -801,6 +852,162 @@ describe("ChatView", () => {
         "href",
         `/documents/${DOC_2.id}?fragment=9`,
       );
+    });
+
+    it("blocks Scope Editor save when documents fail to load instead of wiping document_ids to null", async () => {
+      const scopedSession = chatSessionDetailFixture(8, {
+        workspace_id: WORKSPACE_A.id,
+        workspace_name: WORKSPACE_A.name,
+        title: "Protected scope",
+        document_ids: [DOC_1.id],
+        messages: [],
+      });
+      let failDocuments = true;
+      serveChat({ sessions: [scopedSession] });
+      const baseImpl = apiFetchMock.getMockImplementation();
+      apiFetchMock.mockImplementation((path, init) => {
+        if (path.startsWith(`/workspaces/${WORKSPACE_A.id}/documents?`) && failDocuments) {
+          return Promise.reject(
+            new ApiError({ status: 500, code: "internal_error", message: "DB unavailable" }),
+          );
+        }
+        return baseImpl ? baseImpl(path, init) : Promise.reject(new Error("no impl"));
+      });
+
+      renderChat({ sessionParam: { kind: "valid", id: scopedSession.id } });
+      await screen.findByRole("heading", { level: 1, name: "Protected scope" });
+      await userEvent.click(screen.getByRole("button", { name: "Scope" }));
+
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      const saveButton = screen.getByRole("button", { name: "Save" });
+      expect(saveButton).toBeDisabled();
+
+      // Even a direct form submit cannot bypass the guard and send document_ids: null.
+      const scopeForm = saveButton.closest("form");
+      expect(scopeForm).not.toBeNull();
+      fireEvent.submit(scopeForm!);
+
+      const patchCalls = apiFetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+      expect(patchCalls).toHaveLength(0);
+
+      // Once documents succeed on retry, saving selected scope works again.
+      failDocuments = false;
+      await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+      expect(await screen.findByRole("checkbox", { name: "Forgetting curve" })).toBeInTheDocument();
+      expect(saveButton).not.toBeDisabled();
+    });
+
+    it("keeps per-session send errors across session switches and clears them on draft edit", async () => {
+      const failingTurn = Promise.withResolvers<ReturnType<typeof chatTurnFixture>>();
+      serveChat({ sessions: [SESSION_1, SESSION_2] });
+      const baseImpl = apiFetchMock.getMockImplementation();
+      apiFetchMock.mockImplementation((path, init) => {
+        if (path === `/chat/sessions/${SESSION_1.id}/messages` && init?.method === "POST") {
+          return failingTurn.promise;
+        }
+        return baseImpl ? baseImpl(path, init) : Promise.reject(new Error("no impl"));
+      });
+
+      const { navigate } = renderChat({ sessionParam: { kind: "valid", id: SESSION_1.id } });
+      await screen.findByRole("heading", { level: 1, name: "Ebbinghaus study" });
+
+      await userEvent.type(screen.getByLabelText("Your question"), "Question that fails away");
+      await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+      // Switch to S2 before S1's request fails.
+      navigate({ kind: "valid", id: SESSION_2.id });
+      await screen.findByRole("heading", { level: 1, name: "Alkenes review" });
+
+      await act(async () => {
+        failingTurn.reject(
+          new ApiError({
+            status: 503,
+            code: "chat_unavailable",
+            message: "Upstream error",
+            retryAfterSeconds: 20,
+          }),
+        );
+        await failingTurn.promise.catch(() => {});
+      });
+
+      // S2 must not show S1's error alert.
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      // Returning to S1 shows both the restored draft and the lifted error alert.
+      navigate({ kind: "valid", id: SESSION_1.id });
+      await screen.findByRole("heading", { level: 1, name: "Ebbinghaus study" });
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "The AI chat service is temporarily unavailable. Try again in 20 seconds.",
+      );
+      expect(screen.getByLabelText("Your question")).toHaveValue("Question that fails away");
+
+      // Editing the draft clears the lifted error.
+      await userEvent.type(screen.getByLabelText("Your question"), "?");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("suppresses 404 session refetch when deleting the active session from the Sessions drawer", async () => {
+      serveChat({ sessions: [SESSION_1, SESSION_2] });
+      renderChat({ sessionParam: { kind: "valid", id: SESSION_1.id } });
+
+      await screen.findByRole("heading", { level: 1, name: "Ebbinghaus study" });
+      const getCountBeforeDelete = apiFetchMock.mock.calls.filter(
+        ([path, init]) => path === `/chat/sessions/${SESSION_1.id}` && init?.method === undefined,
+      ).length;
+
+      await userEvent.click(screen.getByRole("button", { name: "Sessions" }));
+      const drawer = await screen.findByRole("dialog", { name: "Chat sessions" });
+      await userEvent.click(
+        within(drawer).getByRole("button", { name: "Delete Ebbinghaus study" }),
+      );
+      const alert = await screen.findByRole("alertdialog", { name: "Delete this chat?" });
+      await userEvent.click(within(alert).getByRole("button", { name: "Delete chat" }));
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/chat"));
+
+      const getCountAfterDelete = apiFetchMock.mock.calls.filter(
+        ([path, init]) => path === `/chat/sessions/${SESSION_1.id}` && init?.method === undefined,
+      ).length;
+      expect(getCountAfterDelete).toBe(getCountBeforeDelete);
+      expect(screen.queryByRole("heading", { name: "Chat not found" })).not.toBeInTheDocument();
+    });
+
+    it("resets deleting state if deleting the active session from the Sessions drawer fails", async () => {
+      serveChat({ sessions: [SESSION_1, SESSION_2] });
+      const baseImpl = apiFetchMock.getMockImplementation();
+      apiFetchMock.mockImplementation((path, init) => {
+        if (path === `/chat/sessions/${SESSION_1.id}` && init?.method === "DELETE") {
+          return Promise.reject(
+            new ApiError({ status: 500, code: "internal_error", message: "Delete failed" }),
+          );
+        }
+        return baseImpl ? baseImpl(path, init) : Promise.reject(new Error("no impl"));
+      });
+      renderChat({ sessionParam: { kind: "valid", id: SESSION_1.id } });
+
+      await screen.findByRole("heading", { level: 1, name: "Ebbinghaus study" });
+      await userEvent.click(screen.getByRole("button", { name: "Sessions" }));
+      const drawer = await screen.findByRole("dialog", { name: "Chat sessions" });
+      await userEvent.click(
+        within(drawer).getByRole("button", { name: "Delete Ebbinghaus study" }),
+      );
+      const alert = await screen.findByRole("alertdialog", { name: "Delete this chat?" });
+      await userEvent.click(within(alert).getByRole("button", { name: "Delete chat" }));
+
+      expect(await within(alert).findByRole("alert")).toHaveTextContent(
+        "The chat could not be deleted. Try again.",
+      );
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it("focuses the checked radio input when opening Scope on an all-documents session", async () => {
+      serveChat({ sessions: [SESSION_1] });
+      renderChat({ sessionParam: { kind: "valid", id: SESSION_1.id } });
+
+      await screen.findByRole("heading", { level: 1, name: "Ebbinghaus study" });
+      await userEvent.click(screen.getByRole("button", { name: "Scope" }));
+
+      expect(screen.getByRole("radio", { name: "All ready documents" })).toHaveFocus();
     });
   });
 });

@@ -71,6 +71,16 @@ function isSettledStatus(status: DocumentOut["status"]): boolean {
   return status === "ready" || status === "failed";
 }
 
+function invalidateWorkspaceStats(queryClient: QueryClient, workspaceId: string): void {
+  // Refresh workspace stats (e.g. ready_count for "Ask in chat") without re-fetching documents.
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.workspace(workspaceId),
+    exact: true,
+  });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceList });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.recentWorkspaces });
+}
+
 function hasSettledStatusChange(
   previousItems: readonly DocumentOut[],
   nextItems: readonly DocumentOut[],
@@ -91,26 +101,22 @@ export function useWorkspaceDocuments(workspaceId: string) {
   const queryClient = useQueryClient();
   return useInfiniteQuery({
     queryKey: queryKeys.workspaceDocuments(workspaceId),
-    queryFn: async ({ pageParam }) => {
-      const previousPage = queryClient.getQueryData<DocumentPages>(
+    queryFn: async ({ pageParam, signal }) => {
+      const previousData = queryClient.getQueryData<DocumentPages>(
         queryKeys.workspaceDocuments(workspaceId),
-      )?.pages[pageParam - 1];
+      );
       const nextPage = await fetchDocumentPage(
         workspaceId,
         pageParam,
         WORKSPACE_DOCUMENTS_PAGE_SIZE,
+        signal,
       );
       if (
-        previousPage !== undefined &&
-        hasSettledStatusChange(previousPage.items, nextPage.items, pageParam === FIRST_PAGE)
+        !signal.aborted &&
+        previousData?.pages[pageParam - 1] !== undefined &&
+        hasSettledStatusChange(allDocuments(previousData), nextPage.items, pageParam === FIRST_PAGE)
       ) {
-        // Refresh workspace stats (e.g. ready_count for "Ask in chat") without re-fetching documents.
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.workspace(workspaceId),
-          exact: true,
-        });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceList });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.recentWorkspaces });
+        invalidateWorkspaceStats(queryClient, workspaceId);
       }
       return nextPage;
     },
@@ -128,11 +134,25 @@ interface DocumentQueryOptions {
 
 /** One document for its own page, asked for again on the same rule as the lists. */
 export function useDocument(id: string, { enabled = true }: DocumentQueryOptions = {}) {
+  const queryClient = useQueryClient();
+  const normalizedId = id.toLowerCase();
   return useQuery({
     // An address may spell the id in capitals; the list, the retry and the delete use the API's
     // lowercase spelling, and all of them must reach the same cache entry.
-    queryKey: queryKeys.document(id.toLowerCase()),
-    queryFn: () => fetchDocument(id),
+    queryKey: queryKeys.document(normalizedId),
+    queryFn: async ({ signal }) => {
+      const previous = queryClient.getQueryData<DocumentOut>(queryKeys.document(normalizedId));
+      const next = await fetchDocument(id, signal);
+      if (
+        !signal.aborted &&
+        previous !== undefined &&
+        !isSettledStatus(previous.status) &&
+        isSettledStatus(next.status)
+      ) {
+        invalidateWorkspaceStats(queryClient, next.workspace_id);
+      }
+      return next;
+    },
     enabled,
     refetchInterval: (query) => {
       const document = query.state.data;

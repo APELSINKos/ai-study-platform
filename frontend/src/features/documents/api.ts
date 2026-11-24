@@ -15,9 +15,12 @@ export function fetchDocumentPage(
   workspaceId: string,
   page: number,
   pageSize: number,
+  signal?: AbortSignal,
 ): Promise<DocumentPage> {
   const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
-  return apiFetch<DocumentPage>(`${workspaceDocumentsPath(workspaceId)}?${query.toString()}`);
+  return apiFetch<DocumentPage>(`${workspaceDocumentsPath(workspaceId)}?${query.toString()}`, {
+    signal,
+  });
 }
 
 /** Sends one file to a workspace; the new document comes back queued for processing. */
@@ -28,8 +31,8 @@ export function uploadDocument(workspaceId: string, file: File): Promise<Documen
 }
 
 /** One document with its analysis and the state of its processing. */
-export function fetchDocument(id: string): Promise<DocumentOut> {
-  return apiFetch<DocumentOut>(documentPath(id));
+export function fetchDocument(id: string, signal?: AbortSignal): Promise<DocumentOut> {
+  return apiFetch<DocumentOut>(documentPath(id), { signal });
 }
 
 /** One page of a document's fragments, in reading order. */

@@ -14,6 +14,7 @@ import type {
   ChatSessionOut,
   ChatSessionPage,
   ChatSessionUpdateRequest,
+  ChatTurnOut,
 } from "@/lib/api/types";
 import { CHAT_SESSION_LIST_PAGE_SIZE, queryKeys } from "@/lib/query-keys";
 
@@ -212,8 +213,10 @@ export function useDeleteChatSession(id: string) {
 }
 
 interface UseSendMessageOptions {
-  /** Hook-level error handler: still runs if the user switched sessions before a turn failed. */
+  /** Hook-level handlers: still run if the user switched sessions before a turn settled. */
   onRestoreDraft?: (sessionId: string, content: string) => void;
+  onSuccess?: (turn: ChatTurnOut, variables: SendMessageVariables) => void;
+  onError?: (error: Error, variables: SendMessageVariables) => void;
 }
 
 export function useSendMessage(sessionId: string, options: UseSendMessageOptions = {}) {
@@ -224,8 +227,15 @@ export function useSendMessage(sessionId: string, options: UseSendMessageOptions
     retry: false,
     mutationFn: ({ sessionId: targetId, content }: SendMessageVariables) =>
       sendChatMessage(targetId.toLowerCase(), { content }),
-    onSuccess: (turn, variables) => {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.chatSession(variables.sessionId.toLowerCase()),
+      });
+    },
+    onSuccess: async (turn, variables) => {
       const targetId = variables.sessionId.toLowerCase();
+      // Cancel any GET refetch started while the turn was in flight so it cannot overwrite it.
+      await queryClient.cancelQueries({ queryKey: queryKeys.chatSession(targetId) });
       queryClient.setQueryData<ChatSessionDetailOut>(queryKeys.chatSession(targetId), (current) => {
         if (current === undefined) {
           return undefined;
@@ -250,9 +260,11 @@ export function useSendMessage(sessionId: string, options: UseSendMessageOptions
       void queryClient.invalidateQueries({ queryKey: queryKeys.chatSessionLists });
       void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceList });
       void queryClient.invalidateQueries({ queryKey: queryKeys.recentWorkspaces });
+      options.onSuccess?.(turn, variables);
     },
-    onError: (_error, variables) => {
+    onError: (error, variables) => {
       options.onRestoreDraft?.(variables.sessionId.toLowerCase(), variables.content);
+      options.onError?.(error, variables);
     },
   });
 }

@@ -7,7 +7,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IndexCard } from "@/components/ui/index-card";
 import { workspaceErrorMessage } from "@/features/workspaces/error-message";
-import { useWorkspaceList } from "@/features/workspaces/hooks";
+import { useWorkspace, useWorkspaceList } from "@/features/workspaces/hooks";
 import { useFocusOnArrival } from "@/lib/use-focus-on-arrival";
 
 import { ChatNotFound, ChatSessionView } from "./chat-session-view";
@@ -22,18 +22,29 @@ interface ChatViewProps {
 }
 
 /**
- * The `/chat` entry point. Keeps per-session message drafts across session switches and renders
- * either the session index, the not-found view for malformed session URLs, or one active session.
+ * The `/chat` entry point. Keeps per-session drafts and send errors across session switches and
+ * renders either the session index, the not-found view for malformed session URLs, or one active
+ * session.
  */
 export function ChatView({ sessionParam, initialWorkspaceId }: ChatViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [sendErrors, setSendErrors] = useState<Record<string, Error | null>>({});
 
   const updateDraft = useCallback((sessionId: string, value: string) => {
     setDrafts((prev) => ({ ...prev, [sessionId]: value }));
+    setSendErrors((prev) => (prev[sessionId] ? { ...prev, [sessionId]: null } : prev));
   }, []);
 
   const restoreDraft = useCallback((sessionId: string, value: string) => {
     setDrafts((prev) => (prev[sessionId] ? prev : { ...prev, [sessionId]: value }));
+  }, []);
+
+  const recordSendError = useCallback((sessionId: string, error: Error) => {
+    setSendErrors((prev) => ({ ...prev, [sessionId]: error }));
+  }, []);
+
+  const clearSendError = useCallback((sessionId: string) => {
+    setSendErrors((prev) => (prev[sessionId] ? { ...prev, [sessionId]: null } : prev));
   }, []);
 
   if (sessionParam.kind === "invalid") {
@@ -45,8 +56,11 @@ export function ChatView({ sessionParam, initialWorkspaceId }: ChatViewProps) {
         key={sessionParam.id}
         sessionId={sessionParam.id}
         draft={drafts[sessionParam.id] ?? ""}
+        sendError={sendErrors[sessionParam.id] ?? null}
         onDraftChange={(value) => updateDraft(sessionParam.id, value)}
         onRestoreDraft={restoreDraft}
+        onSendError={recordSendError}
+        onClearSendError={clearSendError}
       />
     );
   }
@@ -65,12 +79,37 @@ function ChatIndexView({ initialWorkspaceId }: { initialWorkspaceId: string | nu
   const returnFocusRef = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  const hasWorkspaces = workspaces.data !== undefined && workspaces.data.length > 0;
-  const sessions = useChatSessions(filterWorkspaceId, { enabled: hasWorkspaces });
-  const focusHeadingOnArrival = useFocusOnArrival(workspaces.data !== undefined, headingRef);
+  const needsInitialWorkspace =
+    initialWorkspaceId !== null &&
+    workspaces.data !== undefined &&
+    workspaces.data.length > 0 &&
+    !workspaces.data.some((workspace) => workspace.id === initialWorkspaceId);
+  const initialWorkspace = useWorkspace(initialWorkspaceId ?? "", {
+    enabled: needsInitialWorkspace,
+  });
+  const availableWorkspaces =
+    workspaces.data === undefined
+      ? undefined
+      : needsInitialWorkspace && initialWorkspace.data !== undefined
+        ? [initialWorkspace.data, ...workspaces.data]
+        : workspaces.data;
+
+  const isLoadingWorkspaces =
+    workspaces.isPending || (needsInitialWorkspace && initialWorkspace.isPending);
+  const hasWorkspaces = availableWorkspaces !== undefined && availableWorkspaces.length > 0;
+  const activeFilterWorkspaceId =
+    filterWorkspaceId !== null && availableWorkspaces?.some((w) => w.id === filterWorkspaceId)
+      ? filterWorkspaceId
+      : null;
+
+  const sessions = useChatSessions(activeFilterWorkspaceId, { enabled: hasWorkspaces });
+  const focusHeadingOnArrival = useFocusOnArrival(
+    !isLoadingWorkspaces && availableWorkspaces !== undefined,
+    headingRef,
+  );
 
   const isUnfilteredEmpty =
-    hasWorkspaces && filterWorkspaceId === null && sessions.data?.length === 0;
+    hasWorkspaces && activeFilterWorkspaceId === null && sessions.data?.length === 0;
   const showForm = hasWorkspaces && (isFormOpen || isUnfilteredEmpty);
 
   function closeForm() {
@@ -98,14 +137,16 @@ function ChatIndexView({ initialWorkspaceId }: { initialWorkspaceId: string | nu
           <h1 ref={headingRef} tabIndex={-1} className="font-display text-title font-semibold">
             {t("title")}
           </h1>
-          {hasWorkspaces && !showForm && !(filterWorkspaceId === null && sessions.isPending) ? (
+          {hasWorkspaces &&
+          !showForm &&
+          !(activeFilterWorkspaceId === null && sessions.isPending) ? (
             <Button ref={takeReturningFocus} variant="primary" onClick={() => setIsFormOpen(true)}>
               {t("newChat")}
             </Button>
           ) : null}
         </div>
 
-        {workspaces.isPending ? (
+        {isLoadingWorkspaces ? (
           <IndexCard aria-busy="true" className="mt-8 p-6">
             <span className="sr-only">{t("list.loading")}</span>
             <div aria-hidden className="space-y-3">
@@ -113,7 +154,7 @@ function ChatIndexView({ initialWorkspaceId }: { initialWorkspaceId: string | nu
               <div className="bg-ink/10 h-4 w-2/3 rounded motion-safe:animate-pulse" />
             </div>
           </IndexCard>
-        ) : workspaces.data === undefined ? (
+        ) : availableWorkspaces === undefined ? (
           <div className="mt-8 flex flex-col items-start gap-4">
             <p role="alert" className="text-ink-soft text-sm">
               {workspaceErrorMessage(workspaces.error, "load", tWorkspaceErrors)}
@@ -122,7 +163,7 @@ function ChatIndexView({ initialWorkspaceId }: { initialWorkspaceId: string | nu
               {t("list.retry")}
             </Button>
           </div>
-        ) : workspaces.data.length === 0 ? (
+        ) : availableWorkspaces.length === 0 ? (
           <div className="mt-6">
             <h2 className="font-display text-xl font-semibold">{t("emptyWorkspaces.title")}</h2>
             <p className="text-ink-soft mt-3 max-w-[58ch] text-base leading-7">
@@ -136,28 +177,30 @@ function ChatIndexView({ initialWorkspaceId }: { initialWorkspaceId: string | nu
           <>
             {showForm ? (
               <NewChatForm
-                workspaces={workspaces.data}
+                workspaces={availableWorkspaces}
                 initialWorkspaceId={initialWorkspaceId}
+                autoFocus={isFormOpen && !isUnfilteredEmpty}
                 onCancel={isUnfilteredEmpty ? undefined : closeForm}
                 className="mt-8"
               />
             ) : null}
 
-            {workspaces.data.length > 1 && (filterWorkspaceId !== null || !isUnfilteredEmpty) ? (
+            {availableWorkspaces.length > 1 &&
+            (activeFilterWorkspaceId !== null || !isUnfilteredEmpty) ? (
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <label htmlFor={filterId} className="text-ink-soft text-sm font-medium">
                   {t("filter.label")}
                 </label>
                 <select
                   id={filterId}
-                  value={filterWorkspaceId ?? ""}
+                  value={activeFilterWorkspaceId ?? ""}
                   onChange={(event) =>
                     setFilterWorkspaceId(event.target.value === "" ? null : event.target.value)
                   }
                   className="border-rule-strong bg-sheet text-ink focus-visible:outline-pen rounded-control h-9 border px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                   <option value="">{t("filter.all")}</option>
-                  {workspaces.data.map((workspace) => (
+                  {availableWorkspaces.map((workspace) => (
                     <option key={workspace.id} value={workspace.id}>
                       {workspace.name}
                     </option>
@@ -167,9 +210,9 @@ function ChatIndexView({ initialWorkspaceId }: { initialWorkspaceId: string | nu
             ) : null}
 
             <SessionList
-              workspaceId={filterWorkspaceId}
+              workspaceId={activeFilterWorkspaceId}
               focusAfterDelete={headingRef}
-              isFiltered={filterWorkspaceId !== null}
+              isFiltered={activeFilterWorkspaceId !== null}
               hideWhenEmpty={showForm}
               className="mt-6"
             />

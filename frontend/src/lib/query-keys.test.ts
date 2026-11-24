@@ -63,6 +63,7 @@ describe("queryKeys", () => {
     expect(queryKeys.chatSessionLists).toEqual(["chat", "sessions"]);
     expect(queryKeys.chatSessions(null)).toEqual(["chat", "sessions", "all"]);
     expect(queryKeys.chatSessions("w1")).toEqual(["chat", "sessions", "w1"]);
+    expect(queryKeys.chatSessionDetails).toEqual(["chat", "detail"]);
     expect(queryKeys.chatSession("s1")).toEqual(["chat", "detail", "s1"]);
     expect(queryKeys.chatSessionSend("s1")).toEqual(["chat", "detail", "s1", "send"]);
     expect(queryKeys.meta).toEqual(["meta"]);
@@ -149,6 +150,17 @@ describe("queryKeys", () => {
     expect(isInvalidated(queryClient, queryKeys.chatSessions("w2"))).toBe(true);
     expect(isInvalidated(queryClient, queryKeys.chatSession("s1"))).toBe(false);
     expect(isInvalidated(queryClient, queryKeys.chatSession("s2"))).toBe(false);
+  });
+
+  it("lets chatSessionDetails target open sessions without touching session lists", async () => {
+    const queryClient = cacheWithEveryKey();
+
+    await queryClient.invalidateQueries({ queryKey: queryKeys.chatSessionDetails });
+
+    expect(isInvalidated(queryClient, queryKeys.chatSession("s1"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.chatSession("s2"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.chatSessions(null))).toBe(false);
+    expect(isInvalidated(queryClient, queryKeys.chatSessions("w1"))).toBe(false);
   });
 
   it("lets chat invalidate both session lists and open sessions, and nothing outside chat", async () => {

@@ -73,13 +73,18 @@ export function useCreateWorkspace() {
   });
 }
 
+interface WorkspaceQueryOptions {
+  enabled?: boolean;
+}
+
 /** One workspace with the statistics of its documents, for its own page. */
-export function useWorkspace(id: string) {
+export function useWorkspace(id: string, { enabled = true }: WorkspaceQueryOptions = {}) {
   return useQuery({
     // An address may spell the id in capitals; the edits and the delete use the API's lowercase
     // spelling, and all of them must reach the same cache entry.
     queryKey: queryKeys.workspace(id.toLowerCase()),
     queryFn: () => fetchWorkspace(id),
+    enabled,
   });
 }
 
@@ -124,7 +129,9 @@ function removeCachedDocumentsOf(queryClient: QueryClient, workspaceId: string):
 
 /** Forgets cached open chat sessions whose workspace was deleted. */
 function removeCachedChatSessionsOf(queryClient: QueryClient, workspaceId: string): void {
-  for (const query of queryClient.getQueryCache().findAll({ queryKey: ["chat", "detail"] })) {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: queryKeys.chatSessionDetails })) {
     if (belongsToWorkspace(query.state.data, workspaceId)) {
       queryClient.removeQueries({ queryKey: query.queryKey });
     }

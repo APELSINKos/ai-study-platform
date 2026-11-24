@@ -13,14 +13,32 @@ import { SessionList } from "./session-list";
 
 interface SessionsDrawerProps {
   activeSessionId: string;
+  onDeletingActiveSession?: () => void;
+  onDeleteActiveSessionError?: () => void;
 }
 
 /** Slide-over drawer for switching chats or starting a new one without cramping the reading column. */
-export function SessionsDrawer({ activeSessionId }: SessionsDrawerProps) {
+export function SessionsDrawer({
+  activeSessionId,
+  onDeletingActiveSession,
+  onDeleteActiveSessionError,
+}: SessionsDrawerProps) {
   const t = useTranslations("Chat.session");
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
+
+  function handleDeletingSession(deletingId: string) {
+    if (deletingId === activeSessionId) {
+      onDeletingActiveSession?.();
+    }
+  }
+
+  function handleDeleteSessionError(failedId: string) {
+    if (failedId === activeSessionId) {
+      onDeleteActiveSessionError?.();
+    }
+  }
 
   function handleDeletedSession(deletedId: string) {
     if (deletedId === activeSessionId) {
@@ -69,6 +87,8 @@ export function SessionsDrawer({ activeSessionId }: SessionsDrawerProps) {
               activeSessionId={activeSessionId}
               focusAfterDelete={titleRef}
               onSelectSession={() => setOpen(false)}
+              onDeletingSession={handleDeletingSession}
+              onDeleteSessionError={handleDeleteSessionError}
               onDeletedSession={handleDeletedSession}
               variant="drawer"
             />

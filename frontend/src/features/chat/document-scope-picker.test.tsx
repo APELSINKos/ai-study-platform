@@ -2,7 +2,11 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { documentPageFixture, readyDocumentFixture } from "@/features/documents/test-fixtures";
+import {
+  documentFixture,
+  documentPageFixture,
+  readyDocumentFixture,
+} from "@/features/documents/test-fixtures";
 import { apiFetch } from "@/lib/api/client";
 import { renderWithIntl } from "@/test/render";
 
@@ -74,5 +78,45 @@ describe("DocumentScopePicker", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Show more documents" })).not.toBeInTheDocument(),
     );
+  });
+
+  it("keeps Show more documents reachable when page 1 has only processing or failed files", async () => {
+    const processing1 = documentFixture(1, {
+      workspace_id: CHAT_WORKSPACE_ID,
+      status: "processing",
+      title: "Uploading chapter",
+    });
+    const failed2 = documentFixture(2, {
+      workspace_id: CHAT_WORKSPACE_ID,
+      status: "failed",
+      error_code: "no_text",
+      title: "Broken scan",
+    });
+    apiFetchMock.mockImplementation(async (path) => {
+      if (path.includes("page=1")) {
+        return documentPageFixture([processing1, failed2], { page: 1, pageSize: 2, total: 3 });
+      }
+      return documentPageFixture([DOC_3], { page: 2, pageSize: 2, total: 3 });
+    });
+
+    renderWithIntl(
+      <DocumentScopePicker
+        workspaceId={CHAT_WORKSPACE_ID}
+        scopeMode="selected"
+        onScopeModeChange={vi.fn()}
+        selectedIds={[]}
+        onSelectedIdsChange={vi.fn()}
+        maxScopeDocuments={50}
+      />,
+    );
+
+    expect(await screen.findByText("No ready documents to choose from yet.")).toBeInTheDocument();
+    const showMore = screen.getByRole("button", { name: "Show more documents" });
+    expect(showMore).toBeInTheDocument();
+
+    await userEvent.click(showMore);
+
+    expect(await screen.findByRole("checkbox", { name: "Chapter 3" })).toBeInTheDocument();
+    expect(screen.queryByText("No ready documents to choose from yet.")).not.toBeInTheDocument();
   });
 });

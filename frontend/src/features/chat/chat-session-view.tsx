@@ -54,20 +54,26 @@ type ActiveEditor = "none" | "rename" | "scope";
 interface ChatSessionViewProps {
   sessionId: string;
   draft: string;
+  sendError: Error | null;
   onDraftChange: (next: string) => void;
   onRestoreDraft: (sessionId: string, content: string) => void;
+  onSendError: (sessionId: string, error: Error) => void;
+  onClearSendError: (sessionId: string) => void;
 }
 
 /**
  * Active chat conversation view, keyed by `sessionId` so switching sessions resets transient
- * inline editors while per-session drafts and in-flight sends survive via parent state and
- * `useMutationState`.
+ * inline editors while per-session drafts, send errors and in-flight sends survive via parent
+ * state and `useMutationState`.
  */
 export function ChatSessionView({
   sessionId,
   draft,
+  sendError,
   onDraftChange,
   onRestoreDraft,
+  onSendError,
+  onClearSendError,
 }: ChatSessionViewProps) {
   // Keep showing the session while deleting it so it does not flash Not Found mid-redirect.
   const [deleting, setDeleting] = useState<ChatSessionDetailOut | null>(null);
@@ -91,8 +97,11 @@ export function ChatSessionView({
         session={session}
         headingRef={headingRef}
         draft={draft}
+        sendError={sendError}
         onDraftChange={onDraftChange}
         onRestoreDraft={onRestoreDraft}
+        onSendError={onSendError}
+        onClearSendError={onClearSendError}
         onDeleting={setDeleting}
       />
     );
@@ -116,8 +125,11 @@ interface ActiveSessionPageProps {
   session: ChatSessionDetailOut;
   headingRef: HeadingRef;
   draft: string;
+  sendError: Error | null;
   onDraftChange: (next: string) => void;
   onRestoreDraft: (sessionId: string, content: string) => void;
+  onSendError: (sessionId: string, error: Error) => void;
+  onClearSendError: (sessionId: string) => void;
   onDeleting: (session: ChatSessionDetailOut | null) => void;
 }
 
@@ -125,8 +137,11 @@ function ActiveSessionPage({
   session,
   headingRef,
   draft,
+  sendError,
   onDraftChange,
   onRestoreDraft,
+  onSendError,
+  onClearSendError,
   onDeleting,
 }: ActiveSessionPageProps) {
   const t = useTranslations("Chat");
@@ -143,7 +158,11 @@ function ActiveSessionPage({
 
   const updateSession = useUpdateChatSession(session.id);
   const deleteSession = useDeleteChatSession(session.id);
-  const sendMessage = useSendMessage(session.id, { onRestoreDraft });
+  const sendMessage = useSendMessage(session.id, {
+    onRestoreDraft,
+    onSuccess: (_turn, variables) => onClearSendError(variables.sessionId.toLowerCase()),
+    onError: (error, variables) => onSendError(variables.sessionId.toLowerCase(), error),
+  });
   const pendingMessages = usePendingChatMessages(session.id);
 
   const title = session.title ?? t("untitled");
@@ -196,12 +215,15 @@ function ActiveSessionPage({
     );
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     onDeleting(session);
-    return deleteSession.mutateAsync(undefined, {
-      onSuccess: () => router.replace("/chat"),
-      onError: () => onDeleting(null),
-    });
+    try {
+      await deleteSession.mutateAsync();
+    } catch (error) {
+      onDeleting(null);
+      throw error;
+    }
+    router.replace("/chat");
   }
 
   function submitDraft() {
@@ -214,6 +236,7 @@ function ActiveSessionPage({
     }
     setAnnouncement("");
     sendMessage.reset();
+    onClearSendError(session.id);
     onDraftChange("");
     sendMessage.mutate(
       { sessionId: session.id, content: cleaned },
@@ -276,7 +299,11 @@ function ActiveSessionPage({
             {title}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
-            <SessionsDrawer activeSessionId={session.id} />
+            <SessionsDrawer
+              activeSessionId={session.id}
+              onDeletingActiveSession={() => onDeleting(session)}
+              onDeleteActiveSessionError={() => onDeleting(null)}
+            />
             {activeEditor !== "rename" ? (
               <Button ref={takeRenameFocus} variant="ghost" size="sm" onClick={openRename}>
                 <PencilSimpleIcon aria-hidden />
@@ -376,6 +403,9 @@ function ActiveSessionPage({
                   if (sendMessage.error) {
                     sendMessage.reset();
                   }
+                  if (sendError !== null) {
+                    onClearSendError(session.id);
+                  }
                   onDraftChange(event.target.value);
                 }}
                 onKeyDown={handleTextareaKeyDown}
@@ -385,9 +415,9 @@ function ActiveSessionPage({
                 rows={3}
               />
             </Field>
-            {sendMessage.error ? (
+            {sendError !== null ? (
               <p role="alert" className="text-margin mt-3 text-sm">
-                {chatErrorMessage(sendMessage.error, "sendMessage", tErrors)}
+                {chatErrorMessage(sendError, "sendMessage", tErrors)}
               </p>
             ) : null}
             <div className="mt-4 flex items-center justify-end">
@@ -492,20 +522,25 @@ function SessionScopeEditor({
   const t = useTranslations("Chat.session.scope");
   const headingId = useId();
   const documents = useWorkspaceDocuments(workspaceId);
+  const documentsUnavailable = scopeMode === "selected" && documents.data === undefined;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || (scopeMode === "selected" && documents.isPending)) {
+    if (isSaving) {
       return;
     }
-    const nextDocumentIds =
-      scopeMode === "all"
-        ? null
-        : reconcileScopeDocumentIds(
-            selectedDocIds,
-            documents.data?.documents ?? [],
-            documents.hasNextPage,
-          );
+    if (scopeMode === "all") {
+      onSave(null);
+      return;
+    }
+    if (documents.data === undefined) {
+      return;
+    }
+    const nextDocumentIds = reconcileScopeDocumentIds(
+      selectedDocIds,
+      documents.data.documents,
+      documents.hasNextPage,
+    );
     onSave(nextDocumentIds);
   }
 
@@ -529,6 +564,7 @@ function SessionScopeEditor({
           selectedIds={selectedDocIds}
           onSelectedIdsChange={onSelectedDocIdsChange}
           maxScopeDocuments={maxScopeDocuments}
+          autoFocus
         />
         {error ? (
           <p role="alert" className="text-margin text-sm">
@@ -540,6 +576,7 @@ function SessionScopeEditor({
             type="submit"
             variant="secondary"
             size="sm"
+            disabled={documentsUnavailable && !documents.isPending}
             isLoading={isSaving || (scopeMode === "selected" && documents.isPending)}
           >
             {t("save")}

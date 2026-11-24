@@ -29,6 +29,8 @@ interface SessionListProps {
   activeSessionId?: string | null;
   focusAfterDelete: RefObject<HTMLElement | null>;
   onSelectSession?: () => void;
+  onDeletingSession?: (sessionId: string) => void;
+  onDeleteSessionError?: (sessionId: string) => void;
   onDeletedSession?: (sessionId: string) => void;
   isFiltered?: boolean;
   variant?: "card" | "drawer";
@@ -45,6 +47,8 @@ export function SessionList({
   activeSessionId = null,
   focusAfterDelete,
   onSelectSession,
+  onDeletingSession,
+  onDeleteSessionError,
   onDeletedSession,
   isFiltered = false,
   variant = "card",
@@ -92,6 +96,8 @@ export function SessionList({
       activeSessionId={activeSessionId}
       focusAfterDelete={focusAfterDelete}
       onSelectSession={onSelectSession}
+      onDeletingSession={onDeletingSession}
+      onDeleteSessionError={onDeleteSessionError}
       onDeletedSession={onDeletedSession}
       hasMore={sessions.hasNextPage}
       isLoadingMore={sessions.isFetchingNextPage}
@@ -112,6 +118,8 @@ interface SessionRowsProps {
   activeSessionId: string | null;
   focusAfterDelete: RefObject<HTMLElement | null>;
   onSelectSession?: () => void;
+  onDeletingSession?: (sessionId: string) => void;
+  onDeleteSessionError?: (sessionId: string) => void;
   onDeletedSession?: (sessionId: string) => void;
   hasMore: boolean;
   isLoadingMore: boolean;
@@ -126,6 +134,8 @@ function SessionRows({
   activeSessionId,
   focusAfterDelete,
   onSelectSession,
+  onDeletingSession,
+  onDeleteSessionError,
   onDeletedSession,
   hasMore,
   isLoadingMore,
@@ -165,6 +175,8 @@ function SessionRows({
             isActive={activeSessionId === session.id}
             focusAfterDelete={focusAfterDelete}
             onSelectSession={onSelectSession}
+            onDeletingSession={onDeletingSession}
+            onDeleteSessionError={onDeleteSessionError}
             onDeletedSession={onDeletedSession}
             compact={variant === "drawer"}
           />
@@ -201,6 +213,8 @@ interface SessionRowProps {
   isActive: boolean;
   focusAfterDelete: RefObject<HTMLElement | null>;
   onSelectSession?: () => void;
+  onDeletingSession?: (sessionId: string) => void;
+  onDeleteSessionError?: (sessionId: string) => void;
   onDeletedSession?: (sessionId: string) => void;
   compact: boolean;
 }
@@ -210,6 +224,8 @@ function SessionRow({
   isActive,
   focusAfterDelete,
   onSelectSession,
+  onDeletingSession,
+  onDeleteSessionError,
   onDeletedSession,
   compact,
 }: SessionRowProps) {
@@ -219,10 +235,15 @@ function SessionRow({
   const deletion = useDeleteChatSession(session.id);
   const title = session.title ?? t("untitled");
 
-  function confirmDelete() {
-    return deletion.mutateAsync(undefined, {
-      onSuccess: () => onDeletedSession?.(session.id),
-    });
+  async function confirmDelete() {
+    onDeletingSession?.(session.id);
+    try {
+      await deletion.mutateAsync();
+    } catch (error) {
+      onDeleteSessionError?.(session.id);
+      throw error;
+    }
+    onDeletedSession?.(session.id);
   }
 
   return (

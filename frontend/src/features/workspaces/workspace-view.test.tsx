@@ -391,6 +391,7 @@ describe("WorkspaceView", () => {
     expect(await within(region).findByText("No documents yet.")).toHaveAttribute("role", "status");
     expect(apiFetchMock).toHaveBeenCalledWith(
       `/workspaces/${LETTERED.id}/documents?page=1&page_size=50`,
+      { signal: expect.any(AbortSignal) },
     );
   });
 

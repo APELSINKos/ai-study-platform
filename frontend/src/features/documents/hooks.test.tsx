@@ -109,7 +109,9 @@ describe("useWorkspaceDocuments", () => {
 
     await pass(0);
 
-    expect(apiFetchMock).toHaveBeenCalledWith(FIRST_PAGE_PATH);
+    expect(apiFetchMock).toHaveBeenCalledWith(FIRST_PAGE_PATH, {
+      signal: expect.any(AbortSignal),
+    });
     expect(result.current.data?.documents.map((document) => document.original_filename)).toEqual([
       "lecture-1.pdf",
     ]);
@@ -145,7 +147,9 @@ describe("useWorkspaceDocuments", () => {
     await act(() => result.current.fetchNextPage());
     await pass(0);
 
-    expect(apiFetchMock).toHaveBeenLastCalledWith(SECOND_PAGE_PATH);
+    expect(apiFetchMock).toHaveBeenLastCalledWith(SECOND_PAGE_PATH, {
+      signal: expect.any(AbortSignal),
+    });
     const ids = result.current.data?.documents.map((document) => document.id) ?? [];
     expect(ids).toHaveLength(51);
     expect(new Set(ids).size).toBe(51);
@@ -351,6 +355,87 @@ describe("useWorkspaceDocuments", () => {
 
     expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
   });
+
+  it("does not falsely invalidate workspace stats when a deletion shifts a ready page-2 doc onto page 1", async () => {
+    const firstFifty = Array.from({ length: 50 }, (_, index) => readyDocumentFixture(index + 1));
+    const ready51 = readyDocumentFixture(51);
+    const processing52 = documentFixture(52, { status: "processing" });
+    let shifted = false;
+    apiFetchMock.mockImplementation(async (path) => {
+      if (path === FIRST_PAGE_PATH) {
+        return shifted
+          ? documentPageFixture([...firstFifty.slice(1), ready51], { page: 1, total: 51 })
+          : documentPageFixture(firstFifty, { page: 1, total: 52 });
+      }
+      return shifted
+        ? documentPageFixture([processing52], { page: 2, total: 51 })
+        : documentPageFixture([ready51, processing52], { page: 2, total: 52 });
+    });
+    const { result, queryClient } = renderDocuments();
+    queryClient.setQueryData(queryKeys.workspace(WORKSPACE_ID), { id: WORKSPACE_ID });
+    await pass(0);
+    await act(() => result.current.fetchNextPage());
+    await pass(0);
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
+
+    // Deleting doc 1 shifts ready doc 51 onto page 1; doc 51 was already ready on page 2.
+    shifted = true;
+    await pass(2000);
+
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
+  });
+
+  it("refreshes workspace stats when an active document settles on page 2", async () => {
+    const firstFifty = Array.from({ length: 50 }, (_, index) => readyDocumentFixture(index + 1));
+    const processing51 = documentFixture(51, { status: "processing" });
+    const ready51 = readyDocumentFixture(51);
+    let settled = false;
+    apiFetchMock.mockImplementation(async (path) => {
+      if (path === FIRST_PAGE_PATH) {
+        return documentPageFixture(firstFifty, { page: 1, total: 51 });
+      }
+      return documentPageFixture([settled ? ready51 : processing51], { page: 2, total: 51 });
+    });
+    const { result, queryClient } = renderDocuments();
+    queryClient.setQueryData(queryKeys.workspace(WORKSPACE_ID), { id: WORKSPACE_ID });
+    queryClient.setQueryData(queryKeys.workspaceList, { pages: [], pageParams: [1] });
+    queryClient.setQueryData(queryKeys.recentWorkspaces, { items: [] });
+    await pass(0);
+    await act(() => result.current.fetchNextPage());
+    await pass(0);
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
+
+    settled = true;
+    await pass(2000);
+
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.workspaceList)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.recentWorkspaces)?.isInvalidated).toBe(true);
+  });
+
+  it("skips workspace stats invalidation if a polling request was aborted before resolving", async () => {
+    const pendingRefetch = Promise.withResolvers<ReturnType<typeof page>>();
+    let calls = 0;
+    apiFetchMock.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? Promise.resolve(page(processing)) : pendingRefetch.promise;
+    });
+    const { queryClient } = renderDocuments();
+    queryClient.setQueryData(queryKeys.workspace(WORKSPACE_ID), { id: WORKSPACE_ID });
+    await pass(0);
+
+    await pass(2000);
+    expect(calls).toBe(2);
+    await act(() =>
+      queryClient.cancelQueries({ queryKey: queryKeys.workspaceDocuments(WORKSPACE_ID) }),
+    );
+    await act(async () => {
+      pendingRefetch.resolve(page(readyDocumentFixture(1)));
+      await pendingRefetch.promise;
+    });
+
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
+  });
 });
 
 describe("useDocument", () => {
@@ -366,7 +451,9 @@ describe("useDocument", () => {
 
     await pass(0);
 
-    expect(apiFetchMock).toHaveBeenCalledWith(DOCUMENT_PATH);
+    expect(apiFetchMock).toHaveBeenCalledWith(DOCUMENT_PATH, {
+      signal: expect.any(AbortSignal),
+    });
     expect(result.current.data?.title).toBe("Lecture 1");
   });
 
@@ -470,7 +557,9 @@ describe("useDocument", () => {
 
     await pass(0);
 
-    expect(apiFetchMock).toHaveBeenCalledWith(`/documents/${lettered.id.toUpperCase()}`);
+    expect(apiFetchMock).toHaveBeenCalledWith(`/documents/${lettered.id.toUpperCase()}`, {
+      signal: expect.any(AbortSignal),
+    });
     expect(queryClient.getQueryData(queryKeys.document(lettered.id))).toEqual(lettered);
   });
 
@@ -499,6 +588,65 @@ describe("useDocument", () => {
     await pass(0);
 
     expect(result.current.document.data?.status).toBe("uploaded");
+  });
+
+  it.each([
+    ["ready", readyDocumentFixture(1)],
+    ["failed", documentFixture(1, { status: "failed", error_code: "no_text", can_retry: true })],
+  ])(
+    "refreshes workspace stats when an active document settles as %s, not on intermediate stages",
+    async (_label, settledDoc) => {
+      apiFetchMock
+        .mockResolvedValueOnce(processing)
+        .mockResolvedValueOnce({ ...processing, status: "indexing" })
+        .mockResolvedValue(settledDoc);
+      const { queryClient } = renderDocument();
+      queryClient.setQueryData(queryKeys.workspace(WORKSPACE_ID), { id: WORKSPACE_ID });
+      queryClient.setQueryData(queryKeys.workspaceList, { pages: [], pageParams: [1] });
+      queryClient.setQueryData(queryKeys.recentWorkspaces, { items: [] });
+
+      await pass(0);
+      expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(
+        false,
+      );
+
+      await pass(2000);
+      expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(
+        false,
+      );
+
+      await pass(2000);
+      expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(
+        true,
+      );
+      expect(queryClient.getQueryState(queryKeys.workspaceList)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(queryKeys.recentWorkspaces)?.isInvalidated).toBe(true);
+      expect(
+        queryClient.getQueryState(queryKeys.workspaceDocuments(WORKSPACE_ID))?.isInvalidated,
+      ).toBeUndefined();
+    },
+  );
+
+  it("skips workspace stats invalidation if a single-document poll was aborted before resolving", async () => {
+    const pendingRefetch = Promise.withResolvers<DocumentOut>();
+    let calls = 0;
+    apiFetchMock.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? Promise.resolve(processing) : pendingRefetch.promise;
+    });
+    const { queryClient } = renderDocument();
+    queryClient.setQueryData(queryKeys.workspace(WORKSPACE_ID), { id: WORKSPACE_ID });
+    await pass(0);
+
+    await pass(2000);
+    expect(calls).toBe(2);
+    await act(() => queryClient.cancelQueries({ queryKey: queryKeys.document(processing.id) }));
+    await act(async () => {
+      pendingRefetch.resolve(readyDocumentFixture(1));
+      await pendingRefetch.promise;
+    });
+
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
   });
 });
 
