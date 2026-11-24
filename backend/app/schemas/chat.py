@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Final
 
-from pydantic import AfterValidator, BaseModel, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, StringConstraints
 
 from app.api.pagination import Page
 from app.documents.chunking import HEADING_SEPARATOR
@@ -18,6 +18,13 @@ AUTO_TITLE_MAX_CHARS: Final = 80
 _MESSAGE_MIN_CHARS: Final = 1
 _SCOPE_MIN_DOCUMENTS: Final = 1
 _EMPTY_CLEANED_MESSAGE: Final = "The message must contain readable text."
+
+
+def _sanitize_title(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    reject_nul(value)
+    return " ".join(clean_chat_text(value).split())
 
 
 def _blank_as_none(value: str | None) -> str | None:
@@ -37,8 +44,8 @@ def _require_cleaned_text(value: str) -> str:
 
 _TitleText = Annotated[
     str,
+    BeforeValidator(_sanitize_title),
     StringConstraints(strip_whitespace=True, max_length=CHAT_SESSION_TITLE_MAX_LENGTH),
-    AfterValidator(reject_nul),
 ]
 # A blank title is stored as untitled (None) and auto-filled on the first message.
 ChatSessionTitle = Annotated[_TitleText | None, AfterValidator(_blank_as_none)]

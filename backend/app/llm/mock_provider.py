@@ -19,6 +19,7 @@ from typing import Final
 
 from app.documents.chunking import HEADING_SEPARATOR
 from app.documents.text import (
+    CHAT_STOPWORDS,
     ELLIPSIS,
     EXCERPT_SEPARATOR,
     NUMBER_WORDS,
@@ -65,125 +66,6 @@ _STOPWORDS: Final = STOPWORDS_EN | STOPWORDS_RU
 # vectors were made of.
 _ALL_STOPWORDS: Final = _STOPWORDS | STOPWORDS_FR
 _TOPIC_STOPWORDS: Final = _ALL_STOPWORDS | NUMBER_WORDS
-# Chat-only filler and question words kept separate from document analysis and embeddings.
-_CHAT_STOPWORDS: Final = _STOPWORDS | frozenset(
-    {
-        "about",
-        "answer",
-        "briefly",
-        "can",
-        "could",
-        "define",
-        "describe",
-        "detail",
-        "details",
-        "difference",
-        "different",
-        "does",
-        "elaborate",
-        "example",
-        "examples",
-        "explain",
-        "give",
-        "help",
-        "how",
-        "important",
-        "know",
-        "list",
-        "main",
-        "make",
-        "makes",
-        "mean",
-        "means",
-        "more",
-        "please",
-        "provide",
-        "say",
-        "says",
-        "short",
-        "show",
-        "summarize",
-        "summary",
-        "tell",
-        "understand",
-        "use",
-        "used",
-        "using",
-        "what",
-        "when",
-        "where",
-        "which",
-        "why",
-        "work",
-        "works",
-        "более",
-        "бывает",
-        "бывают",
-        "вопрос",
-        "главное",
-        "говорится",
-        "давай",
-        "делает",
-        "делают",
-        "делать",
-        "еще",
-        "зачем",
-        "значит",
-        "именно",
-        "какая",
-        "какие",
-        "каким",
-        "каких",
-        "какого",
-        "какое",
-        "какой",
-        "какую",
-        "коротко",
-        "кратко",
-        "лучше",
-        "можно",
-        "надо",
-        "назови",
-        "например",
-        "нужна",
-        "нужно",
-        "нужны",
-        "объясни",
-        "объясните",
-        "означает",
-        "опиши",
-        "опишите",
-        "основные",
-        "ответь",
-        "подробнее",
-        "подробно",
-        "пожалуйста",
-        "покажи",
-        "почему",
-        "приведи",
-        "пример",
-        "примеры",
-        "просто",
-        "работает",
-        "работают",
-        "расскажи",
-        "расскажите",
-        "самое",
-        "скажи",
-        "скажите",
-        "сколько",
-        "стоит",
-        "суть",
-        "такая",
-        "такие",
-        "такое",
-        "такой",
-        "тема",
-        "тему",
-        "чем",
-        "что",
-    }
-)
 _CHAT_MIN_KEYWORD_CHARS: Final = 2
 _CHAT_MAX_QUERY_KEYWORDS: Final = 64
 _CHAT_MAX_FOLLOWUP_KEYWORDS: Final = 32
@@ -927,7 +809,7 @@ def _chat_keywords(text: str, *, limit: int) -> list[str]:
         if len(word) > TOKEN_MAX_CHARS:
             continue
         folded = _fold(word)
-        if len(folded) < _CHAT_MIN_KEYWORD_CHARS or folded in _CHAT_STOPWORDS or folded in seen:
+        if len(folded) < _CHAT_MIN_KEYWORD_CHARS or folded in CHAT_STOPWORDS or folded in seen:
             continue
         seen.add(folded)
         keywords.append(folded)
@@ -943,7 +825,7 @@ def _chat_token_set(text: str) -> set[str]:
         if len(word) > TOKEN_MAX_CHARS:
             continue
         folded = _fold(word)
-        if len(folded) >= _CHAT_MIN_KEYWORD_CHARS and folded not in _CHAT_STOPWORDS:
+        if len(folded) >= _CHAT_MIN_KEYWORD_CHARS and folded not in CHAT_STOPWORDS:
             tokens.add(folded)
     return tokens
 

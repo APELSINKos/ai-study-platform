@@ -116,6 +116,25 @@ NUMBER_WORDS: Final = _word_set(
     quatre cinq six sept huit neuf dix mille
     """
 )
+# Chat-only filler and question words kept separate from document analysis and embeddings.
+CHAT_STOPWORDS: Final = (
+    STOPWORDS_EN
+    | STOPWORDS_RU
+    | _word_set(
+        """
+        about answer briefly can could define describe detail details difference different does
+        elaborate example examples explain give help how important it'd it'll know list main make
+        makes mean means more please provide say says short show summarize summary tell that'd
+        that'll there'd there'll understand use used using what what'd what'll when where which
+        who'd who'll why work works более бывает бывают вопрос главное говорится давай делает
+        делают делать еще зачем значит именно какая какие каким каких какого какое какой какую
+        коротко кратко лучше можно надо назови например нужна нужно нужны объясни объясните
+        означает опиши опишите основные ответь подробнее подробно пожалуйста покажи почему приведи
+        пример примеры просто работает работают расскажи расскажите самое скажи скажите сколько
+        стоит суть такая такие такое такой тема тему чем что
+        """
+    )
+)
 
 
 def words(text: str) -> list[str]:

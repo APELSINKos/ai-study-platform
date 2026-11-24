@@ -5,8 +5,14 @@ from typing import Final
 
 import pytest
 
+from app.documents.text import ELLIPSIS
 from app.llm.base import ChatHistoryTurn
-from app.rag.query import CHAT_KEYWORD_MAX_TERMS, build_chat_keyword_query
+from app.rag.query import (
+    CHAT_KEYWORD_MAX_TERMS,
+    MAX_EMBEDDING_QUERY_CHARS,
+    build_chat_embedding_query,
+    build_chat_keyword_query,
+)
 from app.rag.vector_store import MAX_KEYWORD_QUERY_CHARS
 
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
@@ -96,6 +102,54 @@ def test_ignores_overlong_non_word_blobs_and_handles_nfkc_compatibility_forms() 
     query = build_chat_keyword_query(f"ＳＱＬ ﬁle ½ {blob} memory")
 
     assert query == "sql or file or memory"
+
+
+def test_filters_english_contractions_without_leaking_fragments() -> None:
+    query = build_chat_keyword_query(
+        "Why doesn't, don't, isn't, you're, we've, it'll, doesn\u2019t stop Codd's normalization?"
+    )
+
+    assert query == "stop or codd or normalization"
+
+
+def test_enforces_exact_64_and_65_char_token_boundary() -> None:
+    exact_64 = "a" * 64
+    over_65 = "b" * 65
+
+    assert build_chat_keyword_query(f"{exact_64} {over_65}") == exact_64
+
+
+def test_build_chat_embedding_query_augments_short_followups_and_caps_length() -> None:
+    history = (
+        ChatHistoryTurn(role="user", content="Explain relational database normalization."),
+        ChatHistoryTurn(role="assistant", content="Normalization reduces redundancy [1]."),
+        ChatHistoryTurn(role="user", content="Tell me more"),
+        ChatHistoryTurn(role="assistant", content="More details [1]."),
+    )
+
+    assert (
+        build_chat_embedding_query("Why?", history)
+        == "Why? Explain relational database normalization."
+    )
+    assert (
+        build_chat_embedding_query("Расскажи подробнее", history)
+        == "Расскажи подробнее Explain relational database normalization."
+    )
+    assert (
+        build_chat_embedding_query("What about caching?", history)
+        == "What about caching? Explain relational database normalization."
+    )
+    # Substantive questions (>= 2 terms) are not augmented with prior turns.
+    assert (
+        build_chat_embedding_query("How does spaced repetition work?", history)
+        == "How does spaced repetition work?"
+    )
+
+    long_prior = " ".join(f"concept{index}" for index in range(250))
+    capped = build_chat_embedding_query("Why?", (ChatHistoryTurn(role="user", content=long_prior),))
+    assert len(capped) <= MAX_EMBEDDING_QUERY_CHARS
+    assert capped.startswith("Why? concept0")
+    assert capped.endswith(ELLIPSIS)
 
 
 @pytest.mark.no_cover

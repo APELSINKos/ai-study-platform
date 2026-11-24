@@ -817,6 +817,104 @@ def test_short_followup_augments_keyword_query_from_prior_user_turn() -> None:
     assert store.matching_calls[0]["text"] == "normalization or anomalies"
 
 
+def test_short_followup_augments_embedding_query_while_keeping_original_llm_question() -> None:
+    store = _FakeStore(
+        nearest_results=[VectorCandidate(_CHUNK_ID_1, _DOC_ID_1, distance=0.1)],
+        matching_results=[KeywordCandidate(_CHUNK_ID_1, _DOC_ID_1, rank=0.6)],
+        hit_rows=[_hit()],
+    )
+    embedder = _FakeEmbedder()
+    llm = _FakeLLM()
+    service = RAGService(
+        store,
+        embedder,
+        llm,
+        embedding_model=_EMBEDDING_MODEL,
+        min_similarity=0.05,
+        turn_timeout_seconds=20.0,
+    )
+    history = (
+        ChatHistoryTurn(role="user", content="Explain normalization anomalies"),
+        ChatHistoryTurn(role="assistant", content="There are three anomaly types [1]."),
+    )
+
+    service.answer(_WORKSPACE_ID, "Tell me more", history=history, mode="hybrid")
+
+    assert embedder.calls == [["Tell me more Explain normalization anomalies"]]
+    assert llm.requests[0].question == "Tell me more"
+
+
+def test_empty_document_ids_list_short_circuits_without_store_provider_or_metrics() -> None:
+    events: list[str] = []
+    store = _FakeStore(
+        nearest_results=[VectorCandidate(_CHUNK_ID_1, _DOC_ID_1, distance=0.1)],
+        matching_results=[KeywordCandidate(_CHUNK_ID_1, _DOC_ID_1, rank=0.9)],
+        hit_rows=[_hit()],
+        events=events,
+    )
+    embedder = _FakeEmbedder(events=events)
+    llm = _FakeLLM(events=events)
+    service = RAGService(
+        store,
+        embedder,
+        llm,
+        embedding_model=_EMBEDDING_MODEL,
+        min_similarity=0.05,
+        turn_timeout_seconds=20.0,
+    )
+    before = _metric_snapshot()
+
+    result = service.answer(
+        _WORKSPACE_ID,
+        "How does review work?",
+        document_ids=[],
+        end_read_tx=lambda: events.append("end_read_tx"),
+    )
+
+    after = _metric_snapshot()
+    assert result.skipped_llm is True
+    assert result.insufficient_context is True
+    assert result.retrieved_chunks == ()
+    assert events == []
+    assert _deltas(before, after) == {}
+
+
+def test_stale_only_workspace_in_vector_mode_short_circuits_without_retrieval_metric() -> None:
+    events: list[str] = []
+    store = _FakeStore(
+        scope_result=SearchScope(ready_documents=2, stale_documents=2, pending_documents=0),
+        events=events,
+    )
+    embedder = _FakeEmbedder(events=events)
+    llm = _FakeLLM(events=events)
+    service = RAGService(
+        store,
+        embedder,
+        llm,
+        embedding_model=_EMBEDDING_MODEL,
+        min_similarity=0.05,
+        turn_timeout_seconds=20.0,
+    )
+    before = _metric_snapshot()
+
+    result = service.answer(
+        _WORKSPACE_ID,
+        "Spaced repetition",
+        mode="vector",
+        end_read_tx=lambda: events.append("end_read_tx"),
+    )
+
+    after = _metric_snapshot()
+    assert result.skipped_llm is True
+    assert result.insufficient_context is True
+    assert result.retrieval_mode == "vector"
+    assert result.semantic_available is False
+    assert result.embedding_ms is None
+    assert result.retrieval_ms == 0.0
+    assert events == ["scope", "end_read_tx"]
+    assert _deltas(before, after) == {}
+
+
 def test_per_call_min_similarity_override_and_top_k_validation() -> None:
     store = _FakeStore(
         nearest_results=[

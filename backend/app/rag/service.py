@@ -30,7 +30,7 @@ from app.rag.citations import (
     ground_answer,
 )
 from app.rag.context import build_context
-from app.rag.query import build_chat_keyword_query
+from app.rag.query import build_chat_embedding_query, build_chat_keyword_query
 from app.rag.retriever import CandidateSource, RetrievedChunk, Retriever
 from app.rag.vector_store import SearchScope
 from app.schemas.search import SearchMode
@@ -129,7 +129,7 @@ class RAGService:
             raise ValueError(f"top_k must be at least 1, got {top_k}")
 
         cleaned_question = " ".join(clean_text(clean_chat_text(question)).split())
-        if not cleaned_question:
+        if not cleaned_question or (document_ids is not None and not document_ids):
             return _empty_result(
                 retrieval_mode=mode,
                 semantic_available=False,
@@ -158,13 +158,21 @@ class RAGService:
         vector: list[float] | None = None
         embedding_ms: float | None = None
         if embed_query:
-            vector, embedding_seconds = self._embed(workspace_id, cleaned_question, mode)
+            embedding_query = build_chat_embedding_query(cleaned_question, history=history)
+            vector, embedding_seconds = self._embed(workspace_id, embedding_query, mode)
             embedding_ms = to_ms(embedding_seconds)
 
         keyword_query = (
             build_chat_keyword_query(cleaned_question, history=history) if mode != "vector" else ""
         )
         retrieval_mode = _effective_retrieval_mode(mode, has_vector=vector is not None)
+        if retrieval_mode == "vector" and vector is None:
+            return _empty_result(
+                retrieval_mode=retrieval_mode,
+                semantic_available=False,
+                embedding_ms=embedding_ms,
+                retrieval_ms=0.0,
+            )
         effective_min_similarity = (
             self._min_similarity if min_similarity is None else min_similarity
         )

@@ -599,6 +599,37 @@ def test_create_session_validation_errors(
     assert [detail["field"] for detail in response.json()["error"]["details"]] == [field]
 
 
+def test_session_title_sanitizes_controls_bidi_and_newlines_on_create_and_patch(
+    user_client: TestClient,
+) -> None:
+    ws = _create_workspace(user_client, "Sanitization")
+
+    created = _create_session(user_client, ws, title="\x1bExam\u202e\r\n  prep\tnotes\x07")
+    assert created["title"] == "Exam prep notes"
+
+    stripped_fits = _create_session(user_client, ws, title=("A" * 195) + ("\u202e" * 10))
+    assert stripped_fits["title"] == "A" * 195
+
+    control_only = _create_session(user_client, ws, title="\x1b\u202e\u200b\r\n")
+    assert control_only["title"] is None
+
+    patched = user_client.patch(
+        _session_path(created["id"]),
+        json={"title": "\x1bUpdated\u202e\n  title"},
+        headers=csrf_headers(user_client),
+    )
+    assert patched.status_code == HTTPStatus.OK
+    assert patched.json()["title"] == "Updated title"
+
+    cleared_by_controls = user_client.patch(
+        _session_path(created["id"]),
+        json={"title": "\x1b\u202e\u200b"},
+        headers=csrf_headers(user_client),
+    )
+    assert cleared_by_controls.status_code == HTTPStatus.OK
+    assert cleared_by_controls.json()["title"] is None
+
+
 @pytest.mark.parametrize(
     "content",
     ["", "   \n\t ", "\x1f", "\x1c\u200b\x07", "\u202e", "hello\x00world", "a" * 2001],
@@ -1222,6 +1253,51 @@ def test_metrics_increment_for_grounded_chat_turns(
     assert after["chat_ok"] - before["chat_ok"] == 1.0
     assert after["tokens_prompt"] - before["tokens_prompt"] == 210.0
     assert after["tokens_completion"] - before["tokens_completion"] == 45.0
+
+
+def test_chat_turn_completed_log_has_exact_keys_and_float_timings(
+    user_client: TestClient,
+    db_session: Session,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+    ws = _create_workspace(user_client)
+    doc = _add_document(db_session, ws, title="Forgetting")
+    _add_chunks(db_session, doc, _row(0, _FORGETTING_CHUNKS[0][1]))
+    created = _create_session(user_client, ws)
+
+    response = _send(user_client, created["id"], "How does review affect forgetting?")
+
+    assert response.status_code == HTTPStatus.CREATED
+    assistant = response.json()["assistant_message"]
+    assert isinstance(assistant["retrieval_ms"], int)
+    assert isinstance(assistant["generation_ms"], int)
+    [completed] = _events(capsys.readouterr().out, "chat_turn_completed")
+    assert set(completed) == {
+        *_LOG_KEYS,
+        "session_id",
+        "workspace_id",
+        "chunk_count",
+        "citation_count",
+        "insufficient_context",
+        "grounding_overridden",
+        "semantic_available",
+        "skipped_llm",
+        "model",
+        "embedding_ms",
+        "retrieval_ms",
+        "generation_ms",
+        "prompt_tokens",
+        "completion_tokens",
+        "question_chars",
+        "answer_chars",
+    }
+    assert isinstance(completed["embedding_ms"], float)
+    assert isinstance(completed["retrieval_ms"], float)
+    assert isinstance(completed["generation_ms"], float)
+    assert completed["embedding_ms"] >= 0.0
+    assert completed["retrieval_ms"] >= 0.0
+    assert completed["generation_ms"] >= 0.0
 
 
 def test_privacy_sentinels_never_appear_in_logs_metrics_or_error_responses(
