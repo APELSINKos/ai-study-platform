@@ -304,6 +304,53 @@ describe("useWorkspaceDocuments", () => {
 
     expect(listRequests()).toBe(afterRetry + 1);
   });
+
+  it("refreshes workspace stats when a document finishes processing, not on intermediate stages or pagination", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce(page(processing))
+      .mockResolvedValueOnce(page({ ...processing, status: "indexing" }))
+      .mockResolvedValue(page(readyDocumentFixture(1)));
+    const { queryClient } = renderDocuments();
+    queryClient.setQueryData(queryKeys.workspace(WORKSPACE_ID), { id: WORKSPACE_ID });
+    queryClient.setQueryData(queryKeys.workspaceList, { pages: [], pageParams: [1] });
+    queryClient.setQueryData(queryKeys.recentWorkspaces, { items: [] });
+
+    await pass(0);
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
+
+    // processing -> indexing is still in progress: workspace stats do not change yet.
+    await pass(2000);
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
+
+    // indexing -> ready settles the document: refresh workspace stats without re-fetching documents.
+    await pass(2000);
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.workspaceList)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.recentWorkspaces)?.isInvalidated).toBe(true);
+    expect(
+      queryClient.getQueryState(queryKeys.workspaceDocuments(WORKSPACE_ID))?.isInvalidated,
+    ).toBe(false);
+  });
+
+  it("does not invalidate workspace stats when loading another page of ready documents", async () => {
+    const firstFifty = Array.from({ length: 50 }, (_, index) => readyDocumentFixture(index + 1));
+    apiFetchMock
+      .mockResolvedValueOnce(documentPageFixture(firstFifty, { total: 52 }))
+      .mockResolvedValueOnce(
+        documentPageFixture([readyDocumentFixture(51), readyDocumentFixture(52)], {
+          page: 2,
+          total: 52,
+        }),
+      );
+    const { result, queryClient } = renderDocuments();
+    queryClient.setQueryData(queryKeys.workspace(WORKSPACE_ID), { id: WORKSPACE_ID });
+    await pass(0);
+
+    await act(() => result.current.fetchNextPage());
+    await pass(0);
+
+    expect(queryClient.getQueryState(queryKeys.workspace(WORKSPACE_ID))?.isInvalidated).toBe(false);
+  });
 });
 
 describe("useDocument", () => {

@@ -67,12 +67,53 @@ function loadedDocuments(data: DocumentPages): LoadedDocuments {
   return { documents, total: Math.max(data.pages.at(-1)?.total ?? 0, documents.length) };
 }
 
+function isSettledStatus(status: DocumentOut["status"]): boolean {
+  return status === "ready" || status === "failed";
+}
+
+function hasSettledStatusChange(
+  previousItems: readonly DocumentOut[],
+  nextItems: readonly DocumentOut[],
+  isFirstPage: boolean,
+): boolean {
+  const previousById = new Map(previousItems.map((document) => [document.id, document.status]));
+  return nextItems.some((document) => {
+    const before = previousById.get(document.id);
+    if (before !== undefined) {
+      return isSettledStatus(before) !== isSettledStatus(document.status);
+    }
+    return isFirstPage && isSettledStatus(document.status);
+  });
+}
+
 /** Every document of a workspace, a page at a time, asked for again while any is on its way. */
 export function useWorkspaceDocuments(workspaceId: string) {
+  const queryClient = useQueryClient();
   return useInfiniteQuery({
     queryKey: queryKeys.workspaceDocuments(workspaceId),
-    queryFn: ({ pageParam }) =>
-      fetchDocumentPage(workspaceId, pageParam, WORKSPACE_DOCUMENTS_PAGE_SIZE),
+    queryFn: async ({ pageParam }) => {
+      const previousPage = queryClient.getQueryData<DocumentPages>(
+        queryKeys.workspaceDocuments(workspaceId),
+      )?.pages[pageParam - 1];
+      const nextPage = await fetchDocumentPage(
+        workspaceId,
+        pageParam,
+        WORKSPACE_DOCUMENTS_PAGE_SIZE,
+      );
+      if (
+        previousPage !== undefined &&
+        hasSettledStatusChange(previousPage.items, nextPage.items, pageParam === FIRST_PAGE)
+      ) {
+        // Refresh workspace stats (e.g. ready_count for "Ask in chat") without re-fetching documents.
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.workspace(workspaceId),
+          exact: true,
+        });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceList });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.recentWorkspaces });
+      }
+      return nextPage;
+    },
     initialPageParam: FIRST_PAGE,
     getNextPageParam: nextPageAfter,
     select: loadedDocuments,

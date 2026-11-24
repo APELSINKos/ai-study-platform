@@ -220,6 +220,48 @@ describe("WorkspaceView", () => {
     expect(screen.getByText("1 file uploaded.")).toHaveAttribute("role", "status");
   });
 
+  it("reveals Ask in chat once a processing document finishes and becomes ready", async () => {
+    let isReady = false;
+    apiFetchMock.mockImplementation(async (path) => {
+      if (path === META_PATH) {
+        return META;
+      }
+      if (isDocumentsPath(path)) {
+        return documentPageFixture([
+          isReady
+            ? readyDocumentFixture(1, { workspace_id: WORKSPACE.id, title: "Reaction mechanisms" })
+            : documentFixture(1, {
+                workspace_id: WORKSPACE.id,
+                status: "processing",
+              }),
+        ]);
+      }
+      return {
+        ...WORKSPACE,
+        stats: {
+          ...WORKSPACE.stats,
+          document_count: 1,
+          ready_count: isReady ? 1 : 0,
+          processing_count: isReady ? 0 : 1,
+        },
+      };
+    });
+    const { queryClient } = renderView();
+    await screen.findByRole("heading", { level: 1, name: "Organic chemistry" });
+    await screen.findByText("Processing the file.");
+    expect(screen.queryByRole("link", { name: "Ask in chat" })).not.toBeInTheDocument();
+
+    isReady = true;
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: queryKeys.workspaceDocuments(WORKSPACE.id) }),
+    );
+
+    expect(await screen.findByRole("link", { name: "Ask in chat" })).toHaveAttribute(
+      "href",
+      `/chat?workspace=${WORKSPACE.id}`,
+    );
+  });
+
   it("searches the workspace for the query of the address, between its header and its documents", async () => {
     serve(WORKSPACE, [readyDocumentFixture(1, { title: "Reaction mechanisms" })]);
     renderView(WORKSPACE.id, "en", "light");
