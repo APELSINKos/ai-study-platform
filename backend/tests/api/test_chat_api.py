@@ -17,6 +17,7 @@ from sqlalchemy import Connection, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_chat_llm_provider, get_chat_query_embedder
+from app.core.body_limit import MAX_REQUEST_BODY_BYTES
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.documents.chunking import HEADING_SEPARATOR
@@ -50,7 +51,7 @@ from app.schemas.chat import (
     CHAT_MESSAGE_MAX_CHARS,
     MAX_MESSAGES_PER_SESSION,
 )
-from tests.api.conftest import csrf_headers
+from tests.api.conftest import csrf_headers, register
 
 pytestmark = pytest.mark.integration
 
@@ -359,6 +360,103 @@ def test_all_four_mutating_chat_endpoints_require_csrf(
     assert chat_llm.requests == []
 
 
+def test_bearer_token_authenticates_all_six_chat_endpoints_without_csrf(
+    auth_app: FastAPI,
+    auth_client: TestClient,
+    db_session: Session,
+) -> None:
+    registered = register(auth_client, email="chat-bearer@example.com").json()
+    headers = {"Authorization": f"Bearer {registered['access_token']}"}
+    workspace_id = _create_workspace(auth_client, "Bearer workspace")
+    doc = _add_document(db_session, workspace_id, title="Forgetting")
+    _add_chunks(db_session, doc, _row(0, _FORGETTING_CHUNKS[0][1]))
+
+    with TestClient(auth_app) as bearer_client:
+        created = bearer_client.post(
+            _SESSIONS_PATH,
+            json={"workspace_id": workspace_id, "title": "Bearer session"},
+            headers=headers,
+        )
+        assert created.status_code == HTTPStatus.CREATED, created.text
+        session_id = created.json()["id"]
+
+        listed = bearer_client.get(_SESSIONS_PATH, headers=headers)
+        assert listed.status_code == HTTPStatus.OK
+        assert [item["id"] for item in listed.json()["items"]] == [session_id]
+
+        fetched = bearer_client.get(_session_path(session_id), headers=headers)
+        assert fetched.status_code == HTTPStatus.OK
+        assert fetched.json()["title"] == "Bearer session"
+
+        patched = bearer_client.patch(
+            _session_path(session_id), json={"title": "Renamed via bearer"}, headers=headers
+        )
+        assert patched.status_code == HTTPStatus.OK
+        assert patched.json()["title"] == "Renamed via bearer"
+
+        sent = bearer_client.post(
+            _messages_path(session_id),
+            json={"content": "How does review affect forgetting?"},
+            headers=headers,
+        )
+        assert sent.status_code == HTTPStatus.CREATED
+        assert sent.json()["assistant_message"]["insufficient_context"] is False
+
+        deleted = bearer_client.delete(_session_path(session_id), headers=headers)
+        assert deleted.status_code == HTTPStatus.NO_CONTENT
+
+
+def test_invalid_bearer_with_valid_cookies_is_rejected_across_all_chat_endpoints(
+    user_client: TestClient,
+    chat_embedder: _FakeChatEmbedder,
+    chat_llm: _FakeChatLLM,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    created = _create_session(user_client, workspace_id)
+    session_id = created["id"]
+    bad_headers = {**csrf_headers(user_client), "Authorization": "Bearer not-a-valid-jwt"}
+
+    responses = [
+        user_client.get(_SESSIONS_PATH, headers=bad_headers),
+        user_client.post(_SESSIONS_PATH, json={"workspace_id": workspace_id}, headers=bad_headers),
+        user_client.get(_session_path(session_id), headers=bad_headers),
+        user_client.patch(_session_path(session_id), json={"title": "Nope"}, headers=bad_headers),
+        user_client.delete(_session_path(session_id), headers=bad_headers),
+        user_client.post(
+            _messages_path(session_id), json={"content": "Hello"}, headers=bad_headers
+        ),
+    ]
+
+    for response in responses:
+        _assert_error(response, HTTPStatus.UNAUTHORIZED, "invalid_token")
+        assert response.headers["www-authenticate"] == "Bearer"
+    assert chat_embedder.calls == []
+    assert chat_llm.requests == []
+
+
+def test_request_body_over_one_mib_is_rejected_on_chat_mutating_routes(
+    user_client: TestClient,
+    chat_embedder: _FakeChatEmbedder,
+    chat_llm: _FakeChatLLM,
+) -> None:
+    workspace_id = _create_workspace(user_client)
+    created = _create_session(user_client, workspace_id)
+    session_id = created["id"]
+    oversized_body = b'{"padding":"' + (b"a" * MAX_REQUEST_BODY_BYTES) + b'"}'
+    headers = {**csrf_headers(user_client), "Content-Type": "application/json"}
+
+    responses = [
+        user_client.post(_SESSIONS_PATH, content=oversized_body, headers=headers),
+        user_client.patch(_session_path(session_id), content=oversized_body, headers=headers),
+        user_client.post(_messages_path(session_id), content=oversized_body, headers=headers),
+    ]
+
+    for response in responses:
+        _assert_error(response, HTTPStatus.CONTENT_TOO_LARGE, "payload_too_large")
+    assert chat_embedder.calls == []
+    assert chat_llm.requests == []
+
+
 def test_two_user_isolation_across_all_six_endpoints_with_zero_ai_calls(
     user_client: TestClient,
     other_user_client: TestClient,
@@ -565,6 +663,57 @@ def test_patch_session_uses_model_fields_set_and_allows_renaming_after_scoped_do
         headers=csrf_headers(user_client),
     )
     _assert_error(bad_scope, HTTPStatus.NOT_FOUND, "document_not_found")
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"document_ids": []}, "document_ids"),
+        ({"document_ids": [str(uuid.uuid4())] * 51}, "document_ids"),
+        ({"title": "T" * 201}, "title"),
+        ({"title": "Bad\x00title"}, "title"),
+    ],
+    ids=["empty-scope", "51-duplicate-ids", "long-title", "nul-title"],
+)
+def test_patch_session_validation_errors(
+    user_client: TestClient,
+    payload: dict[str, object],
+    field: str,
+) -> None:
+    ws = _create_workspace(user_client)
+    created = _create_session(user_client, ws, title="Original")
+
+    response = user_client.patch(
+        _session_path(created["id"]), json=payload, headers=csrf_headers(user_client)
+    )
+
+    _assert_error(response, HTTPStatus.UNPROCESSABLE_ENTITY, "validation_error")
+    assert [detail["field"] for detail in response.json()["error"]["details"]] == [field]
+
+
+def test_patch_session_rejects_foreign_or_other_workspace_ready_document_with_404(
+    user_client: TestClient,
+    other_user_client: TestClient,
+    db_session: Session,
+) -> None:
+    ws1 = _create_workspace(user_client, "Primary")
+    ws2 = _create_workspace(user_client, "Secondary")
+    other_ws = _create_workspace(other_user_client, "Other owner")
+    own_doc = _add_document(db_session, ws1, status="ready", title="Own ready")
+    other_ws_doc = _add_document(db_session, ws2, status="ready", title="Other workspace ready")
+    foreign_doc = _add_document(db_session, other_ws, status="ready", title="Foreign ready")
+    created = _create_session(user_client, ws1, document_ids=[str(own_doc.id)])
+
+    for bad_doc in (other_ws_doc, foreign_doc):
+        response = user_client.patch(
+            _session_path(created["id"]),
+            json={"document_ids": [str(bad_doc.id)]},
+            headers=csrf_headers(user_client),
+        )
+        _assert_error(response, HTTPStatus.NOT_FOUND, "document_not_found")
+
+    detail = user_client.get(_session_path(created["id"])).json()
+    assert detail["document_ids"] == [str(own_doc.id)]
 
 
 @pytest.mark.parametrize(
