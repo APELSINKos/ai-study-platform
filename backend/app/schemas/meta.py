@@ -10,13 +10,27 @@ class AiInfo(BaseModel):
         description="offline: the built-in analysis and embeddings, which need no API key;"
         " live: the configured models."
     )
-    chat_model: str = Field(description="The model that analyses documents.")
+    chat_model: str = Field(
+        description="The model that analyses documents and answers chat questions."
+    )
     embedding_model: str = Field(description="The model that embeds chunks for search.")
 
 
 class SearchInfo(BaseModel):
     max_query_chars: int = Field(
         description="The longest query a search accepts, not counting surrounding spaces."
+    )
+
+
+class ChatInfo(BaseModel):
+    max_message_chars: int = Field(
+        description="The longest message a chat turn accepts, not counting surrounding spaces."
+    )
+    max_scope_documents: int = Field(
+        description="The most documents a chat session can be narrowed to."
+    )
+    max_messages_per_session: int = Field(
+        description="The most messages one chat session can hold."
     )
 
 
@@ -33,3 +47,4 @@ class MetaOut(BaseModel):
     max_storage_bytes_per_user: int = Field(description="The total size of a user's files.")
     ai: AiInfo
     search: SearchInfo
+    chat: ChatInfo

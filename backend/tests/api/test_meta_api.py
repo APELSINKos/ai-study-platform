@@ -8,6 +8,8 @@ from pydantic import SecretStr
 
 from app.core.config import MIB, Settings
 from app.main import create_app
+from app.models.chat_session import MAX_SCOPE_DOCUMENTS
+from app.schemas.chat import CHAT_MESSAGE_MAX_CHARS, MAX_MESSAGES_PER_SESSION
 from app.schemas.search import QUERY_MAX_CHARS
 
 _META_PATH: Final = "/api/v1/meta"
@@ -51,6 +53,11 @@ def test_meta_needs_no_sign_in_and_describes_the_upload_rules(
             "embedding_model": _OFFLINE_EMBEDDING_MODEL,
         },
         "search": {"max_query_chars": QUERY_MAX_CHARS},
+        "chat": {
+            "max_message_chars": CHAT_MESSAGE_MAX_CHARS,
+            "max_scope_documents": MAX_SCOPE_DOCUMENTS,
+            "max_messages_per_session": MAX_MESSAGES_PER_SESSION,
+        },
     }
 
 
@@ -64,6 +71,23 @@ def test_meta_gives_the_longest_query_that_a_search_accepts(client: TestClient) 
         if parameter["name"] == "q"
     ]
     assert search == {"max_query_chars": query["schema"]["maxLength"]}
+
+
+def test_meta_gives_the_chat_limits_that_the_chat_routes_accept(client: TestClient) -> None:
+    chat = client.get(_META_PATH).json()["chat"]
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+
+    message_content = schemas["ChatMessageCreateRequest"]["properties"]["content"]
+    scope_array = next(
+        option
+        for option in schemas["ChatSessionCreateRequest"]["properties"]["document_ids"]["anyOf"]
+        if option.get("type") == "array"
+    )
+    assert chat == {
+        "max_message_chars": message_content["maxLength"],
+        "max_scope_documents": scope_array["maxItems"],
+        "max_messages_per_session": MAX_MESSAGES_PER_SESSION,
+    }
 
 
 def test_meta_follows_the_settings(tmp_path: Path) -> None:
@@ -201,3 +225,12 @@ def test_openapi_documents_meta_as_a_public_route(client: TestClient) -> None:
     search = schemas["SearchInfo"]
     assert search["required"] == ["max_query_chars"]
     assert search["properties"]["max_query_chars"]["description"]
+    assert meta["properties"]["chat"]["$ref"] == "#/components/schemas/ChatInfo"
+    chat = schemas["ChatInfo"]
+    assert set(chat["required"]) == set(chat["properties"])
+    assert set(chat["properties"]) == {
+        "max_message_chars",
+        "max_scope_documents",
+        "max_messages_per_session",
+    }
+    assert all(prop["description"] for prop in chat["properties"].values())

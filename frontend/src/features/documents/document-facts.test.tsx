@@ -33,6 +33,7 @@ function metaIn(mode: AiMode): MetaOut {
         ? { mode, chat_model: "mock-heuristic-v1", embedding_model: "mock-hashing-v1" }
         : { mode, chat_model: "gpt-5.4-mini", embedding_model: "text-embedding-3-small" },
     search: { max_query_chars: 200 },
+    chat: { max_message_chars: 2000, max_scope_documents: 50, max_messages_per_session: 200 },
   };
 }
 

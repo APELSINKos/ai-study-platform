@@ -4,7 +4,9 @@ from app.api.deps import SettingsDep
 from app.core.config import Settings
 from app.documents.validation import ALLOWED_EXTENSIONS
 from app.llm.factory import selected_models
-from app.schemas.meta import AiInfo, MetaOut, SearchInfo
+from app.models.chat_session import MAX_SCOPE_DOCUMENTS
+from app.schemas.chat import CHAT_MESSAGE_MAX_CHARS, MAX_MESSAGES_PER_SESSION
+from app.schemas.meta import AiInfo, ChatInfo, MetaOut, SearchInfo
 from app.schemas.search import QUERY_MAX_CHARS
 
 router = APIRouter(prefix="/meta", tags=["meta"])
@@ -21,10 +23,12 @@ def _ai_info(settings: Settings) -> AiInfo:
     )
 
 
-@router.get("", summary="Upload and search limits, accepted file types and the AI models in use")
+@router.get(
+    "", summary="Upload, search and chat limits, accepted file types and the AI models in use"
+)
 def get_meta(settings: SettingsDep) -> MetaOut:
-    """Public, so the web app can check a file or a query before it is sent. Names the models
-    in use, never their keys or addresses."""
+    """Public, so the web app can check a file, query or message before it is sent. Names the
+    models in use, never their keys or addresses."""
     return MetaOut(
         max_upload_bytes=settings.max_upload_bytes,
         allowed_extensions=list(ALLOWED_EXTENSIONS),
@@ -33,4 +37,9 @@ def get_meta(settings: SettingsDep) -> MetaOut:
         max_storage_bytes_per_user=settings.max_storage_bytes_per_user,
         ai=_ai_info(settings),
         search=SearchInfo(max_query_chars=QUERY_MAX_CHARS),
+        chat=ChatInfo(
+            max_message_chars=CHAT_MESSAGE_MAX_CHARS,
+            max_scope_documents=MAX_SCOPE_DOCUMENTS,
+            max_messages_per_session=MAX_MESSAGES_PER_SESSION,
+        ),
     )

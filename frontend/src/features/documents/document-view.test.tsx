@@ -44,6 +44,7 @@ const META: MetaOut = {
   max_storage_bytes_per_user: 1_073_741_824,
   ai: { mode: "offline", chat_model: "mock-heuristic-v1", embedding_model: "mock-hashing-v1" },
   search: { max_query_chars: 200 },
+  chat: { max_message_chars: 2000, max_scope_documents: 50, max_messages_per_session: 200 },
 };
 
 const WORKSPACE = workspaceFixture(1, { name: "Organic chemistry" });

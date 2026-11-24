@@ -46,9 +46,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Upload and search limits, accepted file types and the AI models in use
-         * @description Public, so the web app can check a file or a query before it is sent. Names the models
-         *     in use, never their keys or addresses.
+         * Upload, search and chat limits, accepted file types and the AI models in use
+         * @description Public, so the web app can check a file, query or message before it is sent. Names the
+         *     models in use, never their keys or addresses.
          */
         get: operations["get_meta_api_v1_meta_get"];
         put?: never;
@@ -327,6 +327,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List your chat sessions, the most recently updated first */
+        get: operations["list_chat_sessions_api_v1_chat_sessions_get"];
+        put?: never;
+        /** Create a chat session scoped to a workspace or selected documents */
+        post: operations["create_chat_session_api_v1_chat_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a chat session with all of its messages in chronological order */
+        get: operations["get_chat_session_api_v1_chat_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete a chat session and all of its messages */
+        delete: operations["delete_chat_session_api_v1_chat_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a chat session or change its document scope */
+        patch: operations["update_chat_session_api_v1_chat_sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a question and receive a grounded answer with citations
+         * @description Rate-limited per signed-in user before session ownership is checked. When no relevant
+         *     passages are found, the chat model is skipped and the reply reports insufficient context.
+         */
+        post: operations["send_chat_message_api_v1_chat_sessions__session_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -337,7 +395,7 @@ export interface components {
             mode: components["schemas"]["AiMode"];
             /**
              * Chat Model
-             * @description The model that analyses documents.
+             * @description The model that analyses documents and answers chat questions.
              */
             chat_model: string;
             /**
@@ -379,6 +437,196 @@ export interface components {
              * @description A PDF, Markdown (.md) or plain text (.txt) file.
              */
             file: string;
+        };
+        /** ChatInfo */
+        ChatInfo: {
+            /**
+             * Max Message Chars
+             * @description The longest message a chat turn accepts, not counting surrounding spaces.
+             */
+            max_message_chars: number;
+            /**
+             * Max Scope Documents
+             * @description The most documents a chat session can be narrowed to.
+             */
+            max_scope_documents: number;
+            /**
+             * Max Messages Per Session
+             * @description The most messages one chat session can hold.
+             */
+            max_messages_per_session: number;
+        };
+        /** ChatMessageCreateRequest */
+        ChatMessageCreateRequest: {
+            /** Content */
+            content: string;
+        };
+        /** ChatMessageOut */
+        ChatMessageOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Sequence
+             * @description 1-based chronological order within the session.
+             */
+            sequence: number;
+            role: components["schemas"]["ChatMessageRole"];
+            /** Content */
+            content: string;
+            /** Citations */
+            citations: components["schemas"]["CitationOut"][];
+            /**
+             * Insufficient Context
+             * @description True when retrieved passages did not cover the question.
+             */
+            insufficient_context: boolean;
+            /**
+             * Model
+             * @description Chat model that wrote the answer; null for user messages or skipped LLM turns.
+             */
+            model: string | null;
+            /**
+             * Retrieval Ms
+             * @description Milliseconds spent retrieving passages; null for user messages.
+             */
+            retrieval_ms: number | null;
+            /**
+             * Generation Ms
+             * @description Milliseconds spent waiting on the chat model; null for user messages.
+             */
+            generation_ms: number | null;
+            /**
+             * Prompt Tokens
+             * @description Prompt tokens reported by the chat model; null when the model was not called.
+             */
+            prompt_tokens: number | null;
+            /**
+             * Completion Tokens
+             * @description Completion tokens reported by the chat model; null when the model was not called.
+             */
+            completion_tokens: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** @enum {string} */
+        ChatMessageRole: "user" | "assistant";
+        /** ChatSessionCreateRequest */
+        ChatSessionCreateRequest: {
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Title */
+            title?: string | null;
+            /** Document Ids */
+            document_ids?: string[] | null;
+        };
+        /** ChatSessionDetailOut */
+        ChatSessionDetailOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Title */
+            title: string | null;
+            /**
+             * Document Ids
+             * @description Document IDs this session is narrowed to; null covers the whole workspace.
+             */
+            document_ids: string[] | null;
+            /** Message Count */
+            message_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Messages */
+            messages: components["schemas"]["ChatMessageOut"][];
+        };
+        /** ChatSessionOut */
+        ChatSessionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Title */
+            title: string | null;
+            /**
+             * Document Ids
+             * @description Document IDs this session is narrowed to; null covers the whole workspace.
+             */
+            document_ids: string[] | null;
+            /** Message Count */
+            message_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ChatSessionPage */
+        ChatSessionPage: {
+            /** Items */
+            items: components["schemas"]["ChatSessionOut"][];
+            /**
+             * Total
+             * @description Number of items on all pages.
+             */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /**
+         * ChatSessionUpdateRequest
+         * @description Only the fields sent change; null clears the title or resets the document scope.
+         */
+        ChatSessionUpdateRequest: {
+            /** Title */
+            title?: string | null;
+            /** Document Ids */
+            document_ids?: string[] | null;
+        };
+        /** ChatTurnOut */
+        ChatTurnOut: {
+            session: components["schemas"]["ChatSessionOut"];
+            user_message: components["schemas"]["ChatMessageOut"];
+            assistant_message: components["schemas"]["ChatMessageOut"];
         };
         /** ChunkOut */
         ChunkOut: {
@@ -425,6 +673,54 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+        };
+        /** CitationOut */
+        CitationOut: {
+            /**
+             * Index
+             * @description 1-based display citation index matching [1], [2] in content.
+             */
+            index: number;
+            /**
+             * Chunk Id
+             * Format: uuid
+             */
+            chunk_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Document Title
+             * @description Snapshot of the document title or file name at answer time.
+             */
+            document_title: string;
+            /**
+             * Chunk Index
+             * @description Position of the cited passage in its document, from 0.
+             */
+            chunk_index: number;
+            /**
+             * Heading
+             * @description The headings above the passage, outermost first, joined with ' › '.
+             */
+            heading: string | null;
+            /**
+             * Page Start
+             * @description First PDF page of the passage; null for text files.
+             */
+            page_start: number | null;
+            /**
+             * Page End
+             * @description Last PDF page of the passage; null for text files.
+             */
+            page_end: number | null;
+            /**
+             * Quote
+             * @description Immutable plain-text excerpt of the cited passage.
+             */
+            quote: string;
         };
         /** ComponentHealth */
         ComponentHealth: {
@@ -605,6 +901,7 @@ export interface components {
             max_storage_bytes_per_user: number;
             ai: components["schemas"]["AiInfo"];
             search: components["schemas"]["SearchInfo"];
+            chat: components["schemas"]["ChatInfo"];
         };
         /** ReadinessResponse */
         ReadinessResponse: {
@@ -1960,6 +2257,374 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_chat_sessions_api_v1_chat_sessions_get: {
+        parameters: {
+            query?: {
+                /** @description Only sessions in this workspace. */
+                workspace_id?: string | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_chat_session_api_v1_chat_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSessionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_chat_session_api_v1_chat_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionDetailOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_chat_session_api_v1_chat_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_chat_session_api_v1_chat_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSessionUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request contains invalid data. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    send_chat_message_api_v1_chat_sessions__session_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatMessageCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatTurnOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
