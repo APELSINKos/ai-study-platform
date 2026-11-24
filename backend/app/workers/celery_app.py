@@ -5,7 +5,7 @@ import sys
 from typing import Any, Final
 
 import structlog
-from celery import Celery, Task, signals
+from celery import Celery, Task, current_app, signals
 
 from app.core.config import MIB, get_settings
 from app.core.logging import configure_logging
@@ -83,6 +83,8 @@ def _configure_worker_logging(**_: Any) -> None:
 
 @signals.worker_process_init.connect
 def _limit_child_memory(**_: Any) -> None:
+    if current_app != celery_app:
+        return
     # A file that makes pypdf balloon then fails as unreadable on a MemoryError, instead of
     # the kernel killing the child and leaving its document stuck in processing.
     if sys.platform != "win32":

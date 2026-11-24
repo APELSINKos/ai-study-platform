@@ -391,7 +391,7 @@ export interface components {
     schemas: {
         /** AiInfo */
         AiInfo: {
-            /** @description offline: the built-in analysis and embeddings, which need no API key; live: the configured models. */
+            /** @description offline: the built-in analysis, embeddings and chat, which need no API key; live: the configured models. */
             mode: components["schemas"]["AiMode"];
             /**
              * Chat Model
@@ -400,7 +400,7 @@ export interface components {
             chat_model: string;
             /**
              * Embedding Model
-             * @description The model that embeds chunks for search.
+             * @description The model that embeds chunks and queries for search and chat.
              */
             embedding_model: string;
         };

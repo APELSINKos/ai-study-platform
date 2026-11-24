@@ -46,7 +46,7 @@ _CHAT_TAG_NAMES: Final = (
 )
 # Neutralises ASCII, fullwidth (\uff1c/\uff1e/\uff0f) and small (\ufe64/\ufe65) chat tags.
 _CHAT_DELIMITER_RE: Final = re.compile(
-    rf"[<\uff1c\ufe64][/\uff0f\s]*+(?:{_CHAT_TAG_NAMES})\b"
+    rf"[<\uff1c\ufe64][/\uff0f\s]*+(?=[adhimpqstu])(?:{_CHAT_TAG_NAMES})\b"
     r"(?:[^<>\uff1c\uff1e\ufe64\ufe65]*+[>\uff1e\ufe65])?+",
     re.IGNORECASE,
 )
@@ -108,21 +108,38 @@ def build_analysis_messages(request: AnalysisRequest) -> list[ChatCompletionMess
     ]
 
 
+def _codepoint_range(start: int, end: int) -> str:
+    if start == end:
+        return f"\\U{start:08x}"
+    return f"\\U{start:08x}-\\U{end:08x}"
+
+
 @cache
-def _invisible_char_table() -> dict[int, None]:
-    return {
-        codepoint: None
+def _invisible_char_re() -> re.Pattern[str]:
+    """Compiled C-regex matching contiguous runs of Unicode Cc/Cf/Cs chars except \\n and \\t."""
+    codepoints = [
+        codepoint
         for codepoint in range(sys.maxunicode + 1)
         if codepoint not in _KEPT_CONTROL_CODEPOINTS
         and unicodedata.category(chr(codepoint)) in _STRIPPED_CATEGORIES
-    }
+    ]
+    ranges: list[str] = []
+    start = end = codepoints[0]
+    for codepoint in codepoints[1:]:
+        if codepoint == end + 1:
+            end = codepoint
+            continue
+        ranges.append(_codepoint_range(start, end))
+        start = end = codepoint
+    ranges.append(_codepoint_range(start, end))
+    return re.compile(f"[{''.join(ranges)}]++")
 
 
 def _strip_invisible_chars(text: str) -> str:
     """Strip Unicode Cf/Cc/Cs characters except \\n and \\t so format chars cannot smuggle tags."""
     if text.isprintable():
         return text
-    return text.translate(_invisible_char_table())
+    return _invisible_char_re().sub("", text)
 
 
 def defuse_chat_delimiters(text: str) -> str:

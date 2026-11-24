@@ -7,13 +7,15 @@ type AiMode = Literal["offline", "live"]
 
 class AiInfo(BaseModel):
     mode: AiMode = Field(
-        description="offline: the built-in analysis and embeddings, which need no API key;"
+        description="offline: the built-in analysis, embeddings and chat, which need no API key;"
         " live: the configured models."
     )
     chat_model: str = Field(
         description="The model that analyses documents and answers chat questions."
     )
-    embedding_model: str = Field(description="The model that embeds chunks for search.")
+    embedding_model: str = Field(
+        description="The model that embeds chunks and queries for search and chat."
+    )
 
 
 class SearchInfo(BaseModel):

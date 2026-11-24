@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Iterator
 from typing import Final
 
@@ -7,6 +8,9 @@ from celery.contrib.testing.worker import start_worker
 
 from app.core.request_context import request_id_ctx
 from app.workers.celery_app import celery_app
+
+if sys.platform != "win32":
+    import resource
 
 RESULT_TIMEOUT_SECONDS: Final = 10
 
@@ -20,8 +24,17 @@ def memory_app() -> Iterator[Celery]:
     def current_request_id() -> str | None:
         return request_id_ctx.get()
 
-    with start_worker(app, perform_ping_check=False, pool="solo"):
-        yield app
+    limit_before = resource.getrlimit(resource.RLIMIT_AS) if sys.platform != "win32" else None
+    try:
+        with start_worker(app, perform_ping_check=False, pool="solo"):
+            if sys.platform != "win32":
+                assert resource.getrlimit(resource.RLIMIT_AS) == limit_before
+            yield app
+        if sys.platform != "win32":
+            assert resource.getrlimit(resource.RLIMIT_AS) == limit_before
+    finally:
+        celery_app.set_current()
+        celery_app.set_default()
 
 
 def test_the_request_id_of_the_api_call_reaches_the_task(memory_app: Celery) -> None:
