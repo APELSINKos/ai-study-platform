@@ -20,6 +20,7 @@ from app.rag.context import BuiltContext
 from app.rag.retriever import RetrievedChunk
 
 MAX_ANSWER_CHARS: Final = 8_000
+MAX_INSUFFICIENT_ANSWER_CHARS: Final = 600
 MAX_CITATION_QUOTE_CHARS: Final = 320
 INSUFFICIENT_CONTEXT_FALLBACK: Final = (
     "The uploaded materials do not contain enough information to answer this question."
@@ -27,20 +28,24 @@ INSUFFICIENT_CONTEXT_FALLBACK: Final = (
 
 # Linear possessive matcher for [S1], [S1, S2], [S1; S2] groups; never backtracks across runs
 # such as "[S1," repeated two million times.
-SOURCE_GROUP_RE: Final = re.compile(r"\[\s*+S\d{1,3}(?:\s*+[,;]\s*+S\d{1,3})*+\s*+\]")
-_SOURCE_LABEL_RE: Final = re.compile(r"S\d{1,3}")
+SOURCE_GROUP_RE: Final = re.compile(
+    r"\[\s*+S\d{1,3}(?:\s*+[,;]\s*+S\d{1,3})*+\s*+\]",
+    re.IGNORECASE,
+)
+_SOURCE_LABEL_RE: Final = re.compile(r"S\d{1,3}", re.IGNORECASE)
 _DISPLAY_MARKER_RE: Final = re.compile(r"\[\d{1,3}\]")
 # Maximum length of a display citation marker such as "[123]" (5 chars).
 _MAX_DISPLAY_MARKER_CHARS: Final = 5
+_MAX_REWRITE_PASSES: Final = 8
 _LINE_BREAK_RE: Final = re.compile(
     r"\r\n?|[\v\f\x1c-\x1e\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}]"
 )
 _NO_BREAK_SPACES: Final = ("\N{NO-BREAK SPACE}", "\N{NARROW NO-BREAK SPACE}", "\t")
 # Control, format and lone-surrogate categories dropped from stored text.
 _DROPPED_CATEGORIES: Final = frozenset({"Cc", "Cf", "Cs"})
-_ORPHAN_PUNCTUATION: Final = ".,;:!?"
+_ORPHAN_PUNCTUATION: Final = f".,;:!?)]}}'\"\u00bb\u201d\u2019{ELLIPSIS}"
 _HORIZONTAL_SPACE: Final = " \t"
-_TRAILING_SEPARATORS: Final = " \t\r\n,;:-\u2013\u2014"
+_TRAILING_SEPARATORS: Final = f" \t\r\n,;:-\u2013\u2014{ELLIPSIS}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,10 +96,10 @@ def ground_answer(raw: ChatAnswer, context: BuiltContext) -> GroundedAnswer:
     """Validate and renumber citations in raw against context, enforcing strict grounding."""
     normalized_text = _normalize_raw_text(raw.answer)
     if raw.insufficient_context:
-        stripped = _rewrite_groups(normalized_text, lambda _match: "")
+        stripped = _rewrite_groups(normalized_text, _remove_group)
         cleaned = _finalize_paragraphs(stripped)
         if cleaned:
-            cleaned = _truncate_preserving_citations(cleaned, MAX_ANSWER_CHARS)
+            cleaned = _truncate_preserving_citations(cleaned, MAX_INSUFFICIENT_ANSWER_CHARS)
         return GroundedAnswer(
             content=cleaned or INSUFFICIENT_CONTEXT_FALLBACK,
             citations=(),
@@ -107,7 +112,8 @@ def ground_answer(raw: ChatAnswer, context: BuiltContext) -> GroundedAnswer:
     seen_labels: set[str] = set()
 
     for match in SOURCE_GROUP_RE.finditer(normalized_text):
-        for label in _SOURCE_LABEL_RE.findall(match.group()):
+        for raw_label in _SOURCE_LABEL_RE.findall(match.group()):
+            label = raw_label.upper()
             if label in sources_by_label and label not in seen_labels:
                 seen_labels.add(label)
                 ordered_labels.append(label)
@@ -123,7 +129,8 @@ def ground_answer(raw: ChatAnswer, context: BuiltContext) -> GroundedAnswer:
     def _replace_group(match: re.Match[str]) -> str:
         group_seen: set[str] = set()
         markers: list[str] = []
-        for label in _SOURCE_LABEL_RE.findall(match.group()):
+        for raw_label in _SOURCE_LABEL_RE.findall(match.group()):
+            label = raw_label.upper()
             index = label_to_index.get(label)
             if index is not None and label not in group_seen:
                 group_seen.add(label)
@@ -155,11 +162,29 @@ def ground_answer(raw: ChatAnswer, context: BuiltContext) -> GroundedAnswer:
     )
 
 
+def _remove_group(_match: re.Match[str]) -> str:
+    return ""
+
+
 def _rewrite_groups(text: str, replacer: Callable[[re.Match[str]], str]) -> str:
-    """Replace SOURCE_GROUP_RE matches in one pass, cleaning spacing where a group is removed."""
+    """Replace SOURCE_GROUP_RE matches, cleaning spacing and blocking marker stitch-through."""
+    current, removed = _rewrite_groups_once(text, replacer)
+    if not removed:
+        return current
+    for _ in range(_MAX_REWRITE_PASSES - 1):
+        if SOURCE_GROUP_RE.search(current) is None:
+            return current
+        current, _ = _rewrite_groups_once(current, _remove_group)
+    if SOURCE_GROUP_RE.search(current) is not None:
+        return SOURCE_GROUP_RE.sub(ELLIPSIS, current)
+    return current
+
+
+def _rewrite_groups_once(text: str, replacer: Callable[[re.Match[str]], str]) -> tuple[str, bool]:
     pieces: list[str] = []
     last = 0
     prev_removed = False
+    removed_any = False
     for match in SOURCE_GROUP_RE.finditer(text):
         literal = text[last : match.start()]
         replacement = replacer(match)
@@ -168,7 +193,7 @@ def _rewrite_groups(text: str, replacer: Callable[[re.Match[str]], str]) -> str:
             if not replacement and not literal.strip(_HORIZONTAL_SPACE):
                 # Consecutive removed groups separated by nothing or spaces collapse as one gap.
                 continue
-            literal = _join_after_removed(pieces, literal)
+            literal = _join_after_removed(pieces, literal, followed_by_marker=bool(replacement))
             prev_removed = False
         if literal:
             pieces.append(literal)
@@ -176,17 +201,24 @@ def _rewrite_groups(text: str, replacer: Callable[[re.Match[str]], str]) -> str:
             pieces.append(replacement)
         else:
             prev_removed = True
+            removed_any = True
     tail = text[last:]
     if prev_removed:
         tail = _join_after_removed(pieces, tail)
     if tail:
         pieces.append(tail)
-    return "".join(pieces)
+    return "".join(pieces), removed_any
 
 
-def _join_after_removed(pieces: list[str], following: str) -> str:
+def _join_after_removed(
+    pieces: list[str], following: str, *, followed_by_marker: bool = False
+) -> str:
     """Clean orphan spaces left between the text before a removed marker and what follows it."""
-    if not following or following[0] in _ORPHAN_PUNCTUATION or following[0] == "\n":
+    if not following:
+        if not followed_by_marker:
+            _strip_trailing_horizontal_space(pieces)
+        return following
+    if following[0] in _ORPHAN_PUNCTUATION or following[0] == "\n":
         _strip_trailing_horizontal_space(pieces)
         return following
     if not pieces or pieces[-1].endswith("\n") or pieces[-1][-1] in _HORIZONTAL_SPACE:
@@ -287,7 +319,17 @@ def _citation_snapshot(index: int, chunk: RetrievedChunk) -> CitationSnapshot:
         raw_quote = "".join(part.text for part in chunk.snippet)
     else:
         raw_quote = chunk.content
-    quote = shorten(" ".join(raw_quote.split()), MAX_CITATION_QUOTE_CHARS)
+    collapsed = " ".join(raw_quote.split())
+    if len(collapsed) > MAX_CITATION_QUOTE_CHARS:
+        trimmed = collapsed.rstrip(_TRAILING_SEPARATORS)
+        if len(trimmed) < MAX_CITATION_QUOTE_CHARS:
+            quote = f"{trimmed}{ELLIPSIS}" if trimmed else ELLIPSIS
+        else:
+            shortened = shorten(trimmed, MAX_CITATION_QUOTE_CHARS)
+            body = shortened[: -len(ELLIPSIS)].rstrip(_TRAILING_SEPARATORS)
+            quote = f"{body}{ELLIPSIS}" if body else ELLIPSIS
+    else:
+        quote = collapsed
     return CitationSnapshot(
         index=index,
         chunk_id=chunk.chunk_id,

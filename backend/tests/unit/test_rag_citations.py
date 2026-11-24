@@ -13,6 +13,7 @@ from app.rag.citations import (
     INSUFFICIENT_CONTEXT_FALLBACK,
     MAX_ANSWER_CHARS,
     MAX_CITATION_QUOTE_CHARS,
+    MAX_INSUFFICIENT_ANSWER_CHARS,
     SOURCE_GROUP_RE,
     CitationSnapshot,
     GroundedAnswer,
@@ -267,6 +268,142 @@ def test_citation_quote_is_capped_at_word_boundary() -> None:
     quote = grounded.citations[0].quote
     assert len(quote) <= MAX_CITATION_QUOTE_CHARS
     assert quote.endswith(ELLIPSIS)
+
+
+def test_lowercase_and_mixed_case_inline_markers_are_renumbered_and_grounded() -> None:
+    context = build_context([_chunk(0, "First passage."), _chunk(1, "Second passage.")])
+    raw = ChatAnswer(
+        answer="See [s1] and mixed [S1, s99] plus [s2; s1].",
+        citations=["s1", "S2"],
+        insufficient_context=False,
+    )
+
+    grounded = ground_answer(raw, context)
+
+    assert grounded.insufficient_context is False
+    assert grounded.content == "See [1] and mixed [1] plus [2][1]."
+    assert [(c.index, c.chunk_index) for c in grounded.citations] == [(1, 0), (2, 1)]
+
+
+def test_nested_stitch_through_markers_are_completely_stripped() -> None:
+    context = build_context([_chunk(0, "First passage."), _chunk(1, "Second passage.")])
+    raw = ChatAnswer(
+        answer="Fact [S1] and [S2]. Forged [S[S99]2], [[S99]S2] and [S[S[S99]1]2].",
+        citations=["S1", "S2"],
+        insufficient_context=False,
+    )
+
+    grounded = ground_answer(raw, context)
+
+    assert grounded.insufficient_context is False
+    assert grounded.content == "Fact [1] and [2]. Forged, and."
+    assert SOURCE_GROUP_RE.search(grounded.content) is None
+
+    insufficient = ground_answer(
+        ChatAnswer(
+            answer="Not covered [S[S1]2] and [[s2]S1].",
+            citations=["S1"],
+            insufficient_context=True,
+        ),
+        context,
+    )
+    assert insufficient.content == "Not covered and."
+    assert SOURCE_GROUP_RE.search(insufficient.content) is None
+
+
+def test_unknown_marker_immediately_before_surviving_marker_preserves_space() -> None:
+    context = build_context([_chunk(0, "Real source.")])
+    raw = ChatAnswer(
+        answer="Fact [S99][S1]. Double [S99][S98][S1].",
+        citations=["S1"],
+        insufficient_context=False,
+    )
+
+    grounded = ground_answer(raw, context)
+
+    assert grounded.content == "Fact [1]. Double [1]."
+
+
+def test_unknown_markers_before_closing_marks_leave_no_orphan_space() -> None:
+    context = build_context([_chunk(0, "Real source.")])
+    raw = ChatAnswer(
+        answer=(
+            "(see [S99]), [note [S98]], {ref [S97]}, 'single [S96]', "
+            '"quote [S95]", «ru [S94]», “en [S93]”, ‘a [S92]’, wait [S91]… [S1].'
+        ),
+        citations=["S1"],
+        insufficient_context=False,
+    )
+
+    grounded = ground_answer(raw, context)
+
+    assert grounded.content == (
+        "(see), [note], {ref}, 'single', \"quote\", «ru», “en”, ‘a’, wait… [1]."
+    )
+
+
+@pytest.mark.parametrize(
+    "chunk",
+    [
+        _chunk(
+            0,
+            "Content.",
+            snippet=[
+                SnippetPart(text="word " * 63 + "abcd ", highlighted=True),
+                SnippetPart(text=ELLIPSIS, highlighted=False),
+            ],
+        ),
+        _chunk(
+            0,
+            "Content.",
+            snippet=[
+                SnippetPart(text="a " * 158, highlighted=True),
+                SnippetPart(text=f"{ELLIPSIS} trailing words", highlighted=False),
+            ],
+        ),
+        _chunk(0, "word " * 63 + f"end{ELLIPSIS} trailing words"),
+    ],
+    ids=["trailing-ellipsis-snippet", "passage-break-ellipsis-at-cut", "word-ellipsis-at-cut"],
+)
+def test_citation_quote_never_produces_double_ellipsis(chunk: RetrievedChunk) -> None:
+    context = build_context([chunk])
+    raw = ChatAnswer(answer="See [S1].", citations=["S1"], insufficient_context=False)
+
+    grounded = ground_answer(raw, context)
+    quote = grounded.citations[0].quote
+
+    assert len(quote) <= MAX_CITATION_QUOTE_CHARS
+    assert quote.endswith(ELLIPSIS)
+    assert f"{ELLIPSIS}{ELLIPSIS}" not in quote
+
+
+def test_honest_insufficient_context_explanation_is_capped_at_600_chars() -> None:
+    context = build_context([_chunk(0, "Real passage.")])
+    long_explanation = " ".join(f"explanation{index}" for index in range(120))
+    raw = ChatAnswer(answer=long_explanation, citations=[], insufficient_context=True)
+
+    grounded = ground_answer(raw, context)
+
+    assert grounded.insufficient_context is True
+    assert grounded.grounding_overridden is False
+    assert len(grounded.content) <= MAX_INSUFFICIENT_ANSWER_CHARS
+    assert grounded.content.endswith(ELLIPSIS)
+
+
+@pytest.mark.no_cover
+def test_deeply_nested_stitch_through_stays_linear_and_leaves_no_source_markers() -> None:
+    context = build_context([_chunk(0, "Source one."), _chunk(1, "Source two.")])
+    nested = "[S" * 300_000 + "[S99]" + "2]" * 300_000
+
+    started = time.perf_counter()
+    grounded = ground_answer(
+        ChatAnswer(answer=f"Fact [S1]. {nested}", citations=["S1"], insufficient_context=False),
+        context,
+    )
+
+    assert time.perf_counter() - started < HOSTILE_TIME_LIMIT_SECONDS
+    assert grounded.insufficient_context is False
+    assert SOURCE_GROUP_RE.search(grounded.content) is None
 
 
 @pytest.mark.no_cover

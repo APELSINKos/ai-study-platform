@@ -23,7 +23,12 @@ from app.llm.base import (
     LLMProvider,
     ProviderError,
 )
-from app.rag.citations import INSUFFICIENT_CONTEXT_FALLBACK, CitationSnapshot, ground_answer
+from app.rag.citations import (
+    INSUFFICIENT_CONTEXT_FALLBACK,
+    CitationSnapshot,
+    clean_chat_text,
+    ground_answer,
+)
 from app.rag.context import build_context
 from app.rag.query import build_chat_keyword_query
 from app.rag.retriever import CandidateSource, RetrievedChunk, Retriever
@@ -123,7 +128,7 @@ class RAGService:
         if top_k < 1:
             raise ValueError(f"top_k must be at least 1, got {top_k}")
 
-        cleaned_question = " ".join(clean_text(question).split())
+        cleaned_question = " ".join(clean_text(clean_chat_text(question)).split())
         if not cleaned_question:
             return _empty_result(
                 retrieval_mode=mode,

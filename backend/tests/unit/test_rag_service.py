@@ -461,7 +461,10 @@ def test_vector_mode_skips_keyword_matching_and_embeds_full_question() -> None:
     }
 
 
-@pytest.mark.parametrize("question", ["", "   \n\t ", "\x1f\u200b"])
+@pytest.mark.parametrize(
+    "question",
+    ["", "   \n\t ", "\x1f\u200b", "\u202e", "\u00ad", "\u202e\u00ad\x1b"],
+)
 def test_blank_question_short_circuits_without_store_provider_or_metrics(question: str) -> None:
     events: list[str] = []
     store = _FakeStore(events=events)
@@ -502,6 +505,29 @@ def test_blank_question_short_circuits_without_store_provider_or_metrics(questio
     )
     assert events == []
     assert _deltas(before, after) == {}
+
+
+def test_question_cleaning_strips_format_controls_and_normalizes_ligatures() -> None:
+    store = _FakeStore(
+        nearest_results=[VectorCandidate(_CHUNK_ID_1, _DOC_ID_1, distance=0.1)],
+        matching_results=[KeywordCandidate(_CHUNK_ID_1, _DOC_ID_1, rank=0.7)],
+        hit_rows=[_hit()],
+    )
+    embedder = _FakeEmbedder()
+    llm = _FakeLLM()
+    service = RAGService(
+        store,
+        embedder,
+        llm,
+        embedding_model=_EMBEDDING_MODEL,
+        min_similarity=0.05,
+        turn_timeout_seconds=20.0,
+    )
+
+    service.answer(_WORKSPACE_ID, "ﬁle\u202e\u00ad   review\x1b")
+
+    assert embedder.calls == [["file review"]]
+    assert llm.requests[0].question == "file review"
 
 
 def test_empty_scope_short_circuits_before_embedding_retrieval_and_llm() -> None:

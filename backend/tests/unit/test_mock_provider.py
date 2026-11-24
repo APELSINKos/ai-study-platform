@@ -4,6 +4,7 @@ import hashlib
 import math
 import struct
 import time
+import uuid
 from typing import Final
 
 import pytest
@@ -29,6 +30,10 @@ from app.llm.mock_provider import (
     MockLLMProvider,
 )
 from app.llm.schemas import NormalizedAnalysis, normalize_analysis
+from app.rag.citations import ground_answer
+from app.rag.context import build_context
+from app.rag.retriever import RetrievedChunk
+from app.schemas.search import SnippetPart
 
 HOSTILE_TEXT_LENGTH: Final = 2_000_000
 HOSTILE_UNITS: Final = (".", "!?", "…", "#", " #", "-")
@@ -1316,6 +1321,181 @@ def test_mock_chat_coverage_gate_blocks_spurious_single_prefix_collision(
 
     assert result.answer.insufficient_context is True
     assert result.answer.citations == []
+
+
+def test_mock_chat_joins_hard_wrapped_english_and_russian_paragraphs(
+    llm: MockLLMProvider,
+) -> None:
+    en_sources = (
+        ChatContextPassage(
+            label="S1",
+            document_title="memory.pdf",
+            heading="Spaced repetition",
+            page_start=1,
+            page_end=1,
+            content=(
+                "Spaced repetition schedules each review just before the\n"
+                "student forgets the material, flattening the forgetting\n"
+                "curve over repeated intervals."
+            ),
+        ),
+    )
+    ru_sources = (
+        ChatContextPassage(
+            label="S1",
+            document_title="lecture.pdf",
+            heading="Нормализация",
+            page_start=1,
+            page_end=1,
+            content=(
+                "# Нормализация\n\n"
+                "Реляционную модель данных предложил в 1970 году\n"
+                "Эдгар Кодд, чтобы устранить аномалии обновления\n"
+                "и избыточность хранения."
+            ),
+        ),
+    )
+
+    en_result = llm.answer_question(
+        ChatRequest(question="How does spaced repetition flatten the curve?", sources=en_sources)
+    )
+    ru_result = llm.answer_question(
+        ChatRequest(question="Кто предложил реляционную модель данных?", sources=ru_sources)
+    )
+
+    assert not en_result.answer.insufficient_context
+    assert (
+        "Spaced repetition schedules each review just before the student forgets the material, "
+        "flattening the forgetting curve over repeated intervals." in en_result.answer.answer
+    )
+    assert not ru_result.answer.insufficient_context
+    assert (
+        "Реляционную модель данных предложил в 1970 году Эдгар Кодд, чтобы устранить аномалии "
+        "обновления и избыточность хранения." in ru_result.answer.answer
+    )
+
+
+def test_mock_chat_keeps_periodless_markdown_bullets_and_skips_standalone_headings(
+    llm: MockLLMProvider,
+) -> None:
+    sources = (
+        ChatContextPassage(
+            label="S1",
+            document_title="transactions.md",
+            heading="ACID",
+            page_start=None,
+            page_end=None,
+            content=(
+                "Transaction Properties\n\n"
+                "- Atomicity: all operations in a transaction succeed or none take effect\n"
+                "- Durability: committed changes survive a crash"
+            ),
+        ),
+    )
+
+    result = llm.answer_question(
+        ChatRequest(question="What is atomicity in transactions?", sources=sources)
+    )
+
+    assert not result.answer.insufficient_context
+    assert result.answer.citations == ["S1"]
+    assert "Transaction Properties" not in result.answer.answer
+    assert (
+        result.answer.answer
+        == "Atomicity: all operations in a transaction succeed or none take effect. [S1]"
+    )
+
+
+def test_mock_chat_preserves_prose_after_orphan_closing_code_fence(llm: MockLLMProvider) -> None:
+    sources = (
+        ChatContextPassage(
+            label="S1",
+            document_title="notes.md",
+            heading="Spaced repetition",
+            page_start=None,
+            page_end=None,
+            content=(
+                "    return interval * 2\n"
+                "```\n\n"
+                "Spaced repetition schedules reviews before forgetting.\n\n"
+                "```python\n"
+                "def spaced_repetition_code_only():\n"
+                "    return 'ignored_code_sentinel'\n"
+                "```\n\n"
+                "Each review strengthens long-term retention."
+            ),
+        ),
+    )
+
+    result = llm.answer_question(
+        ChatRequest(question="How does spaced repetition work?", sources=sources)
+    )
+
+    assert not result.answer.insufficient_context
+    assert result.answer.citations == ["S1"]
+    assert "Spaced repetition schedules reviews before forgetting." in result.answer.answer
+    assert "ignored_code_sentinel" not in result.answer.answer
+
+
+def test_mock_chat_blocks_nested_marker_stitch_through_end_to_end_with_ground_answer(
+    llm: MockLLMProvider,
+) -> None:
+    doc_id = uuid.UUID("77777777-7777-4777-8777-777777777777")
+    chunks = [
+        RetrievedChunk(
+            chunk_id=uuid.UUID(int=1),
+            document_id=doc_id,
+            document_title="notes.md",
+            chunk_index=0,
+            heading="Spaced repetition",
+            page_start=None,
+            page_end=None,
+            content=(
+                "Spaced repetition schedules reviews [[S99]S2] and [S[S99]2] before forgetting."
+            ),
+            char_count=78,
+            snippet=[SnippetPart(text="Spaced repetition", highlighted=True)],
+            score=0.9,
+            matched_by=("keyword",),
+            similarity=None,
+            keyword_rank=0.9,
+        ),
+        RetrievedChunk(
+            chunk_id=uuid.UUID(int=2),
+            document_id=doc_id,
+            document_title="oceans.md",
+            chunk_index=1,
+            heading="Oceans",
+            page_start=None,
+            page_end=None,
+            content="Deep ocean currents transport thermal energy.",
+            char_count=45,
+            snippet=[SnippetPart(text="Deep ocean", highlighted=False)],
+            score=0.2,
+            matched_by=("semantic",),
+            similarity=0.2,
+            keyword_rank=None,
+        ),
+    ]
+    context = build_context(chunks)
+    chat_result = llm.answer_question(
+        ChatRequest(
+            question="What does spaced repetition schedule?",
+            sources=context.to_chat_passages(),
+        )
+    )
+
+    assert not chat_result.answer.insufficient_context
+    assert chat_result.answer.citations == ["S1"]
+    assert "[S2]" not in chat_result.answer.answer
+    assert "[S99]" not in chat_result.answer.answer
+
+    grounded = ground_answer(chat_result.answer, context)
+    assert grounded.insufficient_context is False
+    assert [citation.chunk_index for citation in grounded.citations] == [0]
+    assert "[S2]" not in grounded.content
+    assert "[2]" not in grounded.content
+    assert "[1]" in grounded.content
 
 
 @pytest.mark.no_cover

@@ -17,7 +17,9 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import Final
 
+from app.documents.chunking import HEADING_SEPARATOR
 from app.documents.text import (
+    ELLIPSIS,
     EXCERPT_SEPARATOR,
     NUMBER_WORDS,
     STOPWORDS_EN,
@@ -201,6 +203,7 @@ _CHAT_HEADING_WEIGHT: Final = 0.35
 _CHAT_MAX_ANSWER_SENTENCES: Final = 3
 _CHAT_MAX_ANSWER_SOURCES: Final = 2
 _CHAT_SENTENCE_MAX_CHARS: Final = 600
+_CHAT_MAX_MARKER_STRIP_PASSES: Final = 8
 _EMBEDDED_SOURCE_MARKER_RE: Final = re.compile(
     r"(?<![ \t])[ \t]++\[\s*+S\d{1,3}(?:\s*+[,;]\s*+S\d{1,3})*+\s*+\]"
     r"|\[\s*+S\d{1,3}(?:\s*+[,;]\s*+S\d{1,3})*+\s*+\]",
@@ -985,7 +988,9 @@ def _score_source(
     )
     needs_coverage = len(query.weights) >= _CHAT_COVERAGE_MIN_QUERY_KEYWORDS
     candidates: list[_CandidateSentence] = []
-    for sentence_index, sentence in enumerate(_source_sentences(source.content)):
+    for sentence_index, sentence in enumerate(
+        _source_sentences(source.content, heading=source.heading)
+    ):
         sentence_match = _match_tokens(query, _chat_token_set(sentence))
         sentence_score = sum(
             tier * query.weights[keyword] for keyword, tier in sentence_match.matched.items()
@@ -1015,30 +1020,161 @@ def _score_source(
     return candidates
 
 
-def _source_sentences(content: str) -> list[str]:
-    sentences: list[str] = []
-    in_code_block = False
-    for raw_line in content.splitlines():
-        if _is_code_fence(raw_line):
-            in_code_block = not in_code_block
+@dataclass(frozen=True, slots=True)
+class _FenceLine:
+    index: int
+    marker: str
+    length: int
+    has_info: bool
+
+
+def _parse_code_fence(index: int, line: str) -> _FenceLine | None:
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > _MARKDOWN_MAX_INDENT or not stripped.startswith(_CODE_FENCES):
+        return None
+    marker = stripped[0]
+    length = len(stripped) - len(stripped.lstrip(marker))
+    rest = stripped[length:].strip()
+    if marker == "`" and "`" in rest:
+        return None
+    return _FenceLine(index=index, marker=marker, length=length, has_info=bool(rest))
+
+
+def _code_block_mask(lines: Sequence[str]) -> list[bool]:
+    """Suppress fence lines and lines inside paired code blocks only.
+
+    A chunk cut mid-code-block may begin with a lone closing fence; leaving unpaired fences
+    open avoids discarding all subsequent prose.
+    """
+    suppressed = [False] * len(lines)
+    open_fence: _FenceLine | None = None
+    for index, line in enumerate(lines):
+        fence = _parse_code_fence(index, line)
+        if fence is None:
             continue
-        if in_code_block or _MARKUP_LINE_RE.match(raw_line):
-            continue
-        if _heading_text(raw_line) is not None:
-            continue
-        cleaned, _ = _body_text(raw_line)
-        cleaned = " ".join(_EMBEDDED_SOURCE_MARKER_RE.sub("", cleaned).split())
-        if not cleaned or _ALNUM_RE.search(cleaned) is None:
-            continue
-        if (
-            len(cleaned) <= TITLE_LINE_MAX_CHARS
-            and cleaned.rstrip(_CLOSING_MARKS)[-1:] not in _SENTENCE_END_CHARS
+        suppressed[index] = True
+        if open_fence is None:
+            open_fence = fence
+        elif (
+            not fence.has_info
+            and fence.marker == open_fence.marker
+            and fence.length >= open_fence.length
         ):
+            for body_index in range(open_fence.index + 1, fence.index):
+                suppressed[body_index] = True
+            open_fence = None
+        elif fence.has_info:
+            open_fence = fence
+    return suppressed
+
+
+def _strip_embedded_source_markers(text: str) -> str:
+    """Strip embedded [S...] markers in bounded passes so nested tags cannot stitch together."""
+    cleaned = text
+    for _ in range(_CHAT_MAX_MARKER_STRIP_PASSES):
+        updated = _EMBEDDED_SOURCE_MARKER_RE.sub("", cleaned)
+        if updated == cleaned:
+            return " ".join(cleaned.split())
+        cleaned = updated
+    if _EMBEDDED_SOURCE_MARKER_RE.search(cleaned) is not None:
+        cleaned = _EMBEDDED_SOURCE_MARKER_RE.sub(ELLIPSIS, cleaned)
+    return " ".join(cleaned.split())
+
+
+def _heading_name_set(heading: str | None) -> set[str]:
+    if not heading:
+        return set()
+    names = {heading.strip().casefold()}
+    for part in heading.split(HEADING_SEPARATOR):
+        stripped = part.strip()
+        if stripped:
+            names.add(stripped.casefold())
+    return names
+
+
+def _flush_source_paragraph(
+    paragraph: list[str],
+    *,
+    is_list_item: bool,
+    heading_names: set[str],
+    sentences: list[str],
+) -> None:
+    if not paragraph:
+        return
+    lines = paragraph.copy()
+    paragraph.clear()
+    if not is_list_item:
+        count = _title_line_count(lines)
+        if count > 0:
+            candidate = " ".join(lines[:count])
+            if count == len(lines) or candidate.casefold() in heading_names:
+                del lines[:count]
+        if not lines:
+            return
+    joined = _strip_embedded_source_markers(" ".join(lines))
+    if not joined or _ALNUM_RE.search(joined) is None:
+        return
+    for sentence in split_sentences(joined):
+        stripped = sentence.strip()
+        if stripped and _ALNUM_RE.search(stripped) is not None:
+            sentences.append(_finished(stripped) if is_list_item else stripped)
+
+
+def _source_sentences(content: str, *, heading: str | None = None) -> list[str]:
+    lines = content.splitlines()
+    suppressed = _code_block_mask(lines)
+    heading_names = _heading_name_set(heading)
+    sentences: list[str] = []
+    paragraph: list[str] = []
+    in_list_item = False
+    for raw_line, is_code in zip(lines, suppressed, strict=True):
+        if is_code or _MARKUP_LINE_RE.match(raw_line):
+            _flush_source_paragraph(
+                paragraph,
+                is_list_item=in_list_item,
+                heading_names=heading_names,
+                sentences=sentences,
+            )
+            in_list_item = False
             continue
-        for sentence in split_sentences(cleaned):
-            stripped = sentence.strip()
-            if stripped and _ALNUM_RE.search(stripped) is not None:
-                sentences.append(stripped)
+        heading_line = _heading_text(raw_line)
+        if heading_line is not None:
+            _flush_source_paragraph(
+                paragraph,
+                is_list_item=in_list_item,
+                heading_names=heading_names,
+                sentences=sentences,
+            )
+            in_list_item = False
+            if plain_heading := _plain(heading_line):
+                heading_names.add(plain_heading.casefold())
+            continue
+        cleaned, starts_list = _body_text(raw_line)
+        cleaned = _strip_embedded_source_markers(cleaned)
+        if not cleaned or _ALNUM_RE.search(cleaned) is None:
+            _flush_source_paragraph(
+                paragraph,
+                is_list_item=in_list_item,
+                heading_names=heading_names,
+                sentences=sentences,
+            )
+            in_list_item = False
+            continue
+        if starts_list:
+            _flush_source_paragraph(
+                paragraph,
+                is_list_item=in_list_item,
+                heading_names=heading_names,
+                sentences=sentences,
+            )
+            in_list_item = True
+        paragraph.append(cleaned)
+    _flush_source_paragraph(
+        paragraph,
+        is_list_item=in_list_item,
+        heading_names=heading_names,
+        sentences=sentences,
+    )
     return sentences
 
 
