@@ -22,5 +22,6 @@ export default async function globalSetup(): Promise<void> {
   await context.get("/workspaces", { headers: { cookie: SESSION_HINT_COOKIE } });
   await context.get(ANY_WORKSPACE_PATH, { headers: { cookie: SESSION_HINT_COOKIE } });
   await context.get(ANY_DOCUMENT_PATH, { headers: { cookie: SESSION_HINT_COOKIE } });
+  await context.get("/chat", { headers: { cookie: SESSION_HINT_COOKIE } });
   await context.dispose();
 }
