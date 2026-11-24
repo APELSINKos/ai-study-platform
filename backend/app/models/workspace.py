@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Final
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -13,7 +13,12 @@ WORKSPACE_DESCRIPTION_MAX_LENGTH: Final = 1000
 
 class Workspace(TimestampMixin, Base):
     __tablename__ = "workspaces"
-    __table_args__ = (Index("ix_workspaces_owner_id_updated_at", "owner_id", "updated_at"),)
+    __table_args__ = (
+        # Target of chat_sessions' composite foreign key, keeping every session in a
+        # workspace owned by the same user.
+        UniqueConstraint("id", "owner_id", name="uq_workspaces_id_owner_id"),
+        Index("ix_workspaces_owner_id_updated_at", "owner_id", "updated_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(
