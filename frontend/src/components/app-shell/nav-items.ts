@@ -1,8 +1,8 @@
-import { FoldersIcon, HouseIcon, type Icon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, FoldersIcon, HouseIcon, type Icon } from "@phosphor-icons/react";
 
 export interface NavItem {
   href: string;
-  labelKey: "dashboard" | "workspaces";
+  labelKey: "dashboard" | "workspaces" | "chat";
   Icon: Icon;
   /** The sections the destination stays marked in, with every path below them. */
   sections: readonly string[];
@@ -18,6 +18,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     // A document is opened from its workspace, so its page belongs to the same section.
     sections: ["/workspaces", "/documents"],
   },
+  { href: "/chat", labelKey: "chat", Icon: ChatCircleTextIcon, sections: ["/chat"] },
 ];
 
 /** True on a section's own path or below it (`/workspaces/1`, not `/workspacesx`). */

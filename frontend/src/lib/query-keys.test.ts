@@ -7,6 +7,8 @@ const INFINITE_KEYS: QueryKey[] = [
   queryKeys.workspaceList,
   queryKeys.workspaceDocuments("w1"),
   queryKeys.documentChunks("d1"),
+  queryKeys.chatSessions(null),
+  queryKeys.chatSessions("w1"),
 ];
 
 const PLAIN_KEYS: QueryKey[] = [
@@ -14,6 +16,7 @@ const PLAIN_KEYS: QueryKey[] = [
   queryKeys.workspace("w1"),
   queryKeys.document("d1"),
   queryKeys.search("w1", "light"),
+  queryKeys.chatSession("s1"),
   queryKeys.meta,
 ];
 
@@ -28,6 +31,8 @@ function cacheWithEveryKey(): QueryClient {
     queryKeys.documentChunks("d2"),
     queryKeys.search("w1", "dark"),
     queryKeys.search("w2", "light"),
+    queryKeys.chatSessions("w2"),
+    queryKeys.chatSession("s2"),
   ]) {
     queryClient.setQueryData(key, { cached: true });
   }
@@ -54,6 +59,12 @@ describe("queryKeys", () => {
     expect(queryKeys.documentChunks("d1")).toEqual(["documents", "d1", "chunks"]);
     expect(queryKeys.workspaceSearches("w1")).toEqual(["search", "w1"]);
     expect(queryKeys.search("w1", "light")).toEqual(["search", "w1", "light"]);
+    expect(queryKeys.chat).toEqual(["chat"]);
+    expect(queryKeys.chatSessionLists).toEqual(["chat", "sessions"]);
+    expect(queryKeys.chatSessions(null)).toEqual(["chat", "sessions", "all"]);
+    expect(queryKeys.chatSessions("w1")).toEqual(["chat", "sessions", "w1"]);
+    expect(queryKeys.chatSession("s1")).toEqual(["chat", "detail", "s1"]);
+    expect(queryKeys.chatSessionSend("s1")).toEqual(["chat", "detail", "s1", "send"]);
     expect(queryKeys.meta).toEqual(["meta"]);
   });
 
@@ -126,5 +137,29 @@ describe("queryKeys", () => {
     expect(isCached(queryClient, queryKeys.documentChunks("d1"))).toBe(false);
     expect(isCached(queryClient, queryKeys.document("d2"))).toBe(true);
     expect(isCached(queryClient, queryKeys.documentChunks("d2"))).toBe(true);
+  });
+
+  it("lets chatSessionLists invalidate every session list without touching open sessions", async () => {
+    const queryClient = cacheWithEveryKey();
+
+    await queryClient.invalidateQueries({ queryKey: queryKeys.chatSessionLists });
+
+    expect(isInvalidated(queryClient, queryKeys.chatSessions(null))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.chatSessions("w1"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.chatSessions("w2"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.chatSession("s1"))).toBe(false);
+    expect(isInvalidated(queryClient, queryKeys.chatSession("s2"))).toBe(false);
+  });
+
+  it("lets chat invalidate both session lists and open sessions, and nothing outside chat", async () => {
+    const queryClient = cacheWithEveryKey();
+
+    await queryClient.invalidateQueries({ queryKey: queryKeys.chat });
+
+    expect(isInvalidated(queryClient, queryKeys.chatSessions(null))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.chatSessions("w1"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.chatSession("s1"))).toBe(true);
+    expect(isInvalidated(queryClient, queryKeys.workspace("w1"))).toBe(false);
+    expect(isInvalidated(queryClient, queryKeys.document("d1"))).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
-import { PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useRef, useState, type RefObject } from "react";
@@ -79,12 +80,18 @@ export function WorkspaceHeader({
           ) : null}
           {/* Beside the name on wider screens; on a phone, under the description. */}
           <div className="flex flex-wrap items-center gap-2 sm:col-start-2 sm:row-start-1 sm:justify-end">
+            {workspace.stats.ready_count > 0 ? (
+              <Button asChild variant="secondary" size="sm">
+                <Link href={`/chat?workspace=${workspace.id}`}>
+                  <ChatCircleTextIcon aria-hidden />
+                  {t("askInChat")}
+                </Link>
+              </Button>
+            ) : null}
             <Button
               ref={takeReturningFocus}
               variant="ghost"
               size="sm"
-              // Under the description, the pencil lines up with the text instead of the padding.
-              className="-ml-3 sm:ml-0"
               onClick={() => setIsEditing(true)}
             >
               <PencilSimpleIcon aria-hidden />

@@ -230,7 +230,8 @@
     "nav": {
       "label": "Main navigation",
       "dashboard": "Dashboard",
-      "workspaces": "Workspaces"
+      "workspaces": "Workspaces",
+      "chat": "Chat"
     },
     "menu": {
       "open": "Open menu",
@@ -304,6 +305,7 @@
       "metaTitle": "Workspace",
       "loading": "Loading the workspace…",
       "retry": "Try again",
+      "askInChat": "Ask in chat",
       "edit": "Edit",
       "delete": "Delete workspace",
       "documentCount": "{count, plural, =0 {No documents yet} one {# document} other {# documents}}",

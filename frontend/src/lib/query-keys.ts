@@ -24,6 +24,15 @@ export const queryKeys = {
   workspaceSearches: (workspaceId: string) => ["search", workspaceId] as const,
   /** A plain query: the passages of a workspace that match a query. */
   search: (workspaceId: string, query: string) => ["search", workspaceId, query] as const,
+  chat: ["chat"] as const,
+  /** Every chat session list, all workspaces or one workspace. */
+  chatSessionLists: ["chat", "sessions"] as const,
+  /** Infinite, `CHAT_SESSION_LIST_PAGE_SIZE` per page. */
+  chatSessions: (workspaceId: string | null) => ["chat", "sessions", workspaceId ?? "all"] as const,
+  /** A plain query: one chat session with all of its messages. */
+  chatSession: (id: string) => ["chat", "detail", id] as const,
+  /** Mutation key for sending a message in one session, read via `useMutationState`. */
+  chatSessionSend: (id: string) => ["chat", "detail", id, "send"] as const,
   meta: ["meta"] as const,
 };
 
@@ -31,3 +40,4 @@ export const WORKSPACE_LIST_PAGE_SIZE = 20;
 export const RECENT_WORKSPACES_COUNT = 3;
 export const WORKSPACE_DOCUMENTS_PAGE_SIZE = 50;
 export const DOCUMENT_CHUNKS_PAGE_SIZE = 50;
+export const CHAT_SESSION_LIST_PAGE_SIZE = 20;

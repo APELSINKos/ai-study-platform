@@ -94,11 +94,13 @@ export function useUpdateWorkspace(id: string) {
     onSettled: () => {
       // Also after a failure: a workspace deleted meanwhile then shows as not found.
       void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      // Chat sessions embed `workspace_name`, so a rename refreshes them too.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.chat });
     },
   });
 }
 
-function isDocumentOf(data: unknown, workspaceId: string): boolean {
+function belongsToWorkspace(data: unknown, workspaceId: string): boolean {
   return (
     typeof data === "object" &&
     data !== null &&
@@ -113,8 +115,17 @@ function isDocumentOf(data: unknown, workspaceId: string): boolean {
  */
 function removeCachedDocumentsOf(queryClient: QueryClient, workspaceId: string): void {
   for (const query of queryClient.getQueryCache().findAll({ queryKey: queryKeys.documents })) {
-    if (isDocumentOf(query.state.data, workspaceId)) {
+    if (belongsToWorkspace(query.state.data, workspaceId)) {
       // The document's key also holds its fragments.
+      queryClient.removeQueries({ queryKey: query.queryKey });
+    }
+  }
+}
+
+/** Forgets cached open chat sessions whose workspace was deleted. */
+function removeCachedChatSessionsOf(queryClient: QueryClient, workspaceId: string): void {
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ["chat", "detail"] })) {
+    if (belongsToWorkspace(query.state.data, workspaceId)) {
       queryClient.removeQueries({ queryKey: query.queryKey });
     }
   }
@@ -140,6 +151,11 @@ export function useDeleteWorkspace(id: string) {
       removeCachedDocumentsOf(queryClient, id);
       // The searches sit apart from the workspace, and their passages are gone with it.
       queryClient.removeQueries({ queryKey: queryKeys.workspaceSearches(id) });
+      // Chat sessions are deleted with their workspace on cascade.
+      queryClient.removeQueries({ queryKey: queryKeys.chatSessions(id) });
+      removeCachedChatSessionsOf(queryClient, id);
+      queryClient.removeQueries({ queryKey: queryKeys.chatSessions(null), type: "inactive" });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.chatSessionLists });
       // An invalidated list still shows its cached rows until the refetch lands, so a list off
       // screen would show the deleted workspace for a moment when the user returns to it; it
       // loads afresh instead. A list on screen (the user went back while waiting) is only

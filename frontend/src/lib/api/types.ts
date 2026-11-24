@@ -27,6 +27,18 @@ export type SearchHit = Schemas["SearchHit"];
 export type SnippetPart = Schemas["SnippetPart"];
 export type MatchKind = Schemas["MatchKind"];
 
+export type ChatSessionOut = Schemas["ChatSessionOut"];
+export type ChatSessionDetailOut = Schemas["ChatSessionDetailOut"];
+export type ChatSessionPage = Schemas["ChatSessionPage"];
+export type ChatMessageOut = Schemas["ChatMessageOut"];
+export type ChatMessageRole = Schemas["ChatMessageRole"];
+export type CitationOut = Schemas["CitationOut"];
+export type ChatTurnOut = Schemas["ChatTurnOut"];
+export type ChatSessionCreateRequest = Schemas["ChatSessionCreateRequest"];
+export type ChatSessionUpdateRequest = Schemas["ChatSessionUpdateRequest"];
+export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
+
 export type MetaOut = Schemas["MetaOut"];
+export type ChatInfo = Schemas["ChatInfo"];
 export type AiInfo = Schemas["AiInfo"];
 export type AiMode = Schemas["AiMode"];

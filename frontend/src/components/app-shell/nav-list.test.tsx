@@ -24,12 +24,13 @@ describe("NavList", () => {
     navigation.pathname = "/dashboard";
   });
 
-  it("lists the dashboard and the workspaces in that order", () => {
+  it("lists the dashboard, the workspaces and chat in that order", () => {
     renderWithIntl(<NavList />);
 
     const links = screen.getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["Dashboard", "Workspaces"]);
+    expect(links.map((link) => link.textContent)).toEqual(["Dashboard", "Workspaces", "Chat"]);
     expect(screen.getByRole("link", { name: "Workspaces" })).toHaveAttribute("href", "/workspaces");
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("href", "/chat");
   });
 
   it.each([
@@ -38,6 +39,7 @@ describe("NavList", () => {
     [`/workspaces/${WORKSPACE_ID}`, "Workspaces"],
     // A document lives inside a workspace, so its page belongs to the same section.
     [`/documents/${DOCUMENT_ID}`, "Workspaces"],
+    ["/chat", "Chat"],
   ])("marks only the matching destination on %s", (pathname, expected) => {
     navigation.pathname = pathname;
     renderWithIntl(<NavList />);
@@ -45,7 +47,7 @@ describe("NavList", () => {
     expect(currentLinks()).toEqual([expected]);
   });
 
-  it.each([["/workspacesx"], ["/documentsx"], ["/settings"]])(
+  it.each([["/workspacesx"], ["/documentsx"], ["/chatx"], ["/settings"]])(
     "marks nothing on the unrelated path %s",
     (pathname) => {
       navigation.pathname = pathname;
@@ -56,13 +58,11 @@ describe("NavList", () => {
   );
 
   it("speaks Russian", () => {
-    navigation.pathname = "/workspaces";
+    navigation.pathname = "/chat";
     renderWithIntl(<NavList />, { locale: "ru" });
 
-    expect(screen.getByRole("link", { name: "Пространства" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(screen.getByRole("link", { name: "Чат" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Пространства" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Панель" })).not.toHaveAttribute("aria-current");
   });
 });

@@ -104,12 +104,21 @@ describe("WorkspaceHeader", () => {
     expect(document.querySelector("img, b")).toBeNull();
   });
 
-  it("offers Edit quietly and Delete workspace as a danger action, never a primary one", () => {
+  it("offers Ask in chat quietly, Edit as ghost and Delete workspace as danger, never primary", () => {
     renderHeader();
 
+    const chatLink = screen.getByRole("link", { name: "Ask in chat" });
+    expect(chatLink).toHaveAttribute("href", `/chat?workspace=${WORKSPACE.id}`);
+    expect(chatLink.dataset.variant).toBe("secondary");
     expect(variantOf("Edit")).toBe("ghost");
     expect(variantOf("Delete workspace")).toBe("danger");
     expect(document.querySelector('[data-variant="primary"]')).toBeNull();
+  });
+
+  it("hides Ask in chat when the workspace has no ready documents", () => {
+    renderHeader({ ...WORKSPACE, stats: { ...WORKSPACE.stats, ready_count: 0 } });
+
+    expect(screen.queryByRole("link", { name: "Ask in chat" })).not.toBeInTheDocument();
   });
 
   it("opens the edit form in place of the description and the actions", async () => {
@@ -121,6 +130,7 @@ describe("WorkspaceHeader", () => {
     expect(screen.getByLabelText("Name")).toHaveFocus();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.queryByText(/Midterm: chapters 1 to 6/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ask in chat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete workspace" })).not.toBeInTheDocument();
   });
@@ -325,6 +335,10 @@ describe("WorkspaceHeader", () => {
   it("speaks Russian", async () => {
     renderHeader(WORKSPACE, "ru");
 
+    expect(screen.getByRole("link", { name: "Спросить в чате" })).toHaveAttribute(
+      "href",
+      `/chat?workspace=${WORKSPACE.id}`,
+    );
     expect(screen.getByRole("button", { name: "Изменить" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Удалить пространство" }));
 
