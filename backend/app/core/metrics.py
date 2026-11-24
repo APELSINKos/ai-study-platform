@@ -69,6 +69,11 @@ LLM_REQUEST_DURATION = Histogram(
     ["operation", "outcome"],
     buckets=LLM_LATENCY_BUCKETS_SECONDS,
 )
+LLM_TOKENS = Counter(
+    "llm_tokens_total",
+    "Tokens reported by the LLM provider",
+    ["operation", "kind"],
+)
 
 
 def observe_http_request(method: str, route: str, status: int, duration_seconds: float) -> None:
