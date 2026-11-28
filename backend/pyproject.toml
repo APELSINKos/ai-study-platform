@@ -58,7 +58,7 @@ python_version = "3.13"
 platform = "linux"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["app", "tests"]
+files = ["app", "evaluation", "tests"]
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
@@ -69,5 +69,5 @@ markers = ["integration: needs PostgreSQL and Redis (TEST_DATABASE_URL, TEST_RED
 filterwarnings = ["error"]
 
 [tool.coverage.run]
-source = ["app"]
+source = ["app", "evaluation"]
 branch = true

@@ -24,6 +24,8 @@ out/
 test-results/
 playwright-report/
 blob-report/
+backend/evaluation/results/latest-*.json
+backend/evaluation/results/latest-*.md
 
 # Runtime data
 /data/
